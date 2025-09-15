@@ -314,7 +314,7 @@ def load_checkpoint(
 
 def train_full_pipeline(
     model: nn.Module,
-    diffusion_trainer: Any,
+    diffusion_trainer: DiffusionTrainer,
     train_dataloader: DataLoader,
     val_dataloader: Optional[DataLoader],
     num_epochs: int,
