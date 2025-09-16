@@ -125,6 +125,7 @@ def train_vae_one_epoch(
     kl_weight: float = 1e-6,
     grad_clip: Optional[float] = None,
     log_interval: int = 10,
+    scaler: Optional[torch.amp.autocast] = None,
     logger: Optional[logging.Logger] = None
 ) -> Dict[str, float]:
     """
@@ -139,6 +140,7 @@ def train_vae_one_epoch(
         kl_weight: Weight for KL divergence loss
         grad_clip: Gradient clipping threshold
         log_interval: Log metrics every N steps
+        scaler: Optional GradScaler for mixed-precision training
         logger: Logger instance
         
     Returns:
@@ -167,23 +169,34 @@ def train_vae_one_epoch(
         # Zero gradients
         optimizer.zero_grad()
         
-        # Forward pass
-        x_recon, mean, logvar = model(data, sample=True)
-        
-        # Compute loss
-        total_loss, recon_loss, kl_loss = vae_loss(
-            x_recon, data, mean, logvar, kl_weight=kl_weight
-        )
+        # Forward pass with mixed-precision
+        with torch.amp.autocast('cuda', enabled=scaler is not None):
+            x_recon, mean, logvar = model(data, sample=True)
+            
+            # Compute loss
+            total_loss, recon_loss, kl_loss = vae_loss(
+                x_recon, data, mean, logvar, kl_weight=kl_weight
+            )
         
         # Backward pass
-        total_loss.backward()
-        
-        # Gradient clipping
-        if grad_clip is not None:
-            torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
-        
-        # Optimizer step
-        optimizer.step()
+        if scaler is not None:
+            scaler.scale(total_loss).backward()
+            
+            # Gradient clipping
+            if grad_clip is not None:
+                scaler.unscale_(optimizer)
+                torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
+            
+            scaler.step(optimizer)
+            scaler.update()
+        else:
+            total_loss.backward()
+            
+            # Gradient clipping
+            if grad_clip is not None:
+                torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
+            
+            optimizer.step()
         
         # Update metrics
         total_loss_sum += total_loss.item()
@@ -230,6 +243,7 @@ def validate_vae_one_epoch(
     dataloader: DataLoader,
     device: torch.device,
     kl_weight: float = 1e-6,
+    scaler: Optional[torch.amp.autocast] = None,
     logger: Optional[logging.Logger] = None
 ) -> Dict[str, float]:
     """
@@ -240,6 +254,7 @@ def validate_vae_one_epoch(
         dataloader: Validation data loader
         device: Device to run validation on
         kl_weight: Weight for KL divergence loss
+        scaler: Optional GradScaler for mixed-precision validation
         logger: Logger instance
         
     Returns:
@@ -265,13 +280,14 @@ def validate_vae_one_epoch(
                 
             data = data.to(device)
             
-            # Forward pass
-            x_recon, mean, logvar = model(data, sample=False)  # Use mean for validation
-            
-            # Compute loss
-            total_loss, recon_loss, kl_loss = vae_loss(
-                x_recon, data, mean, logvar, kl_weight=kl_weight
-            )
+            # Forward pass with mixed-precision
+            with torch.amp.autocast('cuda', enabled=scaler is not None):
+                x_recon, mean, logvar = model(data, sample=False)  # Use mean for validation
+                
+                # Compute loss
+                total_loss, recon_loss, kl_loss = vae_loss(
+                    x_recon, data, mean, logvar, kl_weight=kl_weight
+                )
             
             # Update running sums
             total_loss_sum += total_loss.item()
@@ -382,7 +398,8 @@ def generate_vae_samples(
     num_samples: int,
     latent_shape: Tuple[int, int, int],  # (C, H, W) for latent space
     device: torch.device,
-    temperature: float = 1.0
+    temperature: float = 1.0,
+    scaler: Optional[torch.amp.autocast] = None
 ) -> torch.Tensor:
     """
     Generate samples from the VAE by sampling from the latent space.
@@ -393,6 +410,7 @@ def generate_vae_samples(
         latent_shape: Shape of latent space (C, H, W)
         device: Device to run on
         temperature: Temperature for sampling (higher = more diverse)
+        scaler: Optional GradScaler for mixed-precision generation
         
     Returns:
         Generated hyperspectral images [num_samples, L, H*8, W*8]
@@ -403,8 +421,9 @@ def generate_vae_samples(
         # Sample from unit Gaussian
         z = torch.randn(num_samples, *latent_shape, device=device) * temperature
         
-        # Decode to get samples
-        samples = model.decode(z)
+        # Decode to get samples with mixed-precision
+        with torch.amp.autocast('cuda', enabled=scaler is not None):
+            samples = model.decode(z)
         
     return samples
 
@@ -511,7 +530,8 @@ def train_vae_full(
     device: torch.device = torch.device('cpu'),
     log_file: Optional[str] = None,
     save_freq: int = 10,
-    val_freq: int = 5
+    val_freq: int = 5,
+    scaler: Optional[torch.amp.autocast] = None
 ) -> Dict[str, List[float]]:
     """
     Complete VAE training loop with validation and checkpointing.
@@ -530,6 +550,7 @@ def train_vae_full(
         log_file: Path to log file
         save_freq: Save checkpoint every N epochs
         val_freq: Run validation every N epochs
+        scaler: Optional GradScaler for mixed-precision training
         
     Returns:
         Dictionary containing training history
@@ -580,6 +601,7 @@ def train_vae_full(
             device=device,
             kl_weight=kl_weight,
             grad_clip=grad_clip,
+            scaler=scaler,
             logger=logger
         )
         
@@ -597,6 +619,7 @@ def train_vae_full(
                 dataloader=val_dataloader,
                 device=device,
                 kl_weight=kl_weight,
+                scaler=scaler,
                 logger=logger
             )
             
