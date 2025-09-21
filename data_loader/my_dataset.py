@@ -22,4 +22,22 @@ class HASCID_data(Dataset.Dataset):
         assert self.split in ['train', 'test'], "split must be 'train' or 'test'"
         assert os.path.exists(self.data_path), f"Data path {self.data_path} does not exist"
         
+        # Load data path
+        self.scene_path = os.path.join(self.data_path, 'rw')
+        self.gt_path = os.path.join(self.data_path, 'gt_files')
+        
+        self.img_list = sorted([f for f in os.listdir(self.scene_path) if f.endswith('.npy')])
+        self.img_name = [os.path.splitext(f)[0][3:] for f in self.img_list] # remove 'rw_' prefix and '.npy' suffix
+    
+    def split_data(self):
+        if self.split == 'train':
+            self.img_list = self.img_list[:int(len(self.img_list) * (1 - self.eval_ratio))]
+            self.img_name = self.img_name[:int(len(self.img_name) * (1 - self.eval_ratio))]
+        else:
+            self.img_list = self.img_list[int(len(self.img_list) * (1 - self.eval_ratio)):]
+            self.img_name = self.img_name[int(len(self.img_name) * (1 - self.eval_ratio)):]
+            
+    def load_data(self, idx):
+        scene_name = self.img_name[idx]
+        gt_name
         
