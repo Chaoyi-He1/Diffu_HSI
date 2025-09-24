@@ -18,7 +18,7 @@ import numpy as np
 from tqdm import tqdm
 
 # Import MetricLogger from util.py
-from misc.util import MetricLogger
+from misc.util import MetricLogger, SmoothedValue
 from model.diffusion_trainer import DiffusionTrainer
 
 
@@ -60,7 +60,7 @@ def train_one_epoch(
     metric_logger = MetricLogger(delimiter="  ")
     
     # Add learning rate meter
-    metric_logger.add_meter('lr', optimizer.param_groups[0]['lr'])
+    metric_logger.add_meter('lr', SmoothedValue(window_size=1, fmt='{value:.6f}'))
     
     # Setup header for logging
     header = f'Epoch: [{epoch+1}]'
@@ -322,7 +322,7 @@ def train_full_pipeline(
     optimizer: Optional[optim.Optimizer] = None,
     scheduler: Optional[Any] = None,
     save_dir: Optional[str] = None,
-    grad_clip: Optional[float] = 1.0,
+    grad_clip: Optional[float] = .1,
     val_every: int = 5,
     save_every: int = 10,
     generate_every: int = 20,

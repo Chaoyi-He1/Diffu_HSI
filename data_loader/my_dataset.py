@@ -44,6 +44,17 @@ class HASCID_data(Dataset.Dataset):
         
         self.split_data()
         del self.img_list
+        
+        # load the min and max values of the resampled data and sensor data
+        data_range_file = os.path.join(self.data_path, 'data_range.npz')
+        if os.path.exists(data_range_file):
+            data_range = np.load(data_range_file)
+            self.min_gt = data_range['min_gt']
+            self.max_gt = data_range['max_gt']
+            self.min_sensor = data_range['min_sensor']
+            self.max_sensor = data_range['max_sensor']
+        else:
+            self.min_gt, self.max_gt, self.min_sensor, self.max_sensor = 0, 1, 0, 1
     
     def __len__(self):
         return len(self.img_name)
@@ -70,6 +81,10 @@ class HASCID_data(Dataset.Dataset):
         valid_indices = np.where((self.sensor_wavelens >= 400) & (self.sensor_wavelens <= 1000))[0]
         self.sensor_R_matrix = self.sensor_R_matrix[valid_indices, :]
         self.sensor_wavelens = self.sensor_wavelens[valid_indices]
+        
+        # Normalize the sensor response matrix to [0, 1]
+        R_min, R_max = self.sensor_R_matrix.min(), self.sensor_R_matrix.max()
+        self.sensor_R_matrix = (self.sensor_R_matrix - R_min) / (R_max - R_min)
     
     def resample(self):
         from tqdm import tqdm
@@ -113,6 +128,8 @@ class HASCID_data(Dataset.Dataset):
         print(f"Resampling completed. Resampled data saved to {resample_path}")
         print(f"Resampled GT data range: min {min_gt}, max {max_gt}")
         print(f"Sensor data range after resampling: min {min_sensor}, max {max_sensor}")
+        # save the min and max values to a npz file
+        np.savez(os.path.join(self.data_path, 'data_range.npz'), min_gt=min_gt, max_gt=max_gt, min_sensor=min_sensor, max_sensor=max_sensor)
             
     def split_data(self):
         if self.split == 'train':
@@ -129,15 +146,19 @@ class HASCID_data(Dataset.Dataset):
         
         resamp_data = np.load(resamp_file)  # [H, W, C], where C is the sensor response channels
         gt_data = np.load(gt_file)  # [H, W, C'], original ground truth data, 204 channels in HASCID dataset
+
+        gt_data = gt_data[:, :, :192]  # use the first 192 channels as ground truth
         
-        gt_data = gt_data[:, :, :128]  # use the first 128 channels as ground truth
-        
+        # Rescale gt_data to [-1, 1], original range is [0, 1]
+        gt_data = (gt_data - 0.5) * 2.0
+
         # use the resampled data to calculate the sensor data by multiplying with the sensor response matrix
         # reshape resamp_data to [H*W, C] and sensor_R_matrix to [C, N], then do matrix multiplication to get [H*W, N] 
         H, W, C = resamp_data.shape
         resamp_data_reshaped = resamp_data.reshape(-1, C)  # [H*W, C]
         sensor_data = np.matmul(resamp_data_reshaped, self.sensor_R_matrix)  # [H*W, N]
         sensor_data = sensor_data.reshape(H, W, -1)  # [H, W, N]
+        sensor_data = (sensor_data - self.min_sensor) / (self.max_sensor - self.min_sensor)  # normalize to [0, 1]
         
         if self.data_format == 'pixel':
             # randomly sample 10 pixels from the image
