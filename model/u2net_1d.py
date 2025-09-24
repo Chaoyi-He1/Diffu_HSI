@@ -2,7 +2,7 @@ import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from layers import *
+from .layers import *
 
 
 class U2NetBlock1D(nn.Module):
@@ -317,7 +317,7 @@ class U2Net1D(nn.Module):
         # Final projection to match input channels
         self.final = nn.Conv1d(base_channels, input_channels, kernel_size=1)                # [B, B, L] → [B, C, L]
 
-    def forward(self, x, t, cond):
+    def forward(self, x, cond, t):
         """
         Forward pass of U2Net1D.
         

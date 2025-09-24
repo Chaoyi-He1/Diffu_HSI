@@ -15,7 +15,7 @@ import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset
 
 # Import our training utilities
-from train import (
+from train_eval.train_1d import (
     train_one_epoch, 
     validate_one_epoch, 
     generate_samples,
