@@ -185,6 +185,20 @@ def pixel_collate_fn(batch):
 
     return gt_data, sensor_data
 
+@staticmethod
+def image_collate_fn(batch):
+    gt_data, sensor_data = list(zip(*batch))
+    # the image data format is [H, W, C] from dataset
+    # we need to convert to [B, C, H, W] for VAE training
+    gt_data = torch.tensor(np.stack(gt_data, axis=0), dtype=torch.float32)  # [B, H, W, C']
+    sensor_data = torch.tensor(np.stack(sensor_data, axis=0), dtype=torch.float32)  # [B, H, W, N]
+    
+    # Convert from [B, H, W, C] to [B, C, H, W]
+    gt_data = gt_data.permute(0, 3, 1, 2)  # [B, C', H, W]
+    sensor_data = sensor_data.permute(0, 3, 1, 2)  # [B, N, H, W]
+    
+    return gt_data, sensor_data
+
 # OSP algorithm implementation
 def osp(X, num_channels):
     ''' Orthogonal Subspace Projection (OSP) algorithm to 
