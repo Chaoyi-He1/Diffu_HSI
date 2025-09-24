@@ -124,7 +124,7 @@ class CrossAttention(nn.Module):
         
         # Reshape back to original dimension
         # [B, n_heads, S, d_head] -> [B, S, n_heads * d_head]
-        out = out.transpose(-2, -3).reshape(*context.shape[:-1], h * self.d_head)
+        out = out.transpose(-2, -3).reshape(*x.shape[:-1], h * self.d_head)
         
         # Final projection
         # [B, S, n_heads * d_head] -> [B, S, C]

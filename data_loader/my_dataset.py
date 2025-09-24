@@ -125,8 +125,12 @@ class HASCID_data(Dataset.Dataset):
     def __getitem__(self, idx):
         scene_name = self.img_name[idx]
         resamp_file = os.path.join(self.resample_path, f'resamp_gt_{scene_name}.npy')
+        gt_file = os.path.join(self.gt_path, f'gtRef_{scene_name}.npy')
         
         resamp_data = np.load(resamp_file)  # [H, W, C], where C is the sensor response channels
+        gt_data = np.load(gt_file)  # [H, W, C'], original ground truth data, 204 channels in HASCID dataset
+        
+        gt_data = gt_data[:, :, :128]  # use the first 128 channels as ground truth
         
         # use the resampled data to calculate the sensor data by multiplying with the sensor response matrix
         # reshape resamp_data to [H*W, C] and sensor_R_matrix to [C, N], then do matrix multiplication to get [H*W, N] 
@@ -140,24 +144,25 @@ class HASCID_data(Dataset.Dataset):
             pixel_indices = random.sample(range(H * W), self.pixel_num)
             resamp_data = resamp_data_reshaped[pixel_indices, :]  # [pixel_num, C]
             sensor_data = sensor_data.reshape(-1, sensor_data.shape[2])[pixel_indices, :]  # [pixel_num, N]
-            return resamp_data, sensor_data
+            gt_data = gt_data.reshape(-1, gt_data.shape[2])[pixel_indices, :]  # [pixel_num, C']
+            return gt_data, sensor_data
         elif self.data_format == 'image':
             # return the whole image
-            return resamp_data, sensor_data
+            return gt_data, sensor_data
 
 @staticmethod
 def pixel_collate_fn(batch):
-    resamp_data, sensor_data = list(zip(*batch))
+    gt_data, sensor_data = list(zip(*batch))
     # the pixel data format is [B, pixel_num, C], 
     # where B is the batch size, pixel_num is the number of pixels sampled from each image, C is the number of channels
     # we need to merge the first two dimensions to get [B*pixel_num, C]
-    resamp_data = torch.tensor(np.concatenate(resamp_data, axis=0), dtype=torch.float32)  # [B, pixel_num, C]
+    gt_data = torch.tensor(np.concatenate(gt_data, axis=0), dtype=torch.float32)  # [B, pixel_num, C']
     sensor_data = torch.tensor(np.concatenate(sensor_data, axis=0), dtype=torch.float32)  # [B, pixel_num, N]
-    
-    resamp_data = resamp_data.reshape(-1, resamp_data.shape[-1])  # [B*pixel_num, C]
+
+    gt_data = gt_data.reshape(-1, 1, gt_data.shape[-1])  # [B*pixel_num, 1, C']
     sensor_data = sensor_data.reshape(-1, sensor_data.shape[-1])  # [B*pixel_num, N]
-    
-    return resamp_data, sensor_data
+
+    return gt_data, sensor_data
 
 # OSP algorithm implementation
 def osp(X, num_channels):

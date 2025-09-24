@@ -60,7 +60,7 @@ def train_one_epoch(
     metric_logger = MetricLogger(delimiter="  ")
     
     # Add learning rate meter
-    metric_logger.add_meter('lr', torch.tensor(optimizer.param_groups[0]['lr']))
+    metric_logger.add_meter('lr', optimizer.param_groups[0]['lr'])
     
     # Setup header for logging
     header = f'Epoch: [{epoch+1}]'
@@ -127,7 +127,7 @@ def train_one_epoch(
         # Update MetricLogger with current step metrics
         metric_logger.update(
             loss=loss.item(),
-            grad_norm=grad_norm,
+            grad_norm=grad_norm.item(),
             samples_per_sec=samples_per_sec,
             lr=optimizer.param_groups[0]['lr']
         )

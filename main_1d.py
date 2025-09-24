@@ -91,7 +91,7 @@ def main(args):
     
     # create model, the diffusion 1d model, no VAE is used in 1d diffusion model
     model = U2Net1D(
-        input_channels=args.input_channels,
+        input_channels=1,
         condition_dim=args.sensor_channels,
         base_channels=args.base_channels,
     )
