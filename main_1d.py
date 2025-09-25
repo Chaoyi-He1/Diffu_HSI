@@ -42,7 +42,7 @@ def get_parser() -> argparse.ArgumentParser:
     
     # output parameters
     parser.add_argument('--resume', type=str, default='', help='path to resume a checkpoint')
-    parser.add_argument('--save_path', type=str, default='results/vae_hyperspectral', help='path to save results')
+    parser.add_argument('--save_path', type=str, default='results/1d_hsi_diffusion', help='path to save results')
     parser.add_argument('--seed', type=int, default=42, help='random seed')
     parser.add_argument('--device', type=str, default='cuda', help='device to use for computation')
     
@@ -105,10 +105,10 @@ def main(args):
         print(f"Loading model from {args.resume}")
         ckpt = torch.load(args.resume, weights_only=False)
         
-        model.load_state_dict(ckpt['model'], strict=True)
+        model.load_state_dict(ckpt['model_state_dict'], strict=True)
         
         for k, v in model.named_parameters():
-            if not torch.equal(v, ckpt['model'][k]):
+            if not torch.equal(v, ckpt['model_state_dict'][k]):
                 print(f"Parameter {k} not loaded correctly.")
                 # raise ValueError(f"Parameter {k} not loaded correctly.")
                 raise ValueError(f"Parameter {k} not loaded correctly.")
@@ -150,7 +150,21 @@ def main(args):
     )
     
     # save the training history as .txt file
-    np.savetxt(os.path.join(args.save_path, 'train_history.txt'), np.array(train_history), fmt='%.6f', delimiter=',')
+    # Convert list of dictionaries to a more suitable format for saving
+    if train_history:
+        # Create header with metric names
+        header = ','.join(train_history[0].keys())
+        
+        # Convert dictionaries to arrays of values
+        data_rows = []
+        for epoch_metrics in train_history:
+            row = [epoch_metrics[key] for key in train_history[0].keys()]
+            data_rows.append(row)
+        
+        # Save with header
+        with open(os.path.join(args.save_path, 'train_history.txt'), 'w') as f:
+            f.write(header + '\n')
+            np.savetxt(f, np.array(data_rows), fmt='%.6f', delimiter=',')
     
 
 if __name__ == '__main__':
