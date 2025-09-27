@@ -82,9 +82,9 @@ class HASCID_data(Dataset.Dataset):
         self.sensor_R_matrix = self.sensor_R_matrix[valid_indices, :]
         self.sensor_wavelens = self.sensor_wavelens[valid_indices]
         
-        # Normalize the sensor response matrix to [0, 1]
-        R_min, R_max = self.sensor_R_matrix.min(), self.sensor_R_matrix.max()
-        self.sensor_R_matrix = (self.sensor_R_matrix - R_min) / (R_max - R_min)
+        # Normalize the sensor response matrix to [0, 1] for each column
+        R_min, R_max = self.sensor_R_matrix.min(axis=0), self.sensor_R_matrix.max(axis=0)
+        self.sensor_R_matrix = (self.sensor_R_matrix - R_min) / (R_max - R_min + 1e-20)
     
     def resample(self):
         from tqdm import tqdm
@@ -147,7 +147,7 @@ class HASCID_data(Dataset.Dataset):
         resamp_data = np.load(resamp_file)  # [H, W, C], where C is the sensor response channels
         gt_data = np.load(gt_file)  # [H, W, C'], original ground truth data, 204 channels in HASCID dataset
 
-        gt_data = gt_data[:, :, :192]  # use the first 192 channels as ground truth
+        gt_data = gt_data[:, :, :160]  # use the first 160 channels as ground truth
         
         # Rescale gt_data to [-1, 1], original range is [0, 1]
         gt_data = (gt_data - 0.5) * 2.0
@@ -248,4 +248,13 @@ def osp(X, num_channels):
         
 if __name__ == '__main__':
     data_path = '/data/chaoyi_he/HSI/Diffu/dataset/HASCID-Dataset'
-    dataset = HASCID_data(data_path, train_mode='image', split='train')
+    dataset = HASCID_data(data_path, train_mode='image', split='train', data_format='pixel')
+    # plot one gt_data and sensor_data
+    import matplotlib.pyplot as plt
+    gt_data, sensor_data = dataset[0]
+    gt_data, sensor_data = gt_data[0], sensor_data[0]
+    plt.figure()
+    plt.plot(gt_data)
+    plt.title('Ground Truth Data')
+    # save the figures
+    plt.savefig('example_data.png')

@@ -325,7 +325,7 @@ def train_full_pipeline(
     grad_clip: Optional[float] = .1,
     val_every: int = 5,
     save_every: int = 10,
-    generate_every: int = 20,
+    generate_every: int = 2000,
     scaler: Optional[torch.amp.autocast] = None
 ) -> Tuple[nn.Module, List[Dict[str, float]]]:
     """

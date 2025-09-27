@@ -27,7 +27,7 @@ def get_parser() -> argparse.ArgumentParser:
     
     # visualization parameters
     parser.add_argument('--num_examples', type=int, default=5, help='number of examples to visualize')
-    parser.add_argument('--model_path', type=str, default='results/1d_hsi_diffusion/final_model.pth', help='path to trained model checkpoint')
+    parser.add_argument('--model_path', type=str, default='results/1d_hsi_diffusion/checkpoint_epoch_71.pth', help='path to trained model checkpoint')
     parser.add_argument('--save_path', type=str, default='results/1d_visualization', help='path to save visualization results')
     parser.add_argument('--split', type=str, default='test', choices=['train', 'test'], help='dataset split to visualize')
     
@@ -36,7 +36,7 @@ def get_parser() -> argparse.ArgumentParser:
     parser.add_argument('--method', type=str, default='ddpm', choices=['ddpm', 'ddim'], help='sampling method')
     
     # device
-    parser.add_argument('--device', type=str, default='cuda', help='device to use for computation')
+    parser.add_argument('--device', type=str, default='cuda:1', help='device to use for computation')
     parser.add_argument('--seed', type=int, default=42, help='random seed')
     
     return parser
@@ -78,7 +78,7 @@ def generate_samples(model, diffusion_trainer, sensor_data, device, num_steps=50
     with torch.no_grad():
         # sensor_data shape: [batch_size, sensor_channels] 
         batch_size = sensor_data.shape[0]
-        sequence_length = 192  # Based on the hyperspectral data dimension from dataset
+        sequence_length = 160  # Based on the hyperspectral data dimension from dataset
         
         # Generate samples
         generated = diffusion_trainer.sample(
@@ -243,8 +243,8 @@ def visualize_results(args):
     diffusion_trainer = DiffusionTrainer(device=device)
     
     # Get wavelengths from dataset
-    # GT data uses first 192 wavelengths, sensor data corresponds to the clipped sensor wavelengths
-    wavelengths = dataset.wavelens[:192]  # Match GT data dimension
+    # GT data uses first 160 wavelengths, sensor data corresponds to the clipped sensor wavelengths
+    wavelengths = dataset.wavelens[:160]  # Match GT data dimension
     
     # For sensor data, we need to create appropriate x-axis values
     # The sensor data has 30 channels corresponding to the selected wavelength range

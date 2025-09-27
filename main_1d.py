@@ -133,7 +133,9 @@ def main(args):
     
     model = model.to(args.device)
     
-    trainer = DiffusionTrainer()
+    trainer = DiffusionTrainer(
+        loss_type='l1',
+    )
     
     # start training with the training and eval functions from train_1d.py
     best_model, train_history = train_full_pipeline(
