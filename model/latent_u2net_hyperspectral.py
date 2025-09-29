@@ -495,6 +495,20 @@ class LatentHyperspectralDiffusion(nn.Module):
             x = self.vae.decode(z)
         return x
     
+    def forward_generation(self, z_t, t, context):
+        """
+        Forward pass for generation (inference) using the diffusion model.
+        
+        Args:
+            z_t: Noisy latent tensor [B, 8, H/8, W/8]
+            t: Timesteps [B]
+            context: Sensor response [B, S, H, W]
+        Returns:
+            Predicted noise in latent space [B, 8, H/8, W/8]
+        """
+        predicted_noise = self.diffusion_model(z_t, t, context)
+        return predicted_noise
+    
     def forward(self, x, t, context):
         """
         Forward pass for training the diffusion model.

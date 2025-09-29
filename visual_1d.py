@@ -266,10 +266,7 @@ def visualize_results(args):
         if  batch_idx <= 1:
             continue
         # Extract data from batch
-        if args.train_mode == 'pixel':
-            gt_data, sensor_data = batch
-        else:
-            gt_data, sensor_data = batch
+        gt_data, sensor_data = batch
         
         # Move to device
         gt_data = gt_data.to(device)
