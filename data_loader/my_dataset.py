@@ -151,6 +151,7 @@ class HASCID_data(Dataset.Dataset):
         
         # Rescale gt_data to [-1, 1], original range is [0, 1]
         gt_data = (gt_data - 0.5) * 2.0
+        
 
         # use the resampled data to calculate the sensor data by multiplying with the sensor response matrix
         # reshape resamp_data to [H*W, C] and sensor_R_matrix to [C, N], then do matrix multiplication to get [H*W, N] 
@@ -158,7 +159,7 @@ class HASCID_data(Dataset.Dataset):
         resamp_data_reshaped = resamp_data.reshape(-1, C)  # [H*W, C]
         sensor_data = np.matmul(resamp_data_reshaped, self.sensor_R_matrix)  # [H*W, N]
         sensor_data = sensor_data.reshape(H, W, -1)  # [H, W, N]
-        sensor_data = (sensor_data - self.min_sensor) / (self.max_sensor - self.min_sensor)  # normalize to [0, 1]
+        # sensor_data = (sensor_data - self.min_sensor) / (self.max_sensor - self.min_sensor)  # normalize to [0, 1]
         
         if self.data_format == 'pixel':
             # randomly sample 10 pixels from the image
@@ -249,12 +250,11 @@ def osp(X, num_channels):
 if __name__ == '__main__':
     data_path = '/data/chaoyi_he/HSI/Diffu/dataset/HASCID-Dataset'
     dataset = HASCID_data(data_path, train_mode='image', split='train', data_format='pixel')
-    # plot one gt_data and sensor_data
-    import matplotlib.pyplot as plt
-    gt_data, sensor_data = dataset[0]
-    gt_data, sensor_data = gt_data[0], sensor_data[0]
-    plt.figure()
-    plt.plot(gt_data)
-    plt.title('Ground Truth Data')
-    # save the figures
-    plt.savefig('example_data.png')
+    # sweep the dataset, find min and max values of the gt_data
+    min_val, max_val = 0, 0
+    for i in range(len(dataset)):
+        gt_data, sensor_data = dataset[i]
+        min_val = min(min_val, gt_data.min())
+        max_val = max(max_val, gt_data.max())
+    print(f"Min value: {min_val}, Max value: {max_val}")
+    

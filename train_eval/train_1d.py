@@ -322,9 +322,9 @@ def train_full_pipeline(
     optimizer: Optional[optim.Optimizer] = None,
     scheduler: Optional[Any] = None,
     save_dir: Optional[str] = None,
-    grad_clip: Optional[float] = .1,
-    val_every: int = 5,
-    save_every: int = 10,
+    grad_clip: Optional[float] = 1.0,
+    val_every: int = 100,
+    save_every: int = 100,
     generate_every: int = 2000,
     scaler: Optional[torch.amp.autocast] = None
 ) -> Tuple[nn.Module, List[Dict[str, float]]]:

@@ -340,7 +340,8 @@ def save_vae_checkpoint(
     train_metrics: Dict[str, float],
     val_metrics: Dict[str, float],
     save_dir: str,
-    is_best: bool = False
+    is_best: bool = False,
+    is_final: bool = False
 ):
     """Save VAE model checkpoint."""
     os.makedirs(save_dir, exist_ok=True)
@@ -366,6 +367,13 @@ def save_vae_checkpoint(
     if is_best:
         best_path = os.path.join(save_dir, 'vae_best_model.pth')
         torch.save(checkpoint, best_path)
+        print(f'Best VAE model saved to {best_path}')
+    
+    # Save final model if applicable
+    if is_final:
+        final_path = os.path.join(save_dir, 'vae_final_model.pth')
+        torch.save(checkpoint, final_path)
+        print(f'Final VAE model saved to {final_path}')
     
     # Always save latest
     latest_path = os.path.join(save_dir, 'vae_latest.pth')
@@ -469,6 +477,71 @@ def interpolate_vae_latents(
         return torch.cat(interpolated_images, dim=0)
 
 
+@torch.no_grad()
+def generate_vae_samples(
+    model: HyperspectralVAE,
+    dataloader: DataLoader,
+    device: torch.device,
+    save_dir: str,
+    epoch: int,
+    num_samples: int = 4,
+    scaler: Optional[torch.amp.autocast] = None
+) -> None:
+    """
+    Generate VAE reconstruction samples during training for visualization.
+    Similar to generate_samples in train_1d.py but for VAE reconstructions.
+    
+    Args:
+        model: Trained VAE model
+        dataloader: DataLoader to get sample images from
+        device: Device to run on
+        save_dir: Directory to save samples
+        epoch: Current epoch number
+        num_samples: Number of samples to generate
+        scaler: Optional scaler for mixed-precision generation
+    """
+    model.eval()
+    
+    print(f'Generating {num_samples} VAE reconstruction samples at epoch {epoch+1}')
+    
+    # Get a batch of real data
+    try:
+        sample_batch = next(iter(dataloader))
+        if isinstance(sample_batch, (list, tuple)):
+            real_data = sample_batch[0][:num_samples].to(device)
+        else:
+            real_data = sample_batch[:num_samples].to(device)
+    except StopIteration:
+        print("Warning: Could not get sample batch from dataloader")
+        return
+    
+    # Generate reconstructions
+    with torch.amp.autocast('cuda', enabled=scaler is not None):
+        reconstructions, mean, logvar = model(real_data, sample=True)
+        
+        # Also generate pure samples from latent space
+        latent_shape = mean.shape[1:]  # Get latent dimensions
+        z_samples = torch.randn(num_samples, *latent_shape, device=device)
+        pure_samples = model.decode(z_samples)
+    
+    # Save results
+    results = {
+        'real_data': real_data.cpu(),
+        'reconstructions': reconstructions.cpu(),
+        'pure_samples': pure_samples.cpu(),
+        'latent_mean': mean.cpu(),
+        'latent_logvar': logvar.cpu()
+    }
+    
+    save_path = os.path.join(save_dir, f'vae_samples_epoch_{epoch+1}.pt')
+    torch.save(results, save_path)
+    
+    print(f'VAE samples saved to {save_path}')
+    print(f'Real data range: [{real_data.min():.3f}, {real_data.max():.3f}]')
+    print(f'Reconstruction range: [{reconstructions.min():.3f}, {reconstructions.max():.3f}]')
+    print(f'Pure samples range: [{pure_samples.min():.3f}, {pure_samples.max():.3f}]')
+
+
 def create_synthetic_hyperspectral_dataset(
     num_samples: int,
     spectral_channels: int,
@@ -522,74 +595,83 @@ def train_vae_full(
     train_dataloader: DataLoader,
     val_dataloader: Optional[DataLoader] = None,
     num_epochs: int = 100,
-    learning_rate: float = 1e-4,
+    device: torch.device = torch.device('cpu'),
+    optimizer: Optional[optim.Optimizer] = None,
+    scheduler: Optional[Any] = None,
     kl_weight: float = 1e-6,
+    learning_rate: float = 1e-4,
     weight_decay: float = 1e-5,
     grad_clip: Optional[float] = 1.0,
-    save_dir: str = "./vae_checkpoints",
-    device: torch.device = torch.device('cpu'),
-    log_file: Optional[str] = None,
-    save_freq: int = 10,
-    val_freq: int = 5,
-    scaler: Optional[torch.amp.autocast] = None
-) -> Dict[str, List[float]]:
+    save_dir: Optional[str] = "./vae_checkpoints",
+    val_every: int = 5,
+    save_every: int = 10,
+    generate_every: int = 50,
+    scaler: Optional[torch.amp.autocast] = None,
+    log_file: Optional[str] = None
+) -> Tuple[HyperspectralVAE, List[Dict[str, float]]]:
     """
-    Complete VAE training loop with validation and checkpointing.
+    Complete VAE training pipeline using train_one_epoch function with MetricLogger.
+    Rewritten based on train_1d.py's train_full_pipeline for consistency.
     
     Args:
-        model: HyperspectralVAE model
+        model: HyperspectralVAE model to train
         train_dataloader: Training data loader
-        val_dataloader: Validation data loader (optional)
-        num_epochs: Number of training epochs
-        learning_rate: Learning rate for optimizer
+        val_dataloader: Optional validation data loader
+        num_epochs: Number of epochs to train
+        device: Device to train on
+        optimizer: Optional optimizer (creates AdamW if None)
+        scheduler: Optional learning rate scheduler
         kl_weight: Weight for KL divergence loss
-        weight_decay: Weight decay for optimizer
+        learning_rate: Learning rate for optimizer (used if optimizer is None)
+        weight_decay: Weight decay for optimizer (used if optimizer is None)
         grad_clip: Gradient clipping threshold
-        save_dir: Directory to save checkpoints
-        device: Device to run training on
-        log_file: Path to log file
-        save_freq: Save checkpoint every N epochs
-        val_freq: Run validation every N epochs
-        scaler: Optional GradScaler for mixed-precision training
+        save_dir: Optional directory to save checkpoints
+        val_every: Validate every N epochs
+        save_every: Save checkpoint every N epochs
+        generate_every: Generate reconstruction samples every N epochs
+        scaler: Optional scaler for mixed-precision training
+        log_file: Optional path to log file
         
     Returns:
-        Dictionary containing training history
+        Tuple of (trained_model, training_history)
     """
+    import os
+    
     # Setup logger
     logger = setup_logger("vae_training", log_file)
     logger.info("Starting VAE training")
     logger.info(f"Device: {device}")
     logger.info(f"Model parameters: {sum(p.numel() for p in model.parameters()):,}")
     
-    # Setup optimizer
-    optimizer = optim.AdamW(
-        model.parameters(),
-        lr=learning_rate,
-        weight_decay=weight_decay
-    )
+    # Create optimizer if not provided
+    if optimizer is None:
+        optimizer = optim.AdamW(
+            model.parameters(),
+            lr=learning_rate,
+            weight_decay=weight_decay
+        )
+        logger.info(f"Created AdamW optimizer with lr={learning_rate}, weight_decay={weight_decay}")
     
-    # Setup learning rate scheduler
-    scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer, mode='min', factor=0.5, patience=10, verbose=True
-    )
+    # Create scheduler if not provided
+    if scheduler is None:
+        scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer, mode='min', factor=0.5, patience=10, verbose=True
+        )
+        logger.info("Created ReduceLROnPlateau scheduler")
+    
+    # Create save directory if needed
+    if save_dir:
+        os.makedirs(save_dir, exist_ok=True)
+        logger.info(f"Save directory: {save_dir}")
     
     # Training history
-    history = {
-        'train_loss': [],
-        'train_recon_loss': [],
-        'train_kl_loss': [],
-        'val_loss': [],
-        'val_recon_loss': [],
-        'val_kl_loss': [],
-        'val_psnr': [],
-        'learning_rate': []
-    }
-    
+    train_history = []
+    val_history = []
     best_val_loss = float('inf')
     start_time = time.time()
     
-    # Training loop
     for epoch in range(num_epochs):
+        print(f'\n=== Epoch {epoch+1}/{num_epochs} ===')
         epoch_start_time = time.time()
         
         # Training
@@ -604,16 +686,11 @@ def train_vae_full(
             scaler=scaler,
             logger=logger
         )
-        
-        # Update history
-        history['train_loss'].append(train_metrics['total_loss'])
-        history['train_recon_loss'].append(train_metrics['recon_loss'])
-        history['train_kl_loss'].append(train_metrics['kl_loss'])
-        history['learning_rate'].append(train_metrics['lr'])
+        train_history.append(train_metrics)
         
         # Validation
-        val_metrics = {}
-        if val_dataloader is not None and epoch % val_freq == 0:
+        val_loss_for_scheduler = train_metrics['total_loss']  # Default fallback
+        if val_dataloader is not None and epoch % val_every == 0:
             val_metrics = validate_vae_one_epoch(
                 model=model,
                 dataloader=val_dataloader,
@@ -622,50 +699,113 @@ def train_vae_full(
                 scaler=scaler,
                 logger=logger
             )
+            val_history.append(val_metrics)
+            val_loss_for_scheduler = val_metrics['total_loss']
             
-            history['val_loss'].append(val_metrics['total_loss'])
-            history['val_recon_loss'].append(val_metrics['recon_loss'])
-            history['val_kl_loss'].append(val_metrics['kl_loss'])
-            history['val_psnr'].append(val_metrics.get('val_psnr', 0))
-            
-            # Learning rate scheduling
-            scheduler.step(val_metrics['total_loss'])
-            
-            # Check if best model
-            is_best = val_metrics['total_loss'] < best_val_loss
-            if is_best:
+            # Save best model
+            if save_dir and val_metrics['total_loss'] < best_val_loss:
                 best_val_loss = val_metrics['total_loss']
                 logger.info(f"New best validation loss: {best_val_loss:.6f}")
-        else:
-            is_best = False
+                
+                save_vae_checkpoint(
+                    model=model,
+                    optimizer=optimizer,
+                    epoch=epoch,
+                    train_metrics=train_metrics,
+                    val_metrics=val_metrics,
+                    save_dir=save_dir,
+                    is_best=True
+                )
+        
+        # Learning rate scheduling
+        if scheduler is not None:
+            if hasattr(scheduler, 'step'):
+                if isinstance(scheduler, optim.lr_scheduler.ReduceLROnPlateau):
+                    scheduler.step(val_loss_for_scheduler)
+                else:
+                    scheduler.step()
         
         # Save checkpoint
-        if epoch % save_freq == 0 or epoch == num_epochs - 1 or is_best:
+        if save_dir and epoch % save_every == 0:
             save_vae_checkpoint(
                 model=model,
                 optimizer=optimizer,
                 epoch=epoch,
                 train_metrics=train_metrics,
-                val_metrics=val_metrics,
+                val_metrics=val_history[-1] if val_history else {},
                 save_dir=save_dir,
-                is_best=is_best
+                is_best=False
             )
+        
+        # Generate reconstruction samples
+        if save_dir and epoch % generate_every == 0:
+            try:
+                generate_vae_samples(
+                    model=model,
+                    dataloader=train_dataloader,
+                    device=device,
+                    save_dir=save_dir,
+                    epoch=epoch,
+                    num_samples=4,
+                    scaler=scaler
+                )
+            except Exception as e:
+                logger.warning(f'Failed to generate samples: {e}')
         
         # Log epoch summary
         epoch_time = time.time() - epoch_start_time
         total_time = time.time() - start_time
-        logger.info(f"Epoch {epoch}/{num_epochs-1} completed in {epoch_time:.2f}s "
+        
+        print(
+            f'Epoch {epoch+1} completed - '
+            f'Train Loss: {train_metrics["total_loss"]:.6f}, '
+            f'Recon: {train_metrics["recon_loss"]:.6f}, '
+            f'KL: {train_metrics["kl_loss"]:.6f}, '
+            f'LR: {optimizer.param_groups[0]["lr"]:.6f}, '
+            f'Time: {epoch_time:.2f}s'
+        )
+        
+        logger.info(f"Epoch {epoch+1}/{num_epochs} completed in {epoch_time:.2f}s "
                    f"(Total: {total_time:.2f}s)")
+        
+        if val_history:
+            val_metrics = val_history[-1]
+            logger.info(f"Validation - Loss: {val_metrics['total_loss']:.6f}, "
+                       f"Recon: {val_metrics['recon_loss']:.6f}, "
+                       f"KL: {val_metrics['kl_loss']:.6f}")
+    
+    # Save final model
+    if save_dir:
+        save_vae_checkpoint(
+            model=model,
+            optimizer=optimizer,
+            epoch=num_epochs-1,
+            train_metrics=train_history[-1],
+            val_metrics=val_history[-1] if val_history else {},
+            save_dir=save_dir,
+            is_best=False,
+            is_final=True
+        )
+        
+        # Save training history
+        history_data = {
+            'train_history': train_history,
+            'val_history': val_history,
+            'best_val_loss': best_val_loss,
+            'total_epochs': num_epochs,
+            'training_time': time.time() - start_time
+        }
+        
+        history_path = os.path.join(save_dir, 'training_history.json')
+        with open(history_path, 'w') as f:
+            json.dump(history_data, f, indent=2, default=str)
+        logger.info(f"Training history saved to {history_path}")
     
     logger.info("Training completed!")
     logger.info(f"Best validation loss: {best_val_loss:.6f}")
+    logger.info(f"Total training time: {time.time() - start_time:.2f}s")
     
-    # Save training history
-    history_path = os.path.join(save_dir, 'training_history.json')
-    with open(history_path, 'w') as f:
-        json.dump(history, f, indent=2)
-    
-    return history
+    return model, train_history
 
 
 if __name__ == "__main__":

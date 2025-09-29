@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from layers import ConvBlock2D
+from .layers import ConvBlock2D
 import math
 
 

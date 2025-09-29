@@ -25,24 +25,30 @@ def get_parser() -> argparse.ArgumentParser:
     
     # VAE model parameters, VAE init input arguments
     parser.add_argument('--latent_channels', type=int, default=8, help='dimension of latent space of VAE compression')
-    parser.add_argument('--input_channels', type=int, default=192, help='number of spectral bands of input data')
-    parser.add_argument('--base_channels', type=int, default=128, help='base channels of VAE model')
+    parser.add_argument('--input_channels', type=int, default=160, help='number of spectral bands of input data')
+    parser.add_argument('--base_channels', type=int, default=64, help='base channels of VAE model')
     
     # optimization parameters
     parser.add_argument('--lr', type=float, default=1e-4, help='learning rate')
-    parser.add_argument('--num_epochs', type=int, default=100, help='number of epochs to train')
+    parser.add_argument('--num_epochs', type=int, default=500, help='number of epochs to train')
     parser.add_argument('--weight_decay', type=float, default=0, help='weight decay')
     parser.add_argument('--lrf', type=float, default=0.1, help='learning rate decay factor')
     parser.add_argument('--kl_weight', type=float, default=1e-6, help='weight for KL divergence loss')
+    parser.add_argument('--grad_clip', type=float, default=0.1, help='gradient clipping threshold')
     parser.add_argument('--scaler', type=str, default='amp', choices=['none', 'amp'], help='use automatic mixed precision training')
+    
+    # training schedule parameters
+    parser.add_argument('--val_every', type=int, default=500, help='validate every N epochs')
+    parser.add_argument('--save_every', type=int, default=100, help='save checkpoint every N epochs')
+    parser.add_argument('--generate_every', type=int, default=500, help='generate samples every N epochs')
     
     # output parameters
     parser.add_argument('--resume', type=str, default='', help='path to resume a checkpoint')
     parser.add_argument('--save_path', type=str, default='results/vae_hyperspectral', help='path to save results')
     parser.add_argument('--seed', type=int, default=42, help='random seed')
-    parser.add_argument('--device', type=str, default='cuda', help='device to use for computation')
+    parser.add_argument('--device', type=str, default='cuda:1', help='device to use for computation')
     parser.add_argument('--print_freq', type=int, default=10, help='print frequency (default: 10)')
-    parser.add_argument('--save_freq', type=int, default=50, help='save frequency (default: 50)')
+    parser.add_argument('--save_freq', type=int, default=50, help='save frequency (default: 50) - DEPRECATED, use --save_every')
     
     return parser
 
@@ -126,28 +132,40 @@ def main(args):
     model = model.to(args.device)
     
     # start training with the training and eval functions from train_vae.py
-    training_history = train_vae_full(
+    # Using the new train_vae_full function signature that matches train_full_pipeline
+    trained_model, training_history = train_vae_full(
         model=model,
         train_dataloader=train_loader,
         val_dataloader=eval_loader,
         num_epochs=args.num_epochs,
-        learning_rate=args.lr,
-        kl_weight=args.kl_weight,
-        weight_decay=args.weight_decay,
-        save_dir=args.save_path,
         device=args.device,
-        log_file=os.path.join(args.save_path, 'training.log'),
-        save_freq=args.save_freq,
-        val_freq=args.print_freq,
-        scaler=scaler
+        optimizer=optimizer,
+        scheduler=lr_scheduler,
+        kl_weight=args.kl_weight,
+        learning_rate=args.lr,
+        weight_decay=args.weight_decay,
+        grad_clip=args.grad_clip,
+        save_dir=args.save_path,
+        val_every=args.val_every,
+        save_every=args.save_every,
+        generate_every=args.generate_every,
+        scaler=scaler,
+        log_file=os.path.join(args.save_path, 'training.log')
     )
     
-    # save the training history as .txt file
-    import json
-    with open(os.path.join(args.save_path, 'training_history.json'), 'w') as f:
-        json.dump(training_history, f, indent=2)
+    print(f"Training completed. Final model returned with {len(training_history)} training epochs.")
+    
+    # Print training summary
+    if training_history:
+        final_train_loss = training_history[-1]['total_loss']
+        print(f"Final training loss: {final_train_loss:.6f}")
+        print(f"Final reconstruction loss: {training_history[-1]['recon_loss']:.6f}")
+        print(f"Final KL loss: {training_history[-1]['kl_loss']:.6f}")
     
     print(f"Training completed. Results saved to {args.save_path}")
+    print(f"Checkpoints and samples can be found in: {args.save_path}")
+    print(f"Training history saved to: {os.path.join(args.save_path, 'training_history.json')}")
+    print(f"Training log saved to: {os.path.join(args.save_path, 'training.log')}")
 
 
 if __name__ == '__main__':

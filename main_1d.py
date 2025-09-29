@@ -33,7 +33,7 @@ def get_parser() -> argparse.ArgumentParser:
     
     # optimization parameters
     parser.add_argument('--lr', type=float, default=1e-4, help='learning rate')
-    parser.add_argument('--num_epochs', type=int, default=500, help='number of epochs to train')
+    parser.add_argument('--num_epochs', type=int, default=1000, help='number of epochs to train')
     parser.add_argument('--weight_decay', type=float, default=0, help='weight decay')
     parser.add_argument('--print_freq', type=int, default=10, help='print frequency (default: 10)')
     parser.add_argument('--save_freq', type=int, default=50, help='save frequency (default: 50)')
@@ -41,7 +41,7 @@ def get_parser() -> argparse.ArgumentParser:
     parser.add_argument('--scaler', type=str, default='amp', choices=['none', 'amp'], help='use automatic mixed precision training')
     
     # output parameters
-    parser.add_argument('--resume', type=str, default='', help='path to resume a checkpoint')
+    parser.add_argument('--resume', type=str, default='results/1d_hsi_diffusion/final_model.pth', help='path to resume a checkpoint')
     parser.add_argument('--save_path', type=str, default='results/1d_hsi_diffusion', help='path to save results')
     parser.add_argument('--seed', type=int, default=42, help='random seed')
     parser.add_argument('--device', type=str, default='cuda', help='device to use for computation')
@@ -103,7 +103,7 @@ def main(args):
     # load trained model if exists
     if args.resume.endswith('.pth') and os.path.isfile(args.resume):
         print(f"Loading model from {args.resume}")
-        ckpt = torch.load(args.resume, weights_only=False)
+        ckpt = torch.load(args.resume, weights_only=False, map_location='cpu')
         
         model.load_state_dict(ckpt['model_state_dict'], strict=True)
         
@@ -123,7 +123,7 @@ def main(args):
             print("LR scheduler state loaded.")
         
         start_epoch = ckpt['epoch'] + 1 if 'epoch' in ckpt else 0
-        lr_scheduler.last_epoch = start_epoch - 1  # Adjust for lr_scheduler step
+        # lr_scheduler.last_epoch = start_epoch - 1  # Adjust for lr_scheduler step
         print(f"Resuming training from epoch {start_epoch}")
         
     else:
