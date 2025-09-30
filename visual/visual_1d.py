@@ -27,7 +27,7 @@ def get_parser() -> argparse.ArgumentParser:
     
     # visualization parameters
     parser.add_argument('--num_examples', type=int, default=5, help='number of examples to visualize')
-    parser.add_argument('--model_path', type=str, default='results/1d_hsi_diffusion/checkpoint_epoch_501.pth', help='path to trained model checkpoint')
+    parser.add_argument('--model_path', type=str, default='results/1d_hsi_diffusion/final_model.pth', help='path to trained model checkpoint')
     parser.add_argument('--save_path', type=str, default='results/1d_visualization', help='path to save visualization results')
     parser.add_argument('--split', type=str, default='test', choices=['train', 'test'], help='dataset split to visualize')
     
