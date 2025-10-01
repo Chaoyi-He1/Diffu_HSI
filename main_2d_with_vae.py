@@ -1,6 +1,6 @@
 import torch
 import misc.util as utils
-from model.u2net_hyperspectral import *
+from model.latent_u2net_hyperspectral import *
 from model.hyperspectral_vae import *
 from model.diffusion_trainer import *
 import argparse
@@ -27,9 +27,9 @@ def get_parser() -> argparse.ArgumentParser:
     
     # model parameters
     # VAE parameters
-    parser.add_argument('--vae_latent_channels', type=int, default=8, help='dimension of latent space of VAE compression')
-    parser.add_argument('--vae_base_channels', type=int, default=64, help='base channels of VAE model')
-    parser.add_argument('--vae_checkpoint', type=str, default='results/vae_hyperspectral/vae_best_model.pth', 
+    parser.add_argument('--vae_latent_channels', type=int, default=12, help='dimension of latent space of VAE compression')
+    parser.add_argument('--vae_base_channels', type=int, default=128, help='base channels of VAE model')
+    parser.add_argument('--vae_checkpoint', type=str, default='results/vae_hyperspectral/base_128_latent_12/vae_final_model.pth', 
                         help='path to pre-trained VAE model')
     
     # Diffusion model parameters
@@ -39,7 +39,7 @@ def get_parser() -> argparse.ArgumentParser:
     
     # optimization parameters
     parser.add_argument('--lr', type=float, default=1e-4, help='learning rate')
-    parser.add_argument('--num_epochs', type=int, default=1000, help='number of epochs to train')
+    parser.add_argument('--num_epochs', type=int, default=2000, help='number of epochs to train')
     parser.add_argument('--weight_decay', type=float, default=1e-4, help='weight decay')
     parser.add_argument('--lrf', type=float, default=0.1, help='learning rate decay factor')
     parser.add_argument('--grad_clip', type=float, default=0.1, help='gradient clipping threshold')
@@ -120,9 +120,9 @@ def main(args):
     os.makedirs(args.save_path, exist_ok=True)
     
     # save arguments for reproducibility
-    import json
-    with open(os.path.join(args.save_path, 'args.json'), 'w') as f:
-        json.dump(vars(args), f, indent=2)
+    # import json
+    # with open(os.path.join(args.save_path, 'args.json'), 'w') as f:
+    #     json.dump(vars(args), f, indent=2)
     
     # create dataset and dataloader
     train_dataset = HASCID_data(data_path=args.data_path, 
@@ -155,9 +155,9 @@ def main(args):
     vae = load_vae_model(args, device)
     
     # Create diffusion model - operates on VAE latent space
-    model = U2NetHyperspectral(
-        input_channels=args.vae_latent_channels,  # Input is VAE latent space
-        condition_dim=args.sensor_channels,       # Conditioning on sensor response
+    model = LatentU2NetHyperspectral(
+        sensor_channels=args.sensor_channels,
+        latent_channels=args.vae_latent_channels,
         base_channels=args.diffusion_base_channels,
     )
     
@@ -168,8 +168,7 @@ def main(args):
     # Create diffusion trainer
     trainer = DiffusionTrainer(
         loss_type=args.loss_type,
-        noise_schedule=args.noise_schedule,
-        timesteps=args.timesteps,
+        beta_schedule=args.noise_schedule,
     )
     
     # load trained diffusion model if exists

@@ -2,7 +2,7 @@ import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from layers import *
+from .layers import *
 
 
 class U2NetBlock2D(nn.Module):

@@ -1,8 +1,8 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from layers import *
-from hyperspectral_vae import HyperspectralVAE
+from .layers import *
+from .hyperspectral_vae import HyperspectralVAE
 import math
 
 
@@ -107,7 +107,7 @@ class LatentU2NetHyperspectral(nn.Module):
         # Final projection to latent channels
         self.final = nn.Conv2d(base_channels, latent_channels, kernel_size=1)
 
-    def forward(self, z_t, t, context):
+    def forward(self, z_t, context, t):
         """
         Forward pass through latent U2Net
         
