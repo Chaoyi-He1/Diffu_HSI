@@ -90,7 +90,7 @@ def train_one_epoch(
             raise ValueError(f"Expected batch to be (data, conditions) tuple, got {type(batch)}")
         
         # Move data to device
-        data = data.to(device)  # [B, C, L]
+        data = data.to(device)  # [B, C, H, W]
         conditions = conditions.to(device)  # [B, condition_dim]
         batch_size = data.shape[0]
         
@@ -98,7 +98,7 @@ def train_one_epoch(
         with torch.no_grad():
             with torch.amp.autocast('cuda', enabled=scaler is not None):
                 mean, logvar = vae.encode(data)
-                z = vae.reparameterize(mean, logvar)  # [B, latent_channels, H/8, W/8]
+                z = vae.reparameterize(mean, logvar).mul_(0.024)  # [B, latent_channels, H/8, W/8]
         
         # Compute loss using diffusion trainer
         with torch.amp.autocast('cuda', enabled=scaler is not None):
@@ -213,7 +213,7 @@ def validate_one_epoch(
             # Encode data with VAE
             with torch.amp.autocast('cuda', enabled=scaler is not None):
                 mean, logvar = vae.encode(data)
-                z = vae.reparameterize(mean, logvar)  # [B, latent_channels, H/8, W/8]
+                z = vae.reparameterize(mean, logvar).mul_(0.024)  # [B, latent_channels, H/8, W/8]
             
             # Compute loss with optional mixed-precision
             with torch.amp.autocast('cuda', enabled=scaler is not None):
