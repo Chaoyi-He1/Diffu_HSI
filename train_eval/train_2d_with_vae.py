@@ -427,25 +427,25 @@ def train_full_pipeline(
             scheduler.step()
         
         # Validation
-        if val_dataloader is not None and epoch % val_every == 0:
-            val_metrics = validate_one_epoch(
-                model=model,
-                vae=vae,
-                diffusion_trainer=diffusion_trainer,
-                dataloader=val_dataloader,
-                device=device,
-                scaler=scaler
-            )
-            val_history.append(val_metrics)
+        # if val_dataloader is not None and epoch % val_every == 0:
+        #     val_metrics = validate_one_epoch(
+        #         model=model,
+        #         vae=vae,
+        #         diffusion_trainer=diffusion_trainer,
+        #         dataloader=val_dataloader,
+        #         device=device,
+        #         scaler=scaler
+        #     )
+        #     val_history.append(val_metrics)
             
-            # Save best model
-            if save_dir and val_metrics['val_loss'] < best_val_loss:
-                best_val_loss = val_metrics['val_loss']
-                save_checkpoint(
-                    model, vae, optimizer, epoch, val_metrics['val_loss'],
-                    os.path.join(save_dir, 'best_model.pth'),
-                    diffusion_config=getattr(diffusion_trainer, '__dict__', None)
-                )
+        #     # Save best model
+        #     if save_dir and val_metrics['val_loss'] < best_val_loss:
+        #         best_val_loss = val_metrics['val_loss']
+        #         save_checkpoint(
+        #             model, vae, optimizer, epoch, val_metrics['val_loss'],
+        #             os.path.join(save_dir, 'best_model.pth'),
+        #             diffusion_config=getattr(diffusion_trainer, '__dict__', None)
+        #         )
         
         # Save checkpoint
         if save_dir and epoch % save_every == 0:
@@ -456,37 +456,37 @@ def train_full_pipeline(
             )
         
         # Generate samples
-        if save_dir and epoch % generate_every == 0:
-            try:
-                # Use a few samples from training data as conditions
-                sample_batch = next(iter(train_dataloader))
-                sample_conditions = sample_batch[1][:4].to(device)  # First 4 conditions
-                sample_data = sample_batch[0][:4].to(device)  # First 4 data samples for shape reference
+        # if save_dir and epoch % generate_every == 0:
+        #     try:
+        #         # Use a few samples from training data as conditions
+        #         sample_batch = next(iter(train_dataloader))
+        #         sample_conditions = sample_batch[1][:4].to(device)  # First 4 conditions
+        #         sample_data = sample_batch[0][:4].to(device)  # First 4 data samples for shape reference
                 
-                # Encode sample data to get latent shape
-                with torch.no_grad():
-                    mean, logvar = vae.encode(sample_data)
-                    sample_latent = vae.reparameterize(mean, logvar)
+        #         # Encode sample data to get latent shape
+        #         with torch.no_grad():
+        #             mean, logvar = vae.encode(sample_data)
+        #             sample_latent = vae.reparameterize(mean, logvar)
                 
-                # Generate samples in latent space and decode
-                generated = generate_samples(
-                    model=model,
-                    vae=vae,
-                    diffusion_trainer=diffusion_trainer,
-                    conditions=sample_conditions,
-                    latent_shape=sample_latent.shape,
-                    device=device,
-                    num_steps=50,
-                    method="ddpm",
-                    scaler=scaler
-                )
+        #         # Generate samples in latent space and decode
+        #         generated = generate_samples(
+        #             model=model,
+        #             vae=vae,
+        #             diffusion_trainer=diffusion_trainer,
+        #             conditions=sample_conditions,
+        #             latent_shape=sample_latent.shape,
+        #             device=device,
+        #             num_steps=50,
+        #             method="ddpm",
+        #             scaler=scaler
+        #         )
                 
-                # Save generated samples
-                torch.save(generated.cpu(), 
-                          os.path.join(save_dir, f'generated_epoch_{epoch+1}.pt'))
+        #         # Save generated samples
+        #         torch.save(generated.cpu(), 
+        #                   os.path.join(save_dir, f'generated_epoch_{epoch+1}.pt'))
                 
-            except Exception as e:
-                print(f'Failed to generate samples: {e}')
+        #     except Exception as e:
+        #         print(f'Failed to generate samples: {e}')
         
         print(
             f'Epoch {epoch+1} completed - '
