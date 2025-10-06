@@ -10,24 +10,27 @@ import random
 from torch.utils.data import DataLoader
 from train_eval.train_2d import *
 from data_loader.my_dataset import HASCID_data, pixel_collate_fn, image_collate_fn
+from data_loader.HFD_dataset import HFD_data
 
 
 def get_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description='2D U-Net Diffusion Model for Direct Hyperspectral Image Reconstruction')
     
     # dataset parameters
-    parser.add_argument('--data_path', type=str, default='dataset/HASCID-Dataset', help='path to dataset')
+    parser.add_argument('--data_path', type=str, default='dataset/HFD100 Mat dataset', choices=['dataset/HASCID-Dataset',
+                                                                                            'dataset/HFD100 Mat dataset'], help='path to dataset')
     parser.add_argument('--train_mode', type=str, default='image', choices=['pixel', 'image'], 
                         help='training mode, if pixel, then randomly sample pixels from all training images; \
                              if image, then randomly sample images')
     parser.add_argument('--num_workers', type=int, default=4, help='number of workers to load data')
     parser.add_argument('--batch_size', type=int, default=2, help='input batch size for training (smaller for direct training)')
     parser.add_argument('--eval_ratio', type=float, default=0.1, help='the ratio of test data during training')
+    parser.add_argument('--R-n', type=int, default=None, help='the number of random measurements, if None, then use full measurements')
     
     # model parameters
-    parser.add_argument('--spectral_channels', type=int, default=160, help='number of spectral bands of input hyperspectral data')
+    parser.add_argument('--spectral_channels', type=int, default=64, help='number of spectral bands of input hyperspectral data')
     parser.add_argument('--sensor_channels', type=int, default=30, help='number of channels of the sensor response (condition)')
-    parser.add_argument('--base_channels', type=int, default=64, help='base channels of diffusion U-Net model (smaller for direct training)')
+    parser.add_argument('--base_channels', type=int, default=128, help='base channels of diffusion U-Net model (smaller for direct training)')
     
     # optimization parameters
     parser.add_argument('--lr', type=float, default=5e-5, help='learning rate (smaller for direct training)')
@@ -54,7 +57,7 @@ def get_parser() -> argparse.ArgumentParser:
     
     # output parameters
     parser.add_argument('--resume', type=str, default='', help='path to resume diffusion model checkpoint')
-    parser.add_argument('--save_path', type=str, default='results/2d_hsi_diffusion', help='path to save results')
+    parser.add_argument('--save_path', type=str, default='results/2d_hsi_diffusion/HFD', help='path to save results')
     parser.add_argument('--seed', type=int, default=42, help='random seed')
     parser.add_argument('--device', type=str, default='cuda', help='device to use for computation')
     
@@ -81,21 +84,35 @@ def main(args):
     os.makedirs(args.save_path, exist_ok=True)
     
     # save arguments for reproducibility
-    import json
-    with open(os.path.join(args.save_path, 'args.json'), 'w') as f:
-        json.dump(vars(args), f, indent=2)
+    # import json
+    # with open(os.path.join(args.save_path, 'args.json'), 'w') as f:
+    #     json.dump(vars(args), f, indent=2)
     
     # create dataset and dataloader
-    train_dataset = HASCID_data(data_path=args.data_path, 
-                                train_mode=args.train_mode, 
-                                split='train', 
-                                eval_ratio=args.eval_ratio, 
-                                data_format=args.train_mode)
-    eval_dataset = HASCID_data(data_path=args.data_path,
+    if args.R_n is None:
+        train_dataset = HASCID_data(data_path=args.data_path, 
+                                    train_mode=args.train_mode, 
+                                    split='train', 
+                                    eval_ratio=args.eval_ratio, 
+                                    data_format=args.train_mode)
+        eval_dataset = HASCID_data(data_path=args.data_path,
+                                    train_mode=args.train_mode, 
+                                    split='test', 
+                                    eval_ratio=args.eval_ratio, 
+                                    data_format=args.train_mode)
+    else:
+        train_dataset = HFD_data(data_path=args.data_path,
                                  train_mode=args.train_mode, 
-                                 split='test', 
+                                 split='train', 
                                  eval_ratio=args.eval_ratio, 
-                                 data_format=args.train_mode)
+                                 data_format=args.train_mode,
+                                 R_n=args.R_n)
+        eval_dataset = HFD_data(data_path=args.data_path,
+                                train_mode=args.train_mode, 
+                                split='test', 
+                                eval_ratio=args.eval_ratio, 
+                                data_format=args.train_mode,
+                                R_n=args.R_n)
     
     if args.train_mode == 'pixel':
         train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, 
