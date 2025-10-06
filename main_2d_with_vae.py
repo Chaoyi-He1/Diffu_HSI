@@ -59,7 +59,7 @@ def get_parser() -> argparse.ArgumentParser:
     parser.add_argument('--timesteps', type=int, default=1000, help='number of diffusion timesteps')
     
     # output parameters
-    parser.add_argument('--resume', type=str, default='', help='path to resume diffusion model checkpoint')
+    parser.add_argument('--resume', type=str, default='results/2d_hsi_diffusion_vae/checkpoint_epoch_1101.pth', help='path to resume diffusion model checkpoint')
     parser.add_argument('--save_path', type=str, default='results/2d_hsi_diffusion_vae', help='path to save results')
     parser.add_argument('--seed', type=int, default=42, help='random seed')
     parser.add_argument('--device', type=str, default='cuda', help='device to use for computation')
@@ -93,7 +93,7 @@ def load_vae_model(args, device):
             print(f"Parameter {k} not loaded correctly.")
             raise ValueError(f"Parameter {k} not loaded correctly.")
         
-    vae = vae.to(device)
+    # vae = vae.to(device)
     vae.eval()  # Set to evaluation mode since we're using it as a fixed encoder/decoder
     
     print(f"VAE model loaded successfully. Latent channels: {args.vae_latent_channels}")
@@ -173,7 +173,7 @@ def main(args):
     
     # load trained diffusion model if exists
     start_epoch = 0
-    if args.resume.endswith('.pth') and os.path.isfile(args.resume):
+    if args.resume.endswith('.pth'):
         print(f"Loading diffusion model from {args.resume}")
         ckpt = torch.load(args.resume, weights_only=False, map_location='cpu')
         
@@ -192,9 +192,9 @@ def main(args):
                 raise ValueError(f"Parameter {k} not loaded correctly.")
         print(f"VAE model loaded successfully from {args.resume}")
         
-        if 'optimizer_state_dict' in ckpt and ckpt['optimizer_state_dict'] is not None:
-            optimizer.load_state_dict(ckpt['optimizer_state_dict'])
-            print("Optimizer state loaded.")
+        # if 'optimizer_state_dict' in ckpt and ckpt['optimizer_state_dict'] is not None:
+        #     optimizer.load_state_dict(ckpt['optimizer_state_dict'])
+        #     print("Optimizer state loaded.")
         
         if 'scheduler_state_dict' in ckpt and ckpt['scheduler_state_dict'] is not None:
             lr_scheduler.load_state_dict(ckpt['scheduler_state_dict'])
@@ -207,10 +207,15 @@ def main(args):
         lr_scheduler.last_epoch = start_epoch - 1  # Adjust for lr_scheduler step
         print(f"Resuming training from epoch {start_epoch}")
         
+        del ckpt  # free memory
+        torch.cuda.empty_cache() # clear cache
     else:
         print("No diffusion model checkpoint found, training from scratch.")
     
     model = model.to(args.device)
+    vae = vae.to(args.device).eval()  # Ensure VAE is in eval mode
+    # optimizer = optimizer.to(args.device)
+    # scaler = scaler.to(args.device)
     
     print(f"\nModel Architecture:")
     print(f"VAE: {args.input_channels} -> {args.vae_latent_channels} latent channels")
