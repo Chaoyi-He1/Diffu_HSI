@@ -360,7 +360,7 @@ class U2NetHyperspectral(nn.Module):
         # Final projection to match spectral channels
         self.final = nn.Conv2d(base_channels, spectral_channels, kernel_size=1)     # [B, Base_C, H, W] → [B, L, H, W]
 
-    def forward(self, x_t, t, context):
+    def forward(self, x_t, context, t):
         """
         Forward pass of U2NetHyperspectral.
         

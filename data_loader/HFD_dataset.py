@@ -109,6 +109,8 @@ class HFD_data(Dataset.Dataset):
         R_min, R_max = self.sensor_R_matrix.min(axis=0), self.sensor_R_matrix.max(axis=0)
         self.sensor_R_matrix = (self.sensor_R_matrix - R_min) / (R_max - R_min + 1e-20)
         
+        print(f"Sensor response min {self.sensor_R_matrix.min()}, max {self.sensor_R_matrix.max()}")
+        
     
     def expand_wavelens(self, data):
         '''
@@ -146,8 +148,13 @@ class HFD_data(Dataset.Dataset):
 
     def __getitem__(self, idx):
         # load the .mat file
-        gt_data = sio.loadmat(self.img_list[idx])['rad']  # [H, W, 31]
+        gt_data = sio.loadmat(self.img_list[idx])['truth']  # [H, W, 31]
         gt_data = np.array(gt_data, dtype=np.float32)
+        
+        # normalize gt_data to [-1, 1]
+        gt_min, gt_max = gt_data.min(), gt_data.max()
+        gt_data = (gt_data - gt_min) / (gt_max - gt_min + 1e-20)
+        gt_data = gt_data * 2.0 - 1.0
         
         # calculate sensor response based on self.sensor_R_matrix
         H, W, C = gt_data.shape
@@ -156,10 +163,6 @@ class HFD_data(Dataset.Dataset):
         
         # expand gt_data to 64 bands
         gt_data = self.expand_wavelens(gt_data)  # [H, W, 64]
-        
-        # normalize gt_data
-        gt_min, gt_max = gt_data.min(), gt_data.max()
-        gt_data = (gt_data - gt_min) / (gt_max - gt_min + 1e-20)
         
         if self.data_format == 'pixel':
             # randomly sample self.pixel_num pixels from the image
@@ -197,3 +200,14 @@ def image_collate_fn(batch):
     sensor_data = sensor_data.permute(0, 3, 1, 2)  # [B, N, H, W]
     
     return gt_data, sensor_data
+
+
+if __name__ == '__main__':
+    # check the min max value of the sensor_data and gt_data
+    dataset = HFD_data(data_path='dataset/HFD100 Mat dataset', train_mode='image', eval_ratio=0.1, split='train', data_format='image', type='Flower', R_n=1)
+    print(f"Number of samples in the dataset: {len(dataset)}")
+    for i in range(len(dataset)):
+        gt_data, sensor_data = dataset[i]
+        print(f"Sample {i}: gt_data min {gt_data.min()}, max {gt_data.max()}; sensor_data min {sensor_data.min()}, max {sensor_data.max()}")
+        if i == 10:
+            break   

@@ -1,8 +1,15 @@
 """
-Training utilities for 1D U-Net Diffusion Model
+Training utilities for 2D U-Net Diffusion Model without VAE.
 
-This module provides training functions that take model, trainer, dataloader etc. as inputs.
-The train_one_epoch function is designed to be modular and reusable.
+This module provides training functions for direct 2D hyperspectral diffusion
+without VAE compression. The diffusion model operates directly on the original 
+hyperspectral data space.
+
+Key functions:
+- train_one_epoch: Train diffusion model on original hyperspectral data
+- validate_one_epoch: Validate diffusion model
+- generate_samples: Generate samples directly in data space
+- train_full_pipeline: Complete training pipeline without VAE
 """
 
 import os
@@ -30,14 +37,14 @@ def train_one_epoch(
     epoch: int,
     device: torch.device,
     grad_clip: Optional[float] = None,
-    log_interval: int = 200,
+    log_interval: int = 10,
     scaler: Optional[torch.amp.autocast] = None
 ) -> Dict[str, float]:
     """
     Train the model for one epoch using MetricLogger for comprehensive logging.
     
     Args:
-        model: The 1D U-Net model to train
+        model: The 2D U-Net hyperspectral model to train
         diffusion_trainer: Diffusion trainer with loss computation method
         dataloader: Training data loader yielding (data, conditions) tuples
         optimizer: PyTorch optimizer
@@ -45,6 +52,7 @@ def train_one_epoch(
         device: Device to run training on (cuda/cpu)
         grad_clip: Gradient clipping threshold (None to disable)
         log_interval: Log metrics every N steps
+        scaler: Optional scaler for mixed-precision training
         
     Returns:
         Dictionary containing training metrics:
@@ -79,11 +87,11 @@ def train_one_epoch(
             raise ValueError(f"Expected batch to be (data, conditions) tuple, got {type(batch)}")
         
         # Move data to device
-        data = data.to(device)  # [B, C, L]
-        conditions = conditions.to(device)  # [B, condition_dim]
+        data = data.to(device)  # [B, C, H, W] - original hyperspectral data
+        conditions = conditions.to(device)  # [B, sensor_channels, H, W] - sensor response
         batch_size = data.shape[0]
         
-        # Compute loss using diffusion trainer
+        # Compute loss using diffusion trainer directly on original data
         with torch.amp.autocast('cuda', enabled=scaler is not None):
             loss, info = diffusion_trainer.get_loss(model, data, conditions)
         
@@ -158,7 +166,7 @@ def validate_one_epoch(
     Validate the model for one epoch using MetricLogger.
     
     Args:
-        model: The 1D U-Net model to validate
+        model: The 2D U-Net hyperspectral model to validate
         diffusion_trainer: Diffusion trainer with loss computation
         dataloader: Validation data loader
         device: Device to run validation on
@@ -178,7 +186,7 @@ def validate_one_epoch(
     total_samples = 0
     
     with torch.no_grad():
-        for batch in metric_logger.log_every(dataloader, 100, header):
+        for batch in metric_logger.log_every(dataloader, 50, header):
             # Unpack batch
             if isinstance(batch, (list, tuple)) and len(batch) == 2:
                 data, conditions = batch
@@ -186,11 +194,11 @@ def validate_one_epoch(
                 raise ValueError(f"Expected batch to be (data, conditions) tuple, got {type(batch)}")
             
             # Move data to device
-            data = data.to(device)
-            conditions = conditions.to(device)
+            data = data.to(device)  # [B, C, H, W] - original hyperspectral data
+            conditions = conditions.to(device)  # [B, sensor_channels, H, W] - sensor response
             batch_size = data.shape[0]
             
-            # Compute loss with optional mixed-precision
+            # Compute loss with optional mixed-precision directly on original data
             with torch.amp.autocast('cuda', enabled=scaler is not None):
                 loss, info = diffusion_trainer.get_loss(model, data, conditions)
             
@@ -213,38 +221,38 @@ def generate_samples(
     model: nn.Module,
     diffusion_trainer: Any,
     conditions: torch.Tensor,
-    shape: Tuple[int, ...],
+    data_shape: Tuple[int, ...],
     device: torch.device,
     num_steps: Optional[int] = None,
     method: str = "ddpm",
     scaler: Optional[torch.amp.autocast] = None
 ) -> torch.Tensor:
     """
-    Generate samples using the trained model.
+    Generate samples using the trained model directly in data space.
     
     Args:
-        model: Trained model
+        model: Trained 2D hyperspectral diffusion model
         diffusion_trainer: Diffusion trainer with sampling capability
-        conditions: Condition vectors [B, condition_dim]
-        shape: Shape of samples to generate [B, C, L]
+        conditions: Condition tensors [B, sensor_channels, H, W]
+        data_shape: Shape of data samples to generate [B, spectral_channels, H, W]
         device: Device to run on
         num_steps: Number of sampling steps (None uses trainer default)
         method: Sampling method ('ddpm' or 'ddim')
         scaler: Optional scaler for mixed-precision generation
         
     Returns:
-        Generated samples [B, C, L]
+        Generated samples [B, spectral_channels, H, W] in original data space
     """
     model.eval()
     
-    print(f'Generating {shape[0]} samples with shape {shape}')
+    print(f'Generating {data_shape[0]} samples with shape {data_shape}')
     
     # Generate samples using the diffusion trainer's sampling method
     with torch.amp.autocast('cuda', enabled=scaler is not None):
         samples = diffusion_trainer.sample(
             model=model,
             cond=conditions,
-            shape=shape,
+            shape=data_shape,
             n_steps=num_steps,
             method=method,
             progress=True
@@ -303,7 +311,7 @@ def load_checkpoint(
     """
     checkpoint = torch.load(filepath, map_location='cpu')
     model.load_state_dict(checkpoint['model_state_dict'])
-    
+
     if optimizer is not None and 'optimizer_state_dict' in checkpoint:
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
     
@@ -323,8 +331,8 @@ def train_full_pipeline(
     scheduler: Optional[Any] = None,
     save_dir: Optional[str] = None,
     grad_clip: Optional[float] = 1.0,
-    val_every: int = 100,
-    save_every: int = 100,
+    val_every: int = 1000,
+    save_every: int = 1000,
     generate_every: int = 2000,
     scaler: Optional[torch.amp.autocast] = None
 ) -> Tuple[nn.Module, List[Dict[str, float]]]:
@@ -332,7 +340,7 @@ def train_full_pipeline(
     Complete training pipeline using train_one_epoch function with MetricLogger.
     
     Args:
-        model: Model to train
+        model: 2D hyperspectral diffusion model to train
         diffusion_trainer: Diffusion trainer
         train_dataloader: Training data loader
         val_dataloader: Optional validation data loader
@@ -419,18 +427,14 @@ def train_full_pipeline(
                 # Use a few samples from training data as conditions
                 sample_batch = next(iter(train_dataloader))
                 sample_conditions = sample_batch[1][:4].to(device)  # First 4 conditions
+                sample_data = sample_batch[0][:4].to(device)  # First 4 data samples for shape reference
                 
-                # Determine output channels from model
-                if hasattr(model, 'final') and hasattr(model.final, 'out_channels'):
-                    out_channels = model.final.out_channels
-                else:
-                    out_channels = sample_batch[0].shape[1]  # Use input channels as fallback
-                
+                # Generate samples directly in data space
                 generated = generate_samples(
                     model=model,
                     diffusion_trainer=diffusion_trainer,
                     conditions=sample_conditions,
-                    shape=(4, out_channels, sample_batch[0].shape[2]),
+                    data_shape=sample_data.shape,
                     device=device,
                     num_steps=50,
                     method="ddpm",
@@ -457,69 +461,102 @@ def train_full_pipeline(
             os.path.join(save_dir, 'final_model.pth'),
             diffusion_config=getattr(diffusion_trainer, '__dict__', None)
         )
-    
+
     return model, train_history
 
 
 # Example usage functions
-def create_synthetic_1d_dataset(
+def create_synthetic_2d_dataset(
     num_samples: int = 1000,
-    input_channels: int = 3,
-    condition_dim: int = 64,
-    sequence_length: int = 256
+    spectral_channels: int = 128,
+    sensor_channels: int = 16,
+    height: int = 64,
+    width: int = 64
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """
-    Create synthetic 1D dataset for demonstration and testing.
+    Create synthetic 2D hyperspectral dataset for demonstration and testing.
+    
+    Args:
+        num_samples: Number of samples to generate
+        spectral_channels: Number of hyperspectral channels
+        sensor_channels: Number of sensor response channels
+        height: Image height
+        width: Image width
     
     Returns:
         Tuple of (data, conditions) where:
-        - data: [num_samples, input_channels, sequence_length]
-        - conditions: [num_samples, condition_dim]
+        - data: [num_samples, spectral_channels, height, width]
+        - conditions: [num_samples, sensor_channels, height, width]
     """
     import torch.nn.functional as F
     
-    print(f"Creating synthetic 1D dataset with {num_samples} samples...")
+    print(f"Creating synthetic 2D hyperspectral dataset with {num_samples} samples...")
     
     data = []
     conditions = []
     
     for i in range(num_samples):
-        # Create base signal with some structure
-        t = torch.linspace(0, 4*np.pi, sequence_length)
+        # Create base 2D pattern with some structure
+        x = torch.linspace(-2, 2, width)
+        y = torch.linspace(-2, 2, height)
+        X, Y = torch.meshgrid(x, y, indexing='ij')
         
-        # Mix of sinusoidal components with random frequencies and phases
-        signal = torch.zeros(input_channels, sequence_length)
-        for ch in range(input_channels):
-            freq1 = torch.rand(1) * 3 + 0.5  # Random frequency
-            freq2 = torch.rand(1) * 2 + 1.0
-            phase1 = torch.rand(1) * 2 * np.pi
-            phase2 = torch.rand(1) * 2 * np.pi
+        # Generate hyperspectral data with spectral correlation
+        hyperspectral_image = torch.zeros(spectral_channels, height, width)
+        
+        # Create spectral signatures (smooth curves across channels)
+        wavelengths = torch.linspace(400, 1000, spectral_channels)  # nm
+        for ch in range(spectral_channels):
+            # Base spatial pattern
+            freq_x = torch.rand(1) * 2 + 0.5
+            freq_y = torch.rand(1) * 2 + 0.5
+            phase_x = torch.rand(1) * 2 * np.pi
+            phase_y = torch.rand(1) * 2 * np.pi
             
-            signal[ch] = (torch.sin(freq1 * t + phase1) + 
-                         0.5 * torch.sin(freq2 * t + phase2) +
-                         0.1 * torch.randn(sequence_length))  # Add noise
+            # Spectral modulation - smooth variation across wavelengths
+            spectral_response = 0.5 + 0.3 * torch.cos(2 * np.pi * wavelengths[ch] / 100) + 0.2 * torch.sin(2 * np.pi * wavelengths[ch] / 150)
+            
+            # Create pattern with sine waves and radial components
+            pattern = (torch.sin(freq_x * X + phase_x) * torch.sin(freq_y * Y + phase_y) +
+                      0.3 * torch.exp(-(X**2 + Y**2)/2) * torch.sin(3*torch.atan2(Y, X)) +
+                      0.1 * torch.randn(height, width))  # Add noise
+            
+            hyperspectral_image[ch] = pattern * spectral_response
         
-        # Smooth the signal
-        signal = F.conv1d(signal.unsqueeze(0), 
-                         torch.ones(1, 1, 5)/5, 
-                         padding=2, groups=1).squeeze(0)
+        # Apply some smoothing
+        hyperspectral_image = F.conv2d(hyperspectral_image.unsqueeze(0), 
+                                     torch.ones(1, 1, 3, 3)/9, 
+                                     padding=1, groups=1).squeeze(0)
         
-        # Create corresponding condition vector
-        condition = torch.randn(condition_dim) * 0.5
+        # Create corresponding sensor response (simulated RGB-like channels)
+        sensor_response = torch.zeros(sensor_channels, height, width)
+        for s_ch in range(sensor_channels):
+            # Each sensor channel responds to a range of spectral channels
+            start_idx = (s_ch * spectral_channels) // sensor_channels
+            end_idx = ((s_ch + 1) * spectral_channels) // sensor_channels
+            
+            # Weighted average of corresponding spectral channels
+            weights = torch.linspace(0.1, 1.0, end_idx - start_idx)
+            for i, spec_idx in enumerate(range(start_idx, end_idx)):
+                if spec_idx < spectral_channels:
+                    sensor_response[s_ch] += weights[i] * hyperspectral_image[spec_idx]
+            
+            # Normalize and add noise
+            sensor_response[s_ch] = sensor_response[s_ch] / (end_idx - start_idx) + 0.05 * torch.randn(height, width)
         
-        data.append(signal)
-        conditions.append(condition)
+        data.append(hyperspectral_image)
+        conditions.append(sensor_response)
     
     return torch.stack(data), torch.stack(conditions)
 
 
 if __name__ == "__main__":
     # Example usage
-    print("This is a utility module. Import train_one_epoch and other functions to use them.")
+    print("This is a utility module for 2D hyperspectral diffusion training without VAE.")
     print("Available functions:")
-    print("- train_one_epoch: Train model for one epoch")
+    print("- train_one_epoch: Train model for one epoch on original hyperspectral data")
     print("- validate_one_epoch: Validate model for one epoch") 
-    print("- generate_samples: Generate samples using trained model")
-    print("- train_full_pipeline: Complete training pipeline")
+    print("- generate_samples: Generate samples directly in hyperspectral data space")
+    print("- train_full_pipeline: Complete training pipeline without VAE")
     print("- save_checkpoint/load_checkpoint: Checkpoint utilities")
-    print("- create_synthetic_1d_dataset: Create synthetic data for testing")
+    print("- create_synthetic_2d_dataset: Create synthetic 2D hyperspectral data for testing")

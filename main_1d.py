@@ -8,7 +8,8 @@ import time
 import numpy as np
 from torch.utils.data import DataLoader
 from train_eval.train_1d import *
-from data_loader.my_dataset import HASCID_data, pixel_collate_fn
+from data_loader.my_dataset import HASCID_data, pixel_collate_fn, image_collate_fn
+from data_loader.HFD_dataset import HFD_data
 import random
 
 
@@ -16,13 +17,15 @@ def get_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description='VAE for Hyperspectral Image Reconstruction')
     
     # dataset parameters
-    parser.add_argument('--data_path', type=str, default='dataset/HASCID-Dataset', help='path to dataset')
+    parser.add_argument('--data_path', type=str, default='dataset/HFD100 Mat dataset', choices=['dataset/HASCID-Dataset',
+                                                                                            'dataset/HFD100 Mat dataset'], help='path to dataset')
     parser.add_argument('--train_mode', type=str, default='pixel', choices=['pixel', 'image'], 
                         help='training mode, if pixel, then randomly sample pixels from all training images; \
                              if image, then randomly sample images')
     parser.add_argument('--num_workers', type=int, default=4, help='number of workers to load data')
     parser.add_argument('--batch_size', type=int, default=8, help='input batch size for training')
     parser.add_argument('--eval_ratio', type=float, default=0.1, help='the ratio of test data during training')
+    parser.add_argument('--R-n', type=int, default=1, help='the number of random measurements, if None, then use full measurements')
     
     # model parameters, VAE init input arguments
     # the diffusion conditioning is from the sensor response, input is the raw hsi channels
@@ -41,10 +44,10 @@ def get_parser() -> argparse.ArgumentParser:
     parser.add_argument('--scaler', type=str, default='amp', choices=['none', 'amp'], help='use automatic mixed precision training')
     
     # output parameters
-    parser.add_argument('--resume', type=str, default='results/1d_hsi_diffusion/final_model.pth', help='path to resume a checkpoint')
-    parser.add_argument('--save_path', type=str, default='results/1d_hsi_diffusion', help='path to save results')
+    parser.add_argument('--resume', type=str, default='results/1d_hsi_diffusion/final_model', help='path to resume a checkpoint')
+    parser.add_argument('--save_path', type=str, default='results/1d_hsi_diffusion/HFD', help='path to save results')
     parser.add_argument('--seed', type=int, default=42, help='random seed')
-    parser.add_argument('--device', type=str, default='cuda', help='device to use for computation')
+    parser.add_argument('--device', type=str, default='cuda:1', help='device to use for computation')
     
     return parser
 
@@ -64,16 +67,30 @@ def main(args):
     os.makedirs(args.save_path, exist_ok=True)
     
     # create dataset and dataloader
-    train_dataset = HASCID_data(data_path=args.data_path, 
-                                train_mode=args.train_mode, 
-                                split='train', 
-                                eval_ratio=args.eval_ratio, 
-                                data_format=args.train_mode)
-    eval_dataset = HASCID_data(data_path=args.data_path,
+    if args.R_n is None:
+        train_dataset = HASCID_data(data_path=args.data_path, 
+                                    train_mode=args.train_mode, 
+                                    split='train', 
+                                    eval_ratio=args.eval_ratio, 
+                                    data_format=args.train_mode)
+        eval_dataset = HASCID_data(data_path=args.data_path,
+                                    train_mode=args.train_mode, 
+                                    split='test', 
+                                    eval_ratio=args.eval_ratio, 
+                                    data_format=args.train_mode)
+    else:
+        train_dataset = HFD_data(data_path=args.data_path,
                                  train_mode=args.train_mode, 
-                                 split='test', 
+                                 split='train', 
                                  eval_ratio=args.eval_ratio, 
-                                 data_format=args.train_mode)
+                                 data_format=args.train_mode,
+                                 R_n=args.R_n)
+        eval_dataset = HFD_data(data_path=args.data_path,
+                                train_mode=args.train_mode, 
+                                split='test', 
+                                eval_ratio=args.eval_ratio, 
+                                data_format=args.train_mode,
+                                R_n=args.R_n)
     
     if args.train_mode == 'pixel':
         train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, 
@@ -99,7 +116,7 @@ def main(args):
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.num_epochs, eta_min=args.lr * args.lrf)
     scaler = torch.amp.GradScaler(enabled=(args.scaler == 'amp'))
-    
+     
     # load trained model if exists
     if args.resume.endswith('.pth') and os.path.isfile(args.resume):
         print(f"Loading model from {args.resume}")
@@ -135,6 +152,7 @@ def main(args):
     
     trainer = DiffusionTrainer(
         loss_type='l1',
+        device=args.device,
     )
     
     # start training with the training and eval functions from train_1d.py
