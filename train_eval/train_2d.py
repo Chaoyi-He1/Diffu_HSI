@@ -37,7 +37,7 @@ def train_one_epoch(
     epoch: int,
     device: torch.device,
     grad_clip: Optional[float] = None,
-    log_interval: int = 10,
+    log_interval: int = 200,
     scaler: Optional[torch.amp.autocast] = None
 ) -> Dict[str, float]:
     """

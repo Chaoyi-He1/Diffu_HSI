@@ -4,11 +4,16 @@ import matplotlib.pyplot as plt
 import argparse
 import os
 from torch.utils.data import DataLoader
-from data_loader.my_dataset import HASCID_data, pixel_collate_fn
-from model.u2net_1d import U2Net1D
-from model.diffusion_trainer import DiffusionTrainer
+import sys
 import random
 from tqdm import tqdm
+
+# Add parent directory to path for imports
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from data_loader.my_dataset import HASCID_data, pixel_collate_fn
+from data_loader.HFD_dataset import HFD_data
+from model.u2net_1d import U2Net1D
+from model.diffusion_trainer import DiffusionTrainer
 
 
 def get_parser() -> argparse.ArgumentParser:
@@ -19,6 +24,8 @@ def get_parser() -> argparse.ArgumentParser:
     parser.add_argument('--train_mode', type=str, default='pixel', choices=['pixel', 'image'], 
                         help='training mode')
     parser.add_argument('--eval_ratio', type=float, default=0.1, help='the ratio of test data during training')
+    parser.add_argument('--R-n', type=int, default=None, help='the number of random measurements, if None, then use full measurements')
+    parser.add_argument('--dataset', type=str, choices=['HASCID', 'HFD'], default='HASCID', help='which dataset to use')
     
     # model parameters
     parser.add_argument('--sensor_channels', type=int, default=30, help='number of channels of the sensor response')
@@ -218,13 +225,26 @@ def visualize_results(args):
     
     # Load dataset
     print("Loading dataset...")
-    dataset = HASCID_data(
-        data_path=args.data_path,
-        train_mode=args.train_mode,
-        split=args.split,
-        eval_ratio=args.eval_ratio,
-        data_format=args.train_mode
-    )
+    if args.dataset == 'HASCID':
+        dataset = HASCID_data(
+            data_path=args.data_path,
+            train_mode=args.train_mode,
+            split=args.split,
+            eval_ratio=args.eval_ratio,
+            data_format=args.train_mode,
+            R_n=args.R_n,
+        )
+    elif args.dataset == 'HFD':
+        dataset = HFD_data(
+            data_path=args.data_path,
+            train_mode=args.train_mode,
+            split=args.split,
+            eval_ratio=args.eval_ratio,
+            data_format=args.train_mode,
+            R_n=args.R_n,
+        )
+    else:
+        raise ValueError(f"Unsupported dataset: {args.dataset}")
     
     # Create dataloader
     if args.train_mode == 'pixel':

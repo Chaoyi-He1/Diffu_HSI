@@ -23,9 +23,10 @@ def get_parser() -> argparse.ArgumentParser:
                         help='training mode, if pixel, then randomly sample pixels from all training images; \
                              if image, then randomly sample images')
     parser.add_argument('--num_workers', type=int, default=4, help='number of workers to load data')
-    parser.add_argument('--batch_size', type=int, default=2, help='input batch size for training (smaller for direct training)')
+    parser.add_argument('--batch_size', type=int, default=3, help='input batch size for training (smaller for direct training)')
     parser.add_argument('--eval_ratio', type=float, default=0.1, help='the ratio of test data during training')
-    parser.add_argument('--R-n', type=int, default=None, help='the number of random measurements, if None, then use full measurements')
+    parser.add_argument('--R-n', type=int, default=1, help='the number of random measurements, if None, then use full measurements')
+    parser.add_argument('--dataset', type=str, choices=['HASCID', 'HFD'], default='HFD', help='which dataset to use')
     
     # model parameters
     parser.add_argument('--spectral_channels', type=int, default=64, help='number of spectral bands of input hyperspectral data')
@@ -89,18 +90,20 @@ def main(args):
     #     json.dump(vars(args), f, indent=2)
     
     # create dataset and dataloader
-    if args.R_n is None:
+    if args.dataset == 'HASCID':
         train_dataset = HASCID_data(data_path=args.data_path, 
                                     train_mode=args.train_mode, 
                                     split='train', 
                                     eval_ratio=args.eval_ratio, 
-                                    data_format=args.train_mode)
+                                    data_format=args.train_mode,
+                                    R_n=args.R_n)
         eval_dataset = HASCID_data(data_path=args.data_path,
                                     train_mode=args.train_mode, 
                                     split='test', 
                                     eval_ratio=args.eval_ratio, 
-                                    data_format=args.train_mode)
-    else:
+                                    data_format=args.train_mode,
+                                    R_n=args.R_n)
+    elif args.dataset == 'HFD':
         train_dataset = HFD_data(data_path=args.data_path,
                                  train_mode=args.train_mode, 
                                  split='train', 
@@ -113,6 +116,8 @@ def main(args):
                                 eval_ratio=args.eval_ratio, 
                                 data_format=args.train_mode,
                                 R_n=args.R_n)
+    else:
+        raise ValueError(f"Unsupported dataset: {args.dataset}")
     
     if args.train_mode == 'pixel':
         train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, 

@@ -26,6 +26,7 @@ def get_parser() -> argparse.ArgumentParser:
     parser.add_argument('--batch_size', type=int, default=8, help='input batch size for training')
     parser.add_argument('--eval_ratio', type=float, default=0.1, help='the ratio of test data during training')
     parser.add_argument('--R-n', type=int, default=1, help='the number of random measurements, if None, then use full measurements')
+    parser.add_argument('--dataset', type=str, default='HASCID', choices=['HASCID', 'HFD'], help='dataset to use')
     
     # model parameters, VAE init input arguments
     # the diffusion conditioning is from the sensor response, input is the raw hsi channels
@@ -67,18 +68,20 @@ def main(args):
     os.makedirs(args.save_path, exist_ok=True)
     
     # create dataset and dataloader
-    if args.R_n is None:
+    if args.dataset == 'HASCID':
         train_dataset = HASCID_data(data_path=args.data_path, 
                                     train_mode=args.train_mode, 
                                     split='train', 
                                     eval_ratio=args.eval_ratio, 
-                                    data_format=args.train_mode)
+                                    data_format=args.train_mode,
+                                    R_n=args.R_n)
         eval_dataset = HASCID_data(data_path=args.data_path,
                                     train_mode=args.train_mode, 
                                     split='test', 
                                     eval_ratio=args.eval_ratio, 
-                                    data_format=args.train_mode)
-    else:
+                                    data_format=args.train_mode,
+                                    R_n=args.R_n)
+    elif args.dataset == 'HFD':
         train_dataset = HFD_data(data_path=args.data_path,
                                  train_mode=args.train_mode, 
                                  split='train', 
@@ -91,6 +94,8 @@ def main(args):
                                 eval_ratio=args.eval_ratio, 
                                 data_format=args.train_mode,
                                 R_n=args.R_n)
+    else:
+        raise ValueError(f"Unsupported dataset: {args.dataset}")
     
     if args.train_mode == 'pixel':
         train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, 
