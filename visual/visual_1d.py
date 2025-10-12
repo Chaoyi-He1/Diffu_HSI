@@ -20,12 +20,13 @@ def get_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description='Visualization for 1D HSI Diffusion Model')
     
     # dataset parameters
-    parser.add_argument('--data_path', type=str, default='dataset/HASCID-Dataset', help='path to dataset')
+    parser.add_argument('--data_path', type=str, default='dataset/HFD100 Mat dataset', choices=['dataset/HASCID-Dataset',
+                                                                                            'dataset/HFD100 Mat dataset'], help='path to dataset')
     parser.add_argument('--train_mode', type=str, default='pixel', choices=['pixel', 'image'], 
                         help='training mode')
     parser.add_argument('--eval_ratio', type=float, default=0.1, help='the ratio of test data during training')
-    parser.add_argument('--R-n', type=int, default=None, help='the number of random measurements, if None, then use full measurements')
-    parser.add_argument('--dataset', type=str, choices=['HASCID', 'HFD'], default='HASCID', help='which dataset to use')
+    parser.add_argument('--R-n', type=int, default=1, help='the number of random measurements, if None, then use full measurements')
+    parser.add_argument('--dataset', type=str, choices=['HASCID', 'HFD'], default='HFD', help='which dataset to use')
     
     # model parameters
     parser.add_argument('--sensor_channels', type=int, default=30, help='number of channels of the sensor response')
@@ -34,7 +35,7 @@ def get_parser() -> argparse.ArgumentParser:
     
     # visualization parameters
     parser.add_argument('--num_examples', type=int, default=5, help='number of examples to visualize')
-    parser.add_argument('--model_path', type=str, default='results/1d_hsi_diffusion/final_model.pth', help='path to trained model checkpoint')
+    parser.add_argument('--model_path', type=str, default='results/1d_hsi_diffusion/HFD/R_1/checkpoint_epoch_201.pth', help='path to trained model checkpoint')
     parser.add_argument('--save_path', type=str, default='results/1d_visualization', help='path to save visualization results')
     parser.add_argument('--split', type=str, default='test', choices=['train', 'test'], help='dataset split to visualize')
     
@@ -85,7 +86,7 @@ def generate_samples(model, diffusion_trainer, sensor_data, device, num_steps=50
     with torch.no_grad():
         # sensor_data shape: [batch_size, sensor_channels] 
         batch_size = sensor_data.shape[0]
-        sequence_length = 160  # Based on the hyperspectral data dimension from dataset
+        sequence_length = 160 if args.dataset == 'HASCID' else 64 # Based on the hyperspectral data dimension from dataset
         
         # Generate samples
         generated = diffusion_trainer.sample(
@@ -264,7 +265,7 @@ def visualize_results(args):
     
     # Get wavelengths from dataset
     # GT data uses first 160 wavelengths, sensor data corresponds to the clipped sensor wavelengths
-    wavelengths = dataset.wavelens[:160]  # Match GT data dimension
+    wavelengths = dataset.new_wavelens if args.dataset == 'HFD' else dataset.wavelens[:160]  # Match GT data dimension
     
     # For sensor data, we need to create appropriate x-axis values
     # The sensor data has 30 channels corresponding to the selected wavelength range

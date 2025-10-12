@@ -30,6 +30,8 @@ class HFD_data(Dataset.Dataset):
         
         # from 451 to 855, total 31 bands
         self.wavelens = np.linspace(451, 855, 31)
+        new_wavelengths = np.linspace(self.wavelens[0], self.wavelens[-1], 64)
+        self.new_wavelens = new_wavelengths
 
         # paths
         self.data_folder = os.path.join(self.data_path, f'Mat{self.type}60', 'Train')
@@ -122,7 +124,8 @@ class HFD_data(Dataset.Dataset):
         '''
         # Create a new wavelength axis with 64 points
         new_wavelengths = np.linspace(self.wavelens[0], self.wavelens[-1], 64)
-
+        # self.new_wavelens = new_wavelengths
+        
         # Interpolate the data to the new wavelength axis
         data_expanded = np.zeros((data.shape[0], data.shape[1], 64))
         for i in range(data.shape[0]):
