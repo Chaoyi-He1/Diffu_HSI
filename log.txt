@@ -2416,3 +2416,4 @@ Epoch: [35]  [ 8000/12244]  eta: 0:26:56  lr: 0.000050  loss: 0.3035 (0.3081)  g
 Epoch: [35]  [ 8200/12244]  eta: 0:25:40  lr: 0.000050  loss: 0.3082 (0.3082)  grad_norm: 88025.7031 (nan)  samples_per_sec: 8.4007 (8.3869)  time: 0.3808  data: 0.0009  max mem: 16175
 Epoch: [35]  [ 8400/12244]  eta: 0:24:24  lr: 0.000050  loss: 0.3057 (0.3082)  grad_norm: 84613.0078 (nan)  samples_per_sec: 8.4063 (8.3873)  time: 0.3807  data: 0.0010  max mem: 16175
 Epoch: [35]  [ 8600/12244]  eta: 0:23:07  lr: 0.000050  loss: 0.3023 (0.3083)  grad_norm: 95459.5000 (nan)  samples_per_sec: 8.3782 (8.3880)  time: 0.3817  data: 0.0009  max mem: 16175
+Epoch: [35]  [ 8800/12244]  eta: 0:21:51  lr: 0.000050  loss: 0.3048 (0.3084)  grad_norm: 87861.7656 (nan)  samples_per_sec: 8.3581 (8.3880)  time: 0.3829  data: 0.0011  max mem: 16175
