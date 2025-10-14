@@ -48,7 +48,7 @@ def get_parser() -> argparse.ArgumentParser:
     parser.add_argument('--log_interval', type=int, default=50, help='log metrics every N steps')
     
     # diffusion trainer parameters
-    parser.add_argument('--loss_type', type=str, default='l2', choices=['l1', 'l2', 'huber'], 
+    parser.add_argument('--loss_type', type=str, default='l1', choices=['l1', 'l2', 'huber'], 
                         help='loss type for diffusion training')
     parser.add_argument('--noise_schedule', type=str, default='linear', choices=['linear', 'cosine'],
                         help='noise schedule for diffusion process')
@@ -58,7 +58,7 @@ def get_parser() -> argparse.ArgumentParser:
     
     # output parameters
     parser.add_argument('--resume', type=str, default='', help='path to resume diffusion model checkpoint')
-    parser.add_argument('--save_path', type=str, default='results/2d_hsi_diffusion/HFD', help='path to save results')
+    parser.add_argument('--save_path', type=str, default='results/2d_hsi_diffusion/HFD/R_1/l1_loss', help='path to save results')
     parser.add_argument('--seed', type=int, default=42, help='random seed')
     parser.add_argument('--device', type=str, default='cuda', help='device to use for computation')
     
@@ -70,6 +70,11 @@ def get_parser() -> argparse.ArgumentParser:
 
 
 def main(args):
+    # save arguments for reproducibility
+    import json
+    with open(os.path.join(args.save_path, 'args.json'), 'w') as f:
+        json.dump(vars(args), f, indent=2)
+        
     # set random seed
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
@@ -83,11 +88,6 @@ def main(args):
     
     # create save directory
     os.makedirs(args.save_path, exist_ok=True)
-    
-    # save arguments for reproducibility
-    # import json
-    # with open(os.path.join(args.save_path, 'args.json'), 'w') as f:
-    #     json.dump(vars(args), f, indent=2)
     
     # create dataset and dataloader
     if args.dataset == 'HASCID':

@@ -20,12 +20,13 @@ def get_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description='Visualization for 2D HSI Diffusion Model')
     
     # dataset parameters
-    parser.add_argument('--data_path', type=str, default='dataset/HFD100 Mat dataset', help='path to dataset')
+    parser.add_argument('--data_path', type=str, default='dataset/HASCID-Dataset', choices=['dataset/HASCID-Dataset',
+                                                                                            'dataset/HFD100 Mat dataset'], help='path to dataset')
     parser.add_argument('--train_mode', type=str, default='image', choices=['pixel', 'image'], 
                         help='training mode')
     parser.add_argument('--eval_ratio', type=float, default=0.1, help='the ratio of test data during training')
     parser.add_argument('--R-n', type=int, default=1, help='the number of random measurements, if None, then use full measurements')
-    parser.add_argument('--dataset', type=str, choices=['HASCID', 'HFD'], default='HFD', help='which dataset to use')
+    parser.add_argument('--dataset', type=str, choices=['HASCID', 'HFD'], default='HASCID', help='which dataset to use')
     
     # model parameters
     parser.add_argument('--spectral_channels', type=int, default=64, help='number of spectral bands of input hyperspectral data')
@@ -34,13 +35,13 @@ def get_parser() -> argparse.ArgumentParser:
     
     # visualization parameters
     parser.add_argument('--num_examples', type=int, default=5, help='number of examples to visualize')
-    parser.add_argument('--model_path', type=str, default='results/2d_hsi_diffusion/HFD/final_model.pth', help='path to trained model checkpoint')
-    parser.add_argument('--save_path', type=str, default='results/2d_visualization', help='path to save visualization results')
+    parser.add_argument('--model_path', type=str, default='results/2d_hsi_diffusion/HFD/R_1/l2_loss/checkpoint_epoch_101.pth', help='path to trained model checkpoint')
+    parser.add_argument('--save_path', type=str, default='results/2d_visualization/HFD/R_1/l2_loss', help='path to save visualization results')
     parser.add_argument('--split', type=str, default='test', choices=['train', 'test'], help='dataset split to visualize')
     
     # generation parameters
-    parser.add_argument('--num_steps', type=int, default=50, help='number of denoising steps')
-    parser.add_argument('--method', type=str, default='ddim', choices=['ddpm', 'ddim'], help='sampling method')
+    parser.add_argument('--num_steps', type=int, default=1000, help='number of denoising steps')
+    parser.add_argument('--method', type=str, default='ddpm', choices=['ddpm', 'ddim'], help='sampling method')
     
     # visualization parameters
     parser.add_argument('--spatial_region', type=str, default='center', choices=['center', 'random', 'corner'],
@@ -68,7 +69,7 @@ def load_model(model_path: str, device: torch.device, spectral_channels: int = 6
         raise FileNotFoundError(f"Model checkpoint not found at {model_path}")
     
     print(f"Loading model from {model_path}")
-    checkpoint = torch.load(model_path, map_location=device)
+    checkpoint = torch.load(model_path, map_location='cpu', weights_only=False)
     
     # Handle different checkpoint formats
     if 'model_state_dict' in checkpoint:
@@ -76,7 +77,10 @@ def load_model(model_path: str, device: torch.device, spectral_channels: int = 6
     else:
         # Assume the checkpoint is just the state dict
         model.load_state_dict(checkpoint)
-    
+    for k, v in model.named_parameters():
+        if not torch.equal(v, checkpoint['model_state_dict'][k]):
+            print(f"Warning: Parameter {k} does not match checkpoint value.")
+            raise ValueError("Model parameters do not match checkpoint.")
     model = model.to(device)
     model.eval()
     print("Model loaded successfully")
@@ -84,7 +88,7 @@ def load_model(model_path: str, device: torch.device, spectral_channels: int = 6
     return model
 
 
-def generate_samples(model, diffusion_trainer, gt_data, sensor_data, device, num_steps=50, method='ddim'):
+def generate_samples(model, diffusion_trainer, gt_data, sensor_data, device, num_steps=50, method='ddpm'):
     """Generate samples using the trained diffusion model"""
     model.eval()
     
@@ -460,7 +464,7 @@ def visualize_results(args):
     diffusion_trainer = DiffusionTrainer(device=device)
     
     # Get wavelengths from dataset
-    wavelengths = dataset.wavelens[:args.spectral_channels]
+    wavelengths = dataset.wavelens[:args.spectral_channels] if args.dataset == 'HASCID' else dataset.new_wavelens[:args.spectral_channels]
     
     # For sensor data, create appropriate wavelength array
     sensor_wavelengths = np.linspace(400, 1000, args.sensor_channels)

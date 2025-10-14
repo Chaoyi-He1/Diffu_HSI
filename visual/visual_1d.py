@@ -44,7 +44,7 @@ def get_parser() -> argparse.ArgumentParser:
     parser.add_argument('--method', type=str, default='ddpm', choices=['ddpm', 'ddim'], help='sampling method')
     
     # device
-    parser.add_argument('--device', type=str, default='cuda:1', help='device to use for computation')
+    parser.add_argument('--device', type=str, default='cuda', help='device to use for computation')
     parser.add_argument('--seed', type=int, default=42, help='random seed')
     
     return parser
@@ -284,7 +284,7 @@ def visualize_results(args):
     for batch_idx, batch in enumerate(tqdm(dataloader, desc="Processing examples")):
         if examples_processed >= args.num_examples:
             break
-        if  batch_idx <= 1:
+        if  batch_idx <= 3:
             continue
         # Extract data from batch
         gt_data, sensor_data = batch
@@ -310,6 +310,9 @@ def visualize_results(args):
             else:
                 single_gt_1d = single_gt
 
+            print(f"GT data range: [{single_gt_1d.min().item()}, {single_gt_1d.max().item()}]")
+            print(f"Sensor data range: [{single_sensor.min().item()}, {single_sensor.max().item()}]")
+            
             # Generate samples
             with torch.no_grad():
                 generated_data = generate_samples(
