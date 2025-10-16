@@ -242,19 +242,19 @@ class U2NetHyperspectral(nn.Module):
     
     Architecture Overview (B=batch, L=spectral_channels, H=height, W=width, Base_C=base_channels):
         Input [B, L, H, W]
-        ├── Stage1 (UNet Block) ─────────────────────────────────┐
-        │   └── Pool1 [B, Base_C, H, W] → [B, Base_C, H/2, W/2]  │
-        ├── Stage2 (UNet Block) ─────────────────────┐           │
+        ├── Stage1 (UNet Block) ────────────────────────────────────────┐
+        │   └── Pool1 [B, Base_C, H, W] → [B, Base_C, H/2, W/2]         │
+        ├── Stage2 (UNet Block) ─────────────────────┐                  │
         │   └── Pool2 [B, Base_C*2, H/2, W/2] → [B, Base_C*2, H/4, W/4] │           
-        ├── Stage3 (UNet Block) ──────────┐          │           │
+        ├── Stage3 (UNet Block) ──────────┐          │                  │
         │   └── Pool3 [B, Base_C*4, H/4, W/4] → [B, Base_C*4, H/8, W/8] │                   
-        ├── Bridge [B, Base_C*8, H/8, W/8]   │          │           │
-        │   └── Up1                         │          │           │
-        ├── Stage4 (UNet Block) ←─────────┘          │           │
-        │   └── Up2                                  │           │
-        ├── Stage5 (UNet Block) ←────────────────────┘           │
-        │   └── Up3                                              │
-        └── Stage6 (UNet Block) ←────────────────────────────────┘
+        ├── Bridge [B, Base_C*8, H/8, W/8]│          │                  │
+        │   └── Up1                       │          │                  │
+        ├── Stage4 (UNet Block) ←─────────┘          │                  │
+        │   └── Up2                                  │                  │
+        ├── Stage5 (UNet Block) ←────────────────────┘                  │
+        │   └── Up3                                                     │
+        └── Stage6 (UNet Block) ←───────────────────────────────────────┘
         
     Channel Dimensions (Base_C = base_channels):
         - Stage1: Base_C      (base_channels)
