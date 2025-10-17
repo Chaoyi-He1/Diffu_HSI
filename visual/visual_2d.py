@@ -132,106 +132,68 @@ def extract_spatial_region(data, region_type='center', region_size=(32, 32)):
     return data[:, :, h_start:h_end, w_start:w_end], (h_start, w_start, h_end, w_end)
 
 
-def create_comparison_plot(gt_data, sensor_data, generated_data, wavelengths, sensor_wavelengths, 
-                         example_idx, save_path, spatial_region='center', num_spectral_bands=6):
+def create_comparison_plot(gt_data, sensor_data, generated_data, wavelengths,  
+                           example_idx, save_path, spatial_region='center'):
     """Create comprehensive comparison plots for a single example"""
     
     # Ensure save path exists
     os.makedirs(save_path, exist_ok=True)
     
-    # Extract single image from batch
-    gt_img = gt_data[0].cpu().numpy()  # [spectral_channels, H, W]
-    sensor_img = sensor_data[0].cpu().numpy()  # [sensor_channels, H, W]
-    generated_img = generated_data[0].cpu().numpy()  # [spectral_channels, H, W]
-    
-    C, H, W = gt_img.shape
-    
-    # Select RGB bands for visualization (assuming wavelengths cover visible range)
-    if len(wavelengths) >= 3:
-        # Find closest to RGB wavelengths (650nm Red, 550nm Green, 450nm Blue)
-        rgb_indices = [
-            np.argmin(np.abs(wavelengths - 650)),  # Red
-            np.argmin(np.abs(wavelengths - 550)),  # Green
-            np.argmin(np.abs(wavelengths - 450))   # Blue
-        ]
-    else:
-        # Use first, middle, and last channels if wavelength info is not available
-        rgb_indices = [0, C//2, C-1]
-    
-    # Create RGB images for visualization
-    gt_rgb = np.stack([gt_img[rgb_indices[0]], gt_img[rgb_indices[1]], gt_img[rgb_indices[2]]], axis=-1)
-    generated_rgb = np.stack([generated_img[rgb_indices[0]], generated_img[rgb_indices[1]], generated_img[rgb_indices[2]]], axis=-1)
-    
-    # Normalize RGB images to [0, 1]
-    gt_rgb = np.clip(gt_rgb / np.max(gt_rgb), 0, 1)
-    generated_rgb = np.clip(generated_rgb / np.max(generated_rgb), 0, 1)
-    
-    # Create the main comparison figure
-    fig, axes = plt.subplots(2, 3, figsize=(18, 12))
-    fig.suptitle(f'Example {example_idx + 1}: 2D HSI Reconstruction Comparison', fontsize=16)
-    
-    # Plot 1: Ground Truth RGB
-    axes[0, 0].imshow(gt_rgb)
-    axes[0, 0].set_title('Ground Truth (RGB)')
-    axes[0, 0].axis('off')
-    
-    # Plot 2: Generated RGB
-    axes[0, 1].imshow(generated_rgb)
-    axes[0, 1].set_title('Generated (RGB)')
-    axes[0, 1].axis('off')
-    
-    # Plot 3: Difference RGB
-    diff_rgb = np.abs(gt_rgb - generated_rgb)
-    axes[0, 2].imshow(diff_rgb)
-    axes[0, 2].set_title('Absolute Difference (RGB)')
-    axes[0, 2].axis('off')
-    
-    # Plot 4: Selected spectral bands - Ground Truth
-    band_indices = np.linspace(0, C-1, num_spectral_bands, dtype=int)
-    for i, band_idx in enumerate(band_indices[:3]):  # Show first 3 bands
-        ax = axes[1, i]
-        im = ax.imshow(gt_img[band_idx], cmap='viridis')
-        ax.set_title(f'GT Band {band_idx} ({wavelengths[band_idx]:.1f}nm)')
-        ax.axis('off')
-        plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
-    
-    plt.tight_layout()
-    
-    # Save RGB comparison plot
-    plot_path = os.path.join(save_path, f'comparison_2d_example_{example_idx + 1}.png')
-    plt.savefig(plot_path, dpi=300, bbox_inches='tight')
-    plt.close()
-    
-    # Create spectral comparison figure
-    fig, axes = plt.subplots(2, 3, figsize=(18, 12))
-    fig.suptitle(f'Example {example_idx + 1}: Spectral Band Comparison', fontsize=16)
-    
-    # Show more spectral bands comparison
-    for i, band_idx in enumerate(band_indices[:6]):
-        row = i // 3
-        col = i % 3
+    B, C, H, W = gt_data.shape
+    for idx in range(B):
         
-        # Create subplot with GT and Generated side by side
-        ax = axes[row, col]
+        # Extract single image from batch
+        gt_img = gt_data[idx].cpu().numpy()  # [spectral_channels, H, W]
+        sensor_img = sensor_data[idx].cpu().numpy()  # [sensor_channels, H, W]
+        generated_img = generated_data[idx].cpu().numpy()  # [spectral_channels, H, W]
+
+        # Select RGB bands for visualization (assuming wavelengths cover visible range)
+        if len(wavelengths) >= 3:
+            # Find closest to RGB wavelengths (650nm Red, 550nm Green, 450nm Blue)
+            rgb_indices = [
+                np.argmin(np.abs(wavelengths - 650)),  # Red
+                np.argmin(np.abs(wavelengths - 550)),  # Green
+                np.argmin(np.abs(wavelengths - 450))   # Blue
+            ]
+        else:
+            # Use first, middle, and last channels if wavelength info is not available
+            rgb_indices = [0, C//2, C-1]
         
-        # Combine GT and Generated horizontally for comparison
-        combined_img = np.concatenate([gt_img[band_idx], generated_img[band_idx]], axis=1)
-        im = ax.imshow(combined_img, cmap='viridis')
-        ax.set_title(f'Band {band_idx} ({wavelengths[band_idx]:.1f}nm)\nLeft: GT, Right: Generated')
-        ax.axis('off')
+        # Create RGB images for visualization
+        gt_rgb = np.stack([gt_img[rgb_indices[0]], gt_img[rgb_indices[1]], gt_img[rgb_indices[2]]], axis=-1)
+        generated_rgb = np.stack([generated_img[rgb_indices[0]], generated_img[rgb_indices[1]], generated_img[rgb_indices[2]]], axis=-1)
         
-        # Add a vertical line to separate GT and Generated
-        ax.axvline(x=W-0.5, color='white', linewidth=2, linestyle='--')
+        # Normalize RGB images to [0, 1]
+        gt_rgb = np.clip((gt_rgb - np.min(gt_rgb)) / (np.max(gt_rgb) - np.min(gt_rgb)), 0, 1)
+        generated_rgb = np.clip((generated_rgb - np.min(generated_rgb)) / (np.max(generated_rgb) - np.min(generated_rgb)), 0, 1)
+
+        # Create the main comparison figure
+        fig, axes = plt.subplots(1, 3, figsize=(18, 12))
+        fig.suptitle(f'Example {example_idx + 1}: 2D HSI Reconstruction Comparison', fontsize=16)
         
-        plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
-    
-    plt.tight_layout()
-    
-    # Save spectral comparison plot
-    spectral_path = os.path.join(save_path, f'spectral_2d_example_{example_idx + 1}.png')
-    plt.savefig(spectral_path, dpi=300, bbox_inches='tight')
-    plt.close()
-    
+        # Plot 1: Ground Truth RGB
+        axes[0, 0].imshow(gt_rgb)
+        axes[0, 0].set_title('Ground Truth (RGB)')
+        axes[0, 0].axis('off')
+        
+        # Plot 2: Generated RGB
+        axes[0, 1].imshow(generated_rgb)
+        axes[0, 1].set_title('Generated (RGB)')
+        axes[0, 1].axis('off')
+        
+        # Plot 3: Difference RGB
+        diff_rgb = np.abs(gt_rgb - generated_rgb)
+        axes[0, 2].imshow(diff_rgb)
+        axes[0, 2].set_title('Absolute Difference (RGB)')
+        axes[0, 2].axis('off')
+        
+        plt.tight_layout()
+        
+        # Save RGB comparison plot
+        plot_path = os.path.join(save_path, f'comparison_2d_example_{example_idx + 1 + idx}.png')
+        plt.savefig(plot_path, dpi=300, bbox_inches='tight')
+        plt.close()
+        
     # Pixel-wise spectral analysis
     create_spectral_analysis_plot(gt_img, generated_img, wavelengths, example_idx, save_path, spatial_region)
     
@@ -256,10 +218,10 @@ def create_comparison_plot(gt_data, sensor_data, generated_data, wavelengths, se
 def create_spectral_analysis_plot(gt_img, generated_img, wavelengths, example_idx, save_path, spatial_region='center'):
     """Create detailed spectral analysis plots"""
     
-    C, H, W = gt_img.shape
+    B, C, H, W = gt_img.shape
     
     # Extract a spatial region for detailed analysis
-    region_size = (min(32, H), min(32, W))
+    region_size = (H, W)
     
     if spatial_region == 'center':
         h_start = max(0, (H - region_size[0]) // 2)
@@ -273,55 +235,57 @@ def create_spectral_analysis_plot(gt_img, generated_img, wavelengths, example_id
     h_end = min(H, h_start + region_size[0])
     w_end = min(W, w_start + region_size[1])
     
-    # Sample a few pixels for spectral profile comparison
-    sample_pixels = [(h_start + i, w_start + j) for i in range(0, h_end-h_start, max(1, (h_end-h_start)//4))
-                     for j in range(0, w_end-w_start, max(1, (w_end-w_start)//4))][:9]  # Max 9 pixels
-    
-    # Create spectral profile plots
-    fig, axes = plt.subplots(3, 3, figsize=(18, 15))
-    fig.suptitle(f'Example {example_idx + 1}: Spectral Profile Analysis', fontsize=16)
-    
-    for idx, (h, w) in enumerate(sample_pixels):
-        if idx >= 9:
-            break
+    for b_idx in range(B):
+        
+        # Sample a few pixels for spectral profile comparison
+        sample_pixels = [(h_start + i, w_start + j) for i in range(0, h_end-h_start, max(1, (h_end-h_start)//4))
+                        for j in range(0, w_end-w_start, max(1, (w_end-w_start)//4))][:9]  # Max 9 pixels
+        
+        # Create spectral profile plots
+        fig, axes = plt.subplots(3, 3, figsize=(18, 15))
+        fig.suptitle(f'Example {example_idx + 1}: Spectral Profile Analysis', fontsize=16)
+        
+        for idx, (h, w) in enumerate(sample_pixels):
+            if idx >= 9:
+                break
+                
+            row = idx // 3
+            col = idx % 3
+            ax = axes[row, col]
             
-        row = idx // 3
-        col = idx % 3
-        ax = axes[row, col]
+            gt_spectrum = gt_img[b_idx, :, h, w]
+            generated_spectrum = generated_img[b_idx, :, h, w]
+            
+            ax.plot(wavelengths, gt_spectrum, 'b-', linewidth=2, label='Ground Truth', alpha=0.8)
+            ax.plot(wavelengths, generated_spectrum, 'r--', linewidth=2, label='Generated', alpha=0.8)
+            
+            ax.set_title(f'Pixel ({h}, {w})')
+            ax.set_xlabel('Wavelength (nm)')
+            ax.set_ylabel('Reflectance')
+            ax.grid(True, alpha=0.3)
+            ax.legend()
+            
+            # Calculate and display pixel-wise metrics
+            pixel_mse = np.mean((gt_spectrum - generated_spectrum) ** 2)
+            pixel_mae = np.mean(np.abs(gt_spectrum - generated_spectrum))
+            
+            # Add metrics text
+            metrics_text = f'MSE: {pixel_mse:.6f}\nMAE: {pixel_mae:.6f}'
+            ax.text(0.02, 0.98, metrics_text, transform=ax.transAxes, 
+                verticalalignment='top', bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8))
         
-        gt_spectrum = gt_img[:, h, w]
-        generated_spectrum = generated_img[:, h, w]
+        # Hide empty subplots
+        for idx in range(len(sample_pixels), 9):
+            row = idx // 3
+            col = idx % 3
+            axes[row, col].axis('off')
         
-        ax.plot(wavelengths, gt_spectrum, 'b-', linewidth=2, label='Ground Truth', alpha=0.8)
-        ax.plot(wavelengths, generated_spectrum, 'r--', linewidth=2, label='Generated', alpha=0.8)
+        plt.tight_layout()
         
-        ax.set_title(f'Pixel ({h}, {w})')
-        ax.set_xlabel('Wavelength (nm)')
-        ax.set_ylabel('Reflectance')
-        ax.grid(True, alpha=0.3)
-        ax.legend()
-        
-        # Calculate and display pixel-wise metrics
-        pixel_mse = np.mean((gt_spectrum - generated_spectrum) ** 2)
-        pixel_mae = np.mean(np.abs(gt_spectrum - generated_spectrum))
-        
-        # Add metrics text
-        metrics_text = f'MSE: {pixel_mse:.6f}\nMAE: {pixel_mae:.6f}'
-        ax.text(0.02, 0.98, metrics_text, transform=ax.transAxes, 
-               verticalalignment='top', bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8))
-    
-    # Hide empty subplots
-    for idx in range(len(sample_pixels), 9):
-        row = idx // 3
-        col = idx % 3
-        axes[row, col].axis('off')
-    
-    plt.tight_layout()
-    
-    # Save spectral analysis plot
-    spectral_analysis_path = os.path.join(save_path, f'spectral_analysis_2d_example_{example_idx + 1}.png')
-    plt.savefig(spectral_analysis_path, dpi=300, bbox_inches='tight')
-    plt.close()
+        # Save spectral analysis plot
+        spectral_analysis_path = os.path.join(save_path, f'spectral_analysis_2d_example_{example_idx + 1 + b_idx}.png')
+        plt.savefig(spectral_analysis_path, dpi=300, bbox_inches='tight')
+        plt.close()
 
 
 def create_summary_plot(all_metrics, save_path):
@@ -451,14 +415,15 @@ def visualize_results(args):
         raise ValueError(f"Unsupported dataset: {args.dataset}")
     
     # Create dataloader with image collate function
-    dataloader = DataLoader(dataset, batch_size=1, shuffle=True, 
-                          collate_fn=image_collate_fn)
+    args.batch_size = min(args.num_examples, 2)
+    dataloader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True, 
+                            collate_fn=image_collate_fn)
     
     print(f"Dataset loaded. Total samples: {len(dataset)}")
     
     # Load model
     model = load_model(args.model_path, device, args.spectral_channels, 
-                      args.sensor_channels, args.base_channels)
+                       args.sensor_channels, args.base_channels)
     
     # Initialize diffusion trainer
     diffusion_trainer = DiffusionTrainer(device=device)
@@ -481,7 +446,10 @@ def visualize_results(args):
             
         # Extract data from batch
         gt_data, sensor_data = batch
-        
+        if examples_processed + gt_data.shape[0] > args.num_examples:
+            gt_data = gt_data[:args.num_examples - examples_processed]
+            sensor_data = sensor_data[:args.num_examples - examples_processed]
+
         # Move to device
         gt_data = gt_data.to(device)
         sensor_data = sensor_data.to(device)
@@ -505,13 +473,12 @@ def visualize_results(args):
         # Create comparison plots
         example_metrics = create_comparison_plot(
             gt_data, sensor_data, generated_data,
-            wavelengths, sensor_wavelengths,
-            examples_processed, args.save_path, 
-            args.spatial_region, args.num_spectral_bands
+            wavelengths, examples_processed, args.save_path, 
+            args.spatial_region
         )
         
         all_metrics.append(example_metrics)
-        examples_processed += 1
+        examples_processed += args.batch_size
         
         print(f"Example {examples_processed} metrics:")
         print(f"  MSE: {example_metrics['mse']:.6f}")

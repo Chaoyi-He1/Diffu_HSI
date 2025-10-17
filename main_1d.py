@@ -43,16 +43,22 @@ def get_parser() -> argparse.ArgumentParser:
     parser.add_argument('--save_freq', type=int, default=50, help='save frequency (default: 50)')
     parser.add_argument('--lrf', type=float, default=0.1, help='learning rate decay factor')
     parser.add_argument('--scaler', type=str, default='amp', choices=['none', 'amp'], help='use automatic mixed precision training')
+    parser.add_argument('--loss-type', type=str, default='l1', choices=['l1', 'l2'], help='type of loss function')
     
     # output parameters
     parser.add_argument('--resume', type=str, default='results/1d_hsi_diffusion/final_model', help='path to resume a checkpoint')
-    parser.add_argument('--save_path', type=str, default='results/1d_hsi_diffusion/HFD', help='path to save results')
+    parser.add_argument('--save_path', type=str, default='results/1d_hsi_diffusion/HFD/R_1/l1_loss', help='path to save results')
     parser.add_argument('--seed', type=int, default=42, help='random seed')
     parser.add_argument('--device', type=str, default='cuda:1', help='device to use for computation')
     
     return parser
 
 def main(args):
+    # save the args as a text file
+    import json
+    with open(os.path.join(args.save_path, 'args_1d.txt'), 'w') as f:
+        json.dump(vars(args), f, indent=4)
+        
     # set random seed
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
@@ -156,7 +162,7 @@ def main(args):
     model = model.to(args.device)
     
     trainer = DiffusionTrainer(
-        loss_type='l1',
+        loss_type=args.loss_type,
         device=args.device,
     )
     
@@ -195,5 +201,59 @@ def main(args):
 if __name__ == '__main__':
     parser = get_parser()
     args = parser.parse_args()
-    print(args)
+    
+    # Sanity checks for args
+    if "HASCID" in args.data_path:
+        if args.dataset != 'HASCID':
+            args.dataset = 'HASCID'
+            # Make the print to be red text
+            print(f"\033[91mWarning: dataset argument changed to 'HASCID' to match data_path.\033[0m", flush=True) 
+        # check if HASCID is the third last folder in the save_path
+        if "HASCID" not in os.path.normpath(args.save_path).split(os.sep)[-3]:
+            # replace the second last folder with HASCID
+            args.save_path = os.path.join(*os.path.normpath(args.save_path).split(os.sep)[:-3], 'HASCID', os.path.normpath(args.save_path).split(os.sep)[-2:])
+            print(f"\033[91mWarning: save_path argument changed to include 'HASCID' folder.\033[0m", flush=True)
+    elif "HFD" in args.data_path:
+        if args.dataset != 'HFD':
+            args.dataset = 'HFD'
+            print(f"\033[91mWarning: dataset argument changed to 'HFD' to match data_path.\033[0m", flush=True)
+        if "HFD" not in os.path.normpath(args.save_path).split(os.sep)[-3]:
+            args.save_path = os.path.join(*os.path.normpath(args.save_path).split(os.sep)[:-3], 'HFD', os.path.normpath(args.save_path).split(os.sep)[-2:])
+            print(f"\033[91mWarning: save_path argument changed to include 'HFD' folder.\033[0m", flush=True)
+    
+    if args.R_n is None:
+        # check if "PH5" is in the second last folder of save_path
+        if "PH5" not in os.path.normpath(args.save_path).split(os.sep)[-2]:
+            # replace the last folder with PH5
+            args.save_path = os.path.join(*os.path.normpath(args.save_path).split(os.sep)[:-2], 'PH5', os.path.normpath(args.save_path).split(os.sep)[-1])
+            print(f"\033[91mWarning: save_path argument changed to include 'PH5' folder for full measurements.\033[0m", flush=True)
+    elif args.R_n == 1:
+        if "R_1" not in os.path.normpath(args.save_path).split(os.sep)[-1]:
+            args.save_path = os.path.join(*os.path.normpath(args.save_path).split(os.sep)[:-2], 'R_1', os.path.normpath(args.save_path).split(os.sep)[-1])
+            print(f"\033[91mWarning: save_path argument changed to include 'R_1' folder for R_n=1.\033[0m", flush=True)
+    elif args.R_n == 2:
+        if "R_2" not in os.path.normpath(args.save_path).split(os.sep)[-1]:
+            args.save_path = os.path.join(*os.path.normpath(args.save_path).split(os.sep)[:-2], 'R_2', os.path.normpath(args.save_path).split(os.sep)[-1])
+            print(f"\033[91mWarning: save_path argument changed to include 'R_2' folder for R_n=2.\033[0m", flush=True)
+    else:
+        # Raise error if R_n is not 1, 2, or None
+        raise ValueError(f"Unsupported R_n value: {args.R_n}. Supported values are 1, 2, or None for full measurements.")
+    
+    if args.loss_type == 'l1':
+        if 'l1_loss' not in os.path.normpath(args.save_path).split(os.sep)[-1]:
+            args.save_path = os.path.join(*os.path.normpath(args.save_path).split(os.sep)[:-1], 'l1_loss')
+            print(f"\033[91mWarning: save_path argument changed to include 'l1_loss' folder for L1 loss.\033[0m", flush=True)
+    elif args.loss_type == 'l2':
+        if 'l2_loss' not in os.path.normpath(args.save_path).split(os.sep)[-1]:
+            args.save_path = os.path.join(*os.path.normpath(args.save_path).split(os.sep)[:-1], 'l2_loss')
+            print(f"\033[91mWarning: save_path argument changed to include 'l2_loss' folder for L2 loss.\033[0m", flush=True)
+            
+    print("="*80)
+    print("1D HSI Diffusion Model for Direct Hyperspectral Reconstruction")
+    print("="*80)
+    print("Arguments:")
+    for key, value in vars(args).items():
+        print(f"  {key}: {value}")
+    print("="*80)
+    
     main(args)

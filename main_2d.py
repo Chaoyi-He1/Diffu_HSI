@@ -72,7 +72,7 @@ def get_parser() -> argparse.ArgumentParser:
 def main(args):
     # save arguments for reproducibility
     import json
-    with open(os.path.join(args.save_path, 'args.json'), 'w') as f:
+    with open(os.path.join(args.save_path, 'args_2d.json'), 'w') as f:
         json.dump(vars(args), f, indent=2)
         
     # set random seed
@@ -281,6 +281,52 @@ def main(args):
 if __name__ == '__main__':
     parser = get_parser()
     args = parser.parse_args()
+    
+    # Sanity checks for args
+    if "HASCID" in args.data_path:
+        if args.dataset != 'HASCID':
+            args.dataset = 'HASCID'
+            # Make the print to be red text
+            print(f"\033[91mWarning: dataset argument changed to 'HASCID' to match data_path.\033[0m", flush=True) 
+        # check if HASCID is the second last folder in the save_path
+        if "HASCID" not in os.path.normpath(args.save_path).split(os.sep)[-2]:
+            # replace the second last folder with HASCID
+            args.save_path = os.path.join(*os.path.normpath(args.save_path).split(os.sep)[:-2], 'HASCID', os.path.normpath(args.save_path).split(os.sep)[-1])
+            print(f"\033[91mWarning: save_path argument changed to include 'HASCID' folder.\033[0m", flush=True)
+    elif "HFD" in args.data_path:
+        if args.dataset != 'HFD':
+            args.dataset = 'HFD'
+            print(f"\033[91mWarning: dataset argument changed to 'HFD' to match data_path.\033[0m", flush=True)
+        if "HFD" not in os.path.normpath(args.save_path).split(os.sep)[-2]:
+            args.save_path = os.path.join(*os.path.normpath(args.save_path).split(os.sep)[:-2], 'HFD', os.path.normpath(args.save_path).split(os.sep)[-1])
+            print(f"\033[91mWarning: save_path argument changed to include 'HFD' folder.\033[0m", flush=True)
+    
+    if args.R_n is None:
+        # check if "PH5" is in the last folder of save_path
+        if "PH5" not in os.path.normpath(args.save_path).split(os.sep)[-1]:
+            # replace the last folder with PH5
+            args.save_path = os.path.join(*os.path.normpath(args.save_path).split(os.sep)[:-1], 'PH5')
+            print(f"\033[91mWarning: save_path argument changed to include 'PH5' folder for full measurements.\033[0m", flush=True)
+    elif args.R_n == 1:
+        if "R_1" not in os.path.normpath(args.save_path).split(os.sep)[-1]:
+            args.save_path = os.path.join(*os.path.normpath(args.save_path).split(os.sep)[:-1], 'R_1')
+            print(f"\033[91mWarning: save_path argument changed to include 'R_1' folder for R_n=1.\033[0m", flush=True)
+    elif args.R_n == 2:
+        if "R_2" not in os.path.normpath(args.save_path).split(os.sep)[-1]:
+            args.save_path = os.path.join(*os.path.normpath(args.save_path).split(os.sep)[:-1], 'R_2')
+            print(f"\033[91mWarning: save_path argument changed to include 'R_2' folder for R_n=2.\033[0m", flush=True)
+    else:
+        # Raise error if R_n is not 1, 2, or None
+        raise ValueError(f"Unsupported R_n value: {args.R_n}. Supported values are 1, 2, or None for full measurements.")
+    
+    if args.loss_type == 'l1':
+        if 'l1_loss' not in os.path.normpath(args.save_path).split(os.sep)[-1]:
+            args.save_path = os.path.join(*os.path.normpath(args.save_path).split(os.sep)[:-1], 'l1_loss')
+            print(f"\033[91mWarning: save_path argument changed to include 'l1_loss' folder for L1 loss.\033[0m", flush=True)
+    elif args.loss_type == 'l2':
+        if 'l2_loss' not in os.path.normpath(args.save_path).split(os.sep)[-1]:
+            args.save_path = os.path.join(*os.path.normpath(args.save_path).split(os.sep)[:-1], 'l2_loss')
+            print(f"\033[91mWarning: save_path argument changed to include 'l2_loss' folder for L2 loss.\033[0m", flush=True)
     
     print("="*80)
     print("2D U-Net Diffusion Model for Direct Hyperspectral Reconstruction")
