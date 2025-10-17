@@ -370,12 +370,25 @@ def init_distributed_mode(args):
 
     args.distributed = True
 
+    # Set the device for this process
     torch.cuda.set_device(args.gpu)
     args.dist_backend = 'nccl'
-    print('| distributed init (rank {}): {}'.format(
-        args.rank, args.dist_url), flush=True)
-    torch.distributed.init_process_group(backend=args.dist_backend, init_method=args.dist_url,
-                                         world_size=args.world_size, rank=args.rank)
+    
+    print('| distributed init (rank {}) on GPU {}: {}'.format(
+        args.rank, args.gpu, args.dist_url), flush=True)
+    
+    # Suppress the specific device warning since we've set the device correctly
+    import warnings
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", message="No device id is provided.*")
+        warnings.filterwarnings("ignore", message=".*using GPU .* as device used by this process.*")
+        torch.distributed.init_process_group(
+            backend=args.dist_backend, 
+            init_method=args.dist_url,
+            world_size=args.world_size, 
+            rank=args.rank
+        )
+    
     torch.distributed.barrier()
     setup_for_distributed(args.rank == 0)
 

@@ -5964,3 +5964,8 @@ Epoch: [88]  [ 7200/12244]  eta: 0:32:05  lr: 0.000049  loss: 0.2462 (0.2542)  g
 Epoch: [88]  [ 7400/12244]  eta: 0:30:48  lr: 0.000049  loss: 0.2452 (0.2542)  grad_norm: 265536.7812 (nan)  samples_per_sec: 8.3543 (8.3654)  time: 0.3823  data: 0.0011  max mem: 16175
 Epoch: [88]  [ 7600/12244]  eta: 0:29:32  lr: 0.000049  loss: 0.2474 (0.2542)  grad_norm: 244144.6562 (nan)  samples_per_sec: 8.3885 (8.3654)  time: 0.3799  data: 0.0010  max mem: 16175
 Epoch: [88]  [ 7800/12244]  eta: 0:28:16  lr: 0.000049  loss: 0.2459 (0.2541)  grad_norm: 299689.9062 (nan)  samples_per_sec: 8.4026 (8.3652)  time: 0.3801  data: 0.0010  max mem: 16175
+Epoch: [88]  [ 8000/12244]  eta: 0:26:59  lr: 0.000049  loss: 0.2463 (0.2540)  grad_norm: 152874.3750 (nan)  samples_per_sec: 8.3821 (8.3650)  time: 0.3813  data: 0.0010  max mem: 16175
+Epoch: [88]  [ 8200/12244]  eta: 0:25:43  lr: 0.000049  loss: 0.2474 (0.2541)  grad_norm: 125814.2031 (nan)  samples_per_sec: 8.3856 (8.3655)  time: 0.3808  data: 0.0010  max mem: 16175
+Epoch: [88]  [ 8400/12244]  eta: 0:24:27  lr: 0.000049  loss: 0.2508 (0.2541)  grad_norm: 133909.8594 (nan)  samples_per_sec: 8.3456 (8.3655)  time: 0.3829  data: 0.0010  max mem: 16175
+Epoch: [88]  [ 8600/12244]  eta: 0:23:10  lr: 0.000049  loss: 0.2466 (0.2541)  grad_norm: 145575.9375 (nan)  samples_per_sec: 8.3766 (8.3660)  time: 0.3811  data: 0.0010  max mem: 16175
+Epoch: [88]  [ 8800/12244]  eta: 0:21:54  lr: 0.000049  loss: 0.2513 (0.2541)  grad_norm: 129585.2500 (nan)  samples_per_sec: 8.3678 (8.3664)  time: 0.3819  data: 0.0010  max mem: 16175

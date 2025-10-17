@@ -55,6 +55,8 @@ def get_parser() -> argparse.ArgumentParser:
 
 def main(args):
     # save the args as a text file
+    if not os.path.exists(args.save_path):
+        os.makedirs(args.save_path)
     import json
     with open(os.path.join(args.save_path, 'args_1d.txt'), 'w') as f:
         json.dump(vars(args), f, indent=4)
@@ -123,6 +125,8 @@ def main(args):
         condition_dim=args.sensor_channels,
         base_channels=args.base_channels,
     )
+    print(f"Model created: U2Net1D with base channels {args.base_channels}")
+    print(f"Total model parameters: {sum(p.numel() for p in model.parameters() if p.requires_grad):,}")
     
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.num_epochs, eta_min=args.lr * args.lrf)
@@ -230,11 +234,11 @@ if __name__ == '__main__':
             args.save_path = os.path.join(*os.path.normpath(args.save_path).split(os.sep)[:-2], 'PH5', os.path.normpath(args.save_path).split(os.sep)[-1])
             print(f"\033[91mWarning: save_path argument changed to include 'PH5' folder for full measurements.\033[0m", flush=True)
     elif args.R_n == 1:
-        if "R_1" not in os.path.normpath(args.save_path).split(os.sep)[-1]:
+        if "R_1" not in os.path.normpath(args.save_path).split(os.sep)[-2]:
             args.save_path = os.path.join(*os.path.normpath(args.save_path).split(os.sep)[:-2], 'R_1', os.path.normpath(args.save_path).split(os.sep)[-1])
             print(f"\033[91mWarning: save_path argument changed to include 'R_1' folder for R_n=1.\033[0m", flush=True)
     elif args.R_n == 2:
-        if "R_2" not in os.path.normpath(args.save_path).split(os.sep)[-1]:
+        if "R_2" not in os.path.normpath(args.save_path).split(os.sep)[-2]:
             args.save_path = os.path.join(*os.path.normpath(args.save_path).split(os.sep)[:-2], 'R_2', os.path.normpath(args.save_path).split(os.sep)[-1])
             print(f"\033[91mWarning: save_path argument changed to include 'R_2' folder for R_n=2.\033[0m", flush=True)
     else:

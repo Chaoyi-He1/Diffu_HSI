@@ -8,9 +8,13 @@ import time
 import numpy as np
 import random
 from torch.utils.data import DataLoader
+import torch.distributed as dist
+import torch.multiprocessing
 from train_eval.train_2d import *
 from data_loader.my_dataset import HASCID_data, pixel_collate_fn, image_collate_fn
 from data_loader.HFD_dataset import HFD_data
+
+torch.multiprocessing.set_sharing_strategy('file_system')
 
 
 def get_parser() -> argparse.ArgumentParser:
@@ -23,7 +27,7 @@ def get_parser() -> argparse.ArgumentParser:
                         help='training mode, if pixel, then randomly sample pixels from all training images; \
                              if image, then randomly sample images')
     parser.add_argument('--num_workers', type=int, default=4, help='number of workers to load data')
-    parser.add_argument('--batch_size', type=int, default=3, help='input batch size for training (smaller for direct training)')
+    parser.add_argument('--batch_size', type=int, default=6, help='input batch size for training (smaller for direct training)')
     parser.add_argument('--eval_ratio', type=float, default=0.1, help='the ratio of test data during training')
     parser.add_argument('--R-n', type=int, default=1, help='the number of random measurements, if None, then use full measurements')
     parser.add_argument('--dataset', type=str, choices=['HASCID', 'HFD'], default='HFD', help='which dataset to use')
@@ -62,14 +66,26 @@ def get_parser() -> argparse.ArgumentParser:
     parser.add_argument('--seed', type=int, default=42, help='random seed')
     parser.add_argument('--device', type=str, default='cuda', help='device to use for computation')
     
+    # distributed training parameter
+    parser.add_argument('--world_size', default=1, type=int,
+                        help='number of distributed processes')
+    parser.add_argument('--dist_url', default='env://', type=str,
+                        help='url used to set up distributed training')
+    
     return parser
 
 
 def main(args):
-    # save arguments for reproducibility
-    import json
-    with open(os.path.join(args.save_path, 'args_2d.json'), 'w') as f:
-        json.dump(vars(args), f, indent=2)
+    utils.init_distributed_mode(args)
+    
+    # Only save arguments on main process and create directory
+    if utils.is_main_process():
+        os.makedirs(args.save_path, exist_ok=True)
+        import json
+        with open(os.path.join(args.save_path, 'args_2d_multi_gpu.json'), 'w') as f:
+            json.dump(vars(args), f, indent=2)
+    
+    assert args.batch_size % args.world_size == 0, "--batch-size must be divisible by number of GPUs"
         
     # set random seed
     torch.manual_seed(args.seed)
@@ -78,12 +94,14 @@ def main(args):
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(args.seed)
     
-    device = torch.device(args.device if torch.cuda.is_available() else 'cpu')
-    args.device = device
-    print(f"Using device: {device}")
+    # Set device based on distributed setup
+    if hasattr(args, 'gpu') and args.gpu is not None:
+        device = torch.device(f'cuda:{args.gpu}')
+    else:
+        device = torch.device(args.device if torch.cuda.is_available() else 'cpu')
     
-    # create save directory
-    os.makedirs(args.save_path, exist_ok=True)
+    args.device = device
+    print(f"Using device: {device} (rank {args.rank})")
     
     # create dataset and dataloader
     if args.dataset == 'HASCID':
@@ -115,20 +133,53 @@ def main(args):
     else:
         raise ValueError(f"Unsupported dataset: {args.dataset}")
     
+    # Create distributed samplers
+    sampler_train = torch.utils.data.distributed.DistributedSampler(
+        train_dataset,
+        num_replicas=dist.get_world_size(),
+        rank=args.rank,
+        shuffle=True,
+        seed=args.seed
+        )
+    sampler_eval = torch.utils.data.distributed.DistributedSampler(
+        eval_dataset,
+        num_replicas=dist.get_world_size(),
+        rank=args.rank,
+        shuffle=False,
+        seed=args.seed
+        )
+    
+    nw = min([os.cpu_count(), int(args.batch_size // dist.get_world_size()) if int(args.batch_size // dist.get_world_size()) > 1 else 0, 2])  # number of workers
+    if args.rank in [-1, 0]:
+        print(f"Using {nw} dataloader workers per GPU (total {nw * dist.get_world_size()})")
+    
     if args.train_mode == 'pixel':
-        train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, 
-                                  num_workers=args.num_workers, collate_fn=pixel_collate_fn)
-        eval_loader = DataLoader(eval_dataset, batch_size=args.batch_size, shuffle=False, 
-                                 num_workers=args.num_workers, collate_fn=pixel_collate_fn)
+        train_loader = DataLoader(train_dataset, 
+                                  batch_size=int(args.batch_size // dist.get_world_size()), 
+                                  sampler=sampler_train,
+                                  num_workers=nw, 
+                                  collate_fn=pixel_collate_fn)
+        eval_loader = DataLoader(eval_dataset, 
+                                 batch_size=int(args.batch_size // dist.get_world_size()), 
+                                 sampler=sampler_eval,
+                                 num_workers=nw, 
+                                 collate_fn=pixel_collate_fn)
     else:
         # Use image collate function for proper 2D image handling
-        train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, 
-                                  num_workers=args.num_workers, collate_fn=image_collate_fn)
-        eval_loader = DataLoader(eval_dataset, batch_size=args.batch_size, shuffle=False, 
-                                 num_workers=args.num_workers, collate_fn=image_collate_fn)
-    
-    print(f"Number of training samples: {len(train_dataset)}")
-    print(f"Number of evaluation samples: {len(eval_dataset)}")
+        train_loader = DataLoader(train_dataset, 
+                                  batch_size=int(args.batch_size // dist.get_world_size()), 
+                                  sampler=sampler_train,
+                                  num_workers=nw, 
+                                  collate_fn=image_collate_fn)
+        eval_loader = DataLoader(eval_dataset, 
+                                 batch_size=int(args.batch_size // dist.get_world_size()), 
+                                 sampler=sampler_eval,
+                                 num_workers=nw, 
+                                 collate_fn=image_collate_fn)
+
+    if args.rank in [-1, 0]:
+        print(f"Number of training samples: {len(train_dataset)}")
+        print(f"Number of evaluation samples: {len(eval_dataset)}")
     
     # Create diffusion model - operates directly on hyperspectral data
     model = U2NetHyperspectral(
@@ -136,10 +187,6 @@ def main(args):
         sensor_channels=args.sensor_channels,
         base_channels=args.base_channels,
     )
-    
-    optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
-    lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.num_epochs, eta_min=args.lr * args.lrf)
-    scaler = torch.amp.GradScaler(enabled=(args.scaler == 'amp'))
     
     # Create diffusion trainer
     trainer = DiffusionTrainer(
@@ -153,9 +200,9 @@ def main(args):
     # load trained diffusion model if exists
     start_epoch = 0
     if args.resume and args.resume.endswith('.pth') and os.path.exists(args.resume):
-        print(f"Loading diffusion model from {args.resume}")
+        print(f"Loading diffusion model from {args.resume} (rank {args.rank})")
+            
         ckpt = torch.load(args.resume, weights_only=False, map_location='cpu')
-        
         model.load_state_dict(ckpt['model_state_dict'], strict=True)
         
         # Verify model loading
@@ -163,7 +210,10 @@ def main(args):
             if not torch.equal(v, ckpt['model_state_dict'][k]):
                 print(f"Parameter {k} not loaded correctly.")
                 raise ValueError(f"Parameter {k} not loaded correctly.")
-        print(f"Diffusion model loaded successfully from {args.resume}")
+                print(f"Parameter {k} not loaded correctly.")
+                raise ValueError(f"Parameter {k} not loaded correctly.")
+        if args.rank in [-1, 0]:
+            print(f"Diffusion model loaded successfully from {args.resume}")
         
         # if 'optimizer_state_dict' in ckpt and ckpt['optimizer_state_dict'] is not None:
         #     optimizer.load_state_dict(ckpt['optimizer_state_dict'])
@@ -183,38 +233,68 @@ def main(args):
         del ckpt  # free memory
         torch.cuda.empty_cache() # clear cache
     else:
-        if args.resume:
+        if args.resume and args.rank in [-1, 0]:
             print(f"Checkpoint file {args.resume} not found, training from scratch.")
-        else:
+        elif args.rank in [-1, 0]:
             print("No diffusion model checkpoint specified, training from scratch.")
     
-    model = model.to(args.device)
+    # Move model to device before wrapping with DDP
+    model = model.to(device)
     
-    print(f"\nModel Architecture:")
-    print(f"Direct 2D Hyperspectral Diffusion U-Net")
-    print(f"Spectral channels: {args.spectral_channels}")
-    print(f"Sensor condition channels: {args.sensor_channels}")
-    print(f"Base channels: {args.base_channels}")
-    print(f"Total model parameters: {sum(p.numel() for p in model.parameters() if p.requires_grad):,}")
+    # Wrap model with DistributedDataParallel
+    # Enhanced configuration to handle gradient stride mismatches in U-Net architectures
+    if args.distributed:
+        # For U-Net models with complex layer patterns, we use the most conservative settings
+        model = torch.nn.parallel.DistributedDataParallel(
+            model, 
+            device_ids=[args.gpu], 
+            output_device=args.gpu,
+            find_unused_parameters=False,
+            gradient_as_bucket_view=False,  # Disable bucket views to avoid stride issues
+            bucket_cap_mb=10,               # Very small bucket size for U-Net compatibility
+            # Note: static_graph=True removed as it can cause issues with dynamic U-Net structures
+        )
+    else:
+        # For single GPU fallback
+        pass
     
-    # Calculate memory usage estimate
-    sample_input = torch.randn(args.batch_size, args.spectral_channels, 64, 64).to(device)
-    sample_condition = torch.randn(args.batch_size, args.sensor_channels, 64, 64).to(device)
-    sample_time = torch.randint(0, args.timesteps, (args.batch_size,)).to(device)
+    optimizer = torch.optim.AdamW(model.module.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+    lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.num_epochs, eta_min=args.lr * args.lrf)
+    scaler = torch.amp.GradScaler(enabled=(args.scaler == 'amp'))
+    
+    lr_scheduler.last_epoch = start_epoch - 1  # Adjust for lr_scheduler step
+    
+    if args.rank in [-1, 0]:
+        print(f"\nModel Architecture:")
+        print(f"Direct 2D Hyperspectral Diffusion U-Net (Multi-GPU: {args.distributed})")
+        print(f"Spectral channels: {args.spectral_channels}")
+        print(f"Sensor condition channels: {args.sensor_channels}")
+        print(f"Base channels: {args.base_channels}")
+        print(f"Total model parameters: {sum(p.numel() for p in model.module.parameters() if p.requires_grad):,}")
+        print(f"World size: {args.world_size}, Effective batch size: {args.batch_size}")
+    
+    # Calculate memory usage estimate with per-GPU batch size
+    batch_size_per_gpu = int(args.batch_size // args.world_size)
+    sample_input = torch.randn(batch_size_per_gpu, args.spectral_channels, 64, 64).to(device)
+    sample_condition = torch.randn(batch_size_per_gpu, args.sensor_channels, 64, 64).to(device)
+    sample_time = torch.randint(0, args.timesteps, (batch_size_per_gpu,)).to(device)
     
     model.eval()
     with torch.no_grad():
         try:
             _ = model(sample_input, sample_condition, sample_time)
-            print(f"Model forward pass successful with batch size {args.batch_size}")
+            print(f"Model forward pass successful with batch size {batch_size_per_gpu} on GPU {args.rank}")
         except RuntimeError as e:
             if "out of memory" in str(e):
-                print(f"WARNING: Batch size {args.batch_size} may be too large for available GPU memory")
+                print(f"WARNING: Batch size {batch_size_per_gpu} may be too large for GPU {args.rank}")
                 print("Consider reducing batch_size or base_channels")
             raise e
     model.train()
     
     # start training with the training functions from train_2d.py
+    # Only save on main process
+    save_dir = args.save_path if utils.is_main_process() else None
+    
     trained_model, train_history = train_full_pipeline(
         model=model,
         diffusion_trainer=trainer,
@@ -224,7 +304,7 @@ def main(args):
         device=args.device,
         optimizer=optimizer,
         scheduler=lr_scheduler,
-        save_dir=args.save_path,
+        save_dir=save_dir,
         grad_clip=args.grad_clip,
         val_every=args.val_every,
         save_every=args.save_every,
@@ -233,8 +313,8 @@ def main(args):
         log_interval=args.log_interval
     )
     
-    # save the training history as .txt file
-    if train_history:
+    # save the training history as .txt file (only on main process)
+    if train_history and utils.is_main_process():
         # Create header with metric names
         header = ','.join(train_history[0].keys())
         
@@ -254,25 +334,26 @@ def main(args):
         with open(os.path.join(args.save_path, 'train_history.json'), 'w') as f:
             json.dump(train_history, f, indent=2)
     
-    print(f"\nTraining completed!")
-    print(f"Results saved to: {args.save_path}")
-    print(f"Final training loss: {train_history[-1]['loss']:.6f}" if train_history else "No training history available")
-    print(f"Checkpoints and generated samples saved in: {args.save_path}")
-    
-    # Print summary statistics
-    if train_history:
-        losses = [h['loss'] for h in train_history]
-        print(f"\nTraining Summary:")
-        print(f"  Epochs trained: {len(train_history)}")
-        print(f"  Initial loss: {losses[0]:.6f}")
-        print(f"  Final loss: {losses[-1]:.6f}")
-        print(f"  Best loss: {min(losses):.6f}")
-        print(f"  Loss improvement: {losses[0] - losses[-1]:.6f}")
+    if utils.is_main_process():
+        print(f"\nTraining completed!")
+        print(f"Results saved to: {args.save_path}")
+        print(f"Final training loss: {train_history[-1]['loss']:.6f}" if train_history else "No training history available")
+        print(f"Checkpoints and generated samples saved in: {args.save_path}")
         
-        # Print memory and performance info
-        if 'samples_per_sec' in train_history[-1]:
-            avg_samples_per_sec = np.mean([h['samples_per_sec'] for h in train_history if 'samples_per_sec' in h])
-            print(f"  Average training speed: {avg_samples_per_sec:.2f} samples/sec")
+        # Print summary statistics
+        if train_history:
+            losses = [h['loss'] for h in train_history]
+            print(f"\nTraining Summary:")
+            print(f"  Epochs trained: {len(train_history)}")
+            print(f"  Initial loss: {losses[0]:.6f}")
+            print(f"  Final loss: {losses[-1]:.6f}")
+            print(f"  Best loss: {min(losses):.6f}")
+            print(f"  Loss improvement: {losses[0] - losses[-1]:.6f}")
+            
+            # Print memory and performance info
+            if 'samples_per_sec' in train_history[-1]:
+                avg_samples_per_sec = np.mean([h['samples_per_sec'] for h in train_history if 'samples_per_sec' in h])
+                print(f"  Average training speed: {avg_samples_per_sec:.2f} samples/sec")
 
 
 if __name__ == '__main__':
@@ -325,21 +406,23 @@ if __name__ == '__main__':
             args.save_path = os.path.join(*os.path.normpath(args.save_path).split(os.sep)[:-1], 'l2_loss')
             print(f"\033[91mWarning: save_path argument changed to include 'l2_loss' folder for L2 loss.\033[0m", flush=True)
     
-    print("="*80)
-    print("2D U-Net Diffusion Model for Direct Hyperspectral Reconstruction")
-    print("="*80)
-    print("Arguments:")
-    for key, value in vars(args).items():
-        print(f"  {key}: {value}")
-    print("="*80)
-    
-    # Print warning about memory requirements
-    print("WARNING: Direct hyperspectral diffusion requires significant GPU memory.")
-    print("If you encounter out-of-memory errors, consider:")
-    print("  - Reducing --batch_size (default: 2)")
-    print("  - Reducing --base_channels (default: 64)")
-    print("  - Using mixed precision training (--scaler amp, default)")
-    print("  - Using the VAE-based approach (main_2d_with_vae.py) for large datasets")
-    print("="*80)
+    # print all arguments when on main process
+    if utils.is_main_process():
+        print("="*80)
+        print("2D U-Net Diffusion Model for Direct Hyperspectral Reconstruction (Multi-GPU)")
+        print("="*80)
+        print("Arguments:")
+        for key, value in vars(args).items():
+            print(f"  {key}: {value}")
+        print("="*80)
+        
+        # Print warning about memory requirements
+        print("WARNING: Multi-GPU hyperspectral diffusion requires significant GPU memory.")
+        print("If you encounter out-of-memory errors, consider:")
+        print("  - Reducing --batch_size per GPU (current per-GPU batch size: {})".format(int(args.batch_size // args.world_size)))
+        print("  - Reducing --base_channels (current: {})".format(args.base_channels))
+        print("  - Using mixed precision training (--scaler amp, default)")
+        print("  - Using the VAE-based approach (main_2d_with_vae.py) for large datasets")
+        print("="*80)
     
     main(args)
