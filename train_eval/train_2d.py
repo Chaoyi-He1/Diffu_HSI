@@ -334,7 +334,8 @@ def train_full_pipeline(
     val_every: int = 1000,
     save_every: int = 1000,
     generate_every: int = 2000,
-    scaler: Optional[torch.amp.autocast] = None
+    scaler: Optional[torch.amp.autocast] = None,
+    log_interval: int = 200
 ) -> Tuple[nn.Module, List[Dict[str, float]]]:
     """
     Complete training pipeline using train_one_epoch function with MetricLogger.
@@ -385,7 +386,8 @@ def train_full_pipeline(
             epoch=epoch,
             device=device,
             grad_clip=grad_clip,
-            scaler=scaler
+            scaler=scaler,
+            log_interval=log_interval
         )
         train_history.append(train_metrics)
         

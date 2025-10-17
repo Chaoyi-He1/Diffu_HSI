@@ -42,10 +42,10 @@ def get_parser() -> argparse.ArgumentParser:
     parser.add_argument('--scaler', type=str, default='amp', choices=['none', 'amp'], help='use automatic mixed precision training')
     
     # training schedule parameters
-    parser.add_argument('--val_every', type=int, default=100, help='validate every N epochs')
+    parser.add_argument('--val_every', type=int, default=1000, help='validate every N epochs')
     parser.add_argument('--save_every', type=int, default=50, help='save checkpoint every N epochs')
-    parser.add_argument('--generate_every', type=int, default=200, help='generate samples every N epochs')
-    parser.add_argument('--log_interval', type=int, default=50, help='log metrics every N steps')
+    parser.add_argument('--generate_every', type=int, default=2000, help='generate samples every N epochs')
+    parser.add_argument('--log_interval', type=int, default=200, help='log metrics every N steps')
     
     # diffusion trainer parameters
     parser.add_argument('--loss_type', type=str, default='l1', choices=['l1', 'l2', 'huber'], 
@@ -61,10 +61,6 @@ def get_parser() -> argparse.ArgumentParser:
     parser.add_argument('--save_path', type=str, default='results/2d_hsi_diffusion/HFD/R_1/l1_loss', help='path to save results')
     parser.add_argument('--seed', type=int, default=42, help='random seed')
     parser.add_argument('--device', type=str, default='cuda', help='device to use for computation')
-    
-    # deprecated parameters for compatibility
-    parser.add_argument('--print_freq', type=int, default=10, help='DEPRECATED: use --log_interval instead')
-    parser.add_argument('--save_freq', type=int, default=50, help='DEPRECATED: use --save_every instead')
     
     return parser
 
@@ -233,7 +229,8 @@ def main(args):
         val_every=args.val_every,
         save_every=args.save_every,
         generate_every=args.generate_every,
-        scaler=scaler
+        scaler=scaler,
+        log_interval=args.log_interval
     )
     
     # save the training history as .txt file

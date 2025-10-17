@@ -177,7 +177,9 @@ def main(args):
         optimizer=optimizer,
         scheduler=lr_scheduler,
         save_dir=args.save_path,
-        scaler=scaler
+        scaler=scaler,
+        save_every=args.save_freq,
+        log_interval=args.print_freq,
     )
     
     # save the training history as .txt file
