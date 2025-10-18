@@ -11,6 +11,7 @@ import random
 from torch.utils.data import DataLoader
 from train_eval.train_2d_with_vae import *
 from data_loader.my_dataset import HASCID_data, pixel_collate_fn, image_collate_fn
+from data_loader.HFD_dataset import HFD_data
 
 
 def get_parser() -> argparse.ArgumentParser:
@@ -24,6 +25,10 @@ def get_parser() -> argparse.ArgumentParser:
     parser.add_argument('--num_workers', type=int, default=4, help='number of workers to load data')
     parser.add_argument('--batch_size', type=int, default=4, help='input batch size for training')
     parser.add_argument('--eval_ratio', type=float, default=0.1, help='the ratio of test data during training')
+    parser.add_argument('--R-n', type=int, default=1, help='the number of random measurements, if None, then use full measurements')
+    parser.add_argument('--dataset', type=str, choices=['HASCID', 'HFD'], default='HASCID', help='which dataset to use')
+    parser.add_argument('--ds', '--sensor_down_sample_rate', type=int, default=1, help='down sample rate for sensor response when train_mode is image, 1 means no down sampling',
+                        dest='sensor_down_sample_rate')
     
     # model parameters
     # VAE parameters
@@ -125,16 +130,38 @@ def main(args):
     #     json.dump(vars(args), f, indent=2)
     
     # create dataset and dataloader
-    train_dataset = HASCID_data(data_path=args.data_path, 
-                                train_mode=args.train_mode, 
-                                split='train', 
-                                eval_ratio=args.eval_ratio, 
-                                data_format=args.train_mode)
-    eval_dataset = HASCID_data(data_path=args.data_path,
+    if args.dataset == 'HASCID':
+        train_dataset = HASCID_data(data_path=args.data_path, 
+                                    train_mode=args.train_mode, 
+                                    split='train', 
+                                    eval_ratio=args.eval_ratio, 
+                                    data_format=args.train_mode,
+                                    R_n=args.R_n,
+                                    sensor_down_sample_rate=args.sensor_down_sample_rate)
+        eval_dataset = HASCID_data(data_path=args.data_path,
+                                   train_mode=args.train_mode, 
+                                   split='test', 
+                                   eval_ratio=args.eval_ratio, 
+                                   data_format=args.train_mode,
+                                   R_n=args.R_n,
+                                   sensor_down_sample_rate=args.sensor_down_sample_rate)
+    elif args.dataset == 'HFD':
+        train_dataset = HFD_data(data_path=args.data_path, 
                                  train_mode=args.train_mode, 
-                                 split='test', 
+                                 split='train', 
                                  eval_ratio=args.eval_ratio, 
-                                 data_format=args.train_mode)
+                                 data_format=args.train_mode,
+                                 R_n=args.R_n,
+                                 sensor_down_sample_rate=args.sensor_down_sample_rate)
+        eval_dataset = HFD_data(data_path=args.data_path,
+                                train_mode=args.train_mode, 
+                                split='test', 
+                                eval_ratio=args.eval_ratio, 
+                                data_format=args.train_mode,
+                                R_n=args.R_n,
+                                sensor_down_sample_rate=args.sensor_down_sample_rate)
+    else:
+        raise ValueError(f"Unsupported dataset: {args.dataset}")
     
     if args.train_mode == 'pixel':
         train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, 
@@ -239,7 +266,8 @@ def main(args):
         val_every=args.val_every,
         save_every=args.save_every,
         generate_every=args.generate_every,
-        scaler=scaler
+        scaler=scaler,
+        log_interval=args.log_interval,
     )
     
     # save the training history as .txt file

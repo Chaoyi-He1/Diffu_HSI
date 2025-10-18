@@ -365,7 +365,8 @@ def train_full_pipeline(
     val_every: int = 100,
     save_every: int = 100,
     generate_every: int = 2000,
-    scaler: Optional[torch.amp.autocast] = None
+    scaler: Optional[torch.amp.autocast] = None,
+    log_interval: int = 10
 ) -> Tuple[nn.Module, List[Dict[str, float]]]:
     """
     Complete training pipeline using train_one_epoch function with MetricLogger and VAE.
