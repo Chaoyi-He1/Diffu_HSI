@@ -11,7 +11,7 @@ from scipy.interpolate import interp1d
 
 
 class HASCID_data(Dataset.Dataset):
-    def __init__(self, data_path, train_mode='pixel', eval_ratio=0.1, split='train', data_format='pixel', R_n=None):
+    def __init__(self, data_path, train_mode='pixel', eval_ratio=0.1, split='train', data_format='pixel', R_n=None, sensor_down_sample_rate=1):
         super(HASCID_data, self).__init__()
         pass
         self.data_path = data_path
@@ -22,6 +22,7 @@ class HASCID_data(Dataset.Dataset):
         self.pixel_num = 16  # number of pixels to sample if data_format is 'pixel'
         self.use_new_R = False if R_n is None else True
         self.R_n = R_n  # if use_new_R is True, load sensor response from R_Device{R_n}.mat
+        self.sensor_down_sample_rate = sensor_down_sample_rate  # down sample rate for sensor response
         
         
         assert self.train_mode in ['pixel', 'image'], "train_mode must be 'pixel' or 'image'"
@@ -178,6 +179,18 @@ class HASCID_data(Dataset.Dataset):
         else:
             self.img_list = self.img_list[int(len(self.img_list) * (1 - self.eval_ratio)):]
             self.img_name = self.img_name[int(len(self.img_name) * (1 - self.eval_ratio)):]
+    
+    def down_sample_sensor_response(self, sensor_response):
+        '''
+        Sensor response: [H, W, N]
+        Based on self.sensor_down_sample_rate, down sample the sensor response matrix
+        for example, if self.sensor_down_sample_rate = 2,
+            then for each 2x2 block in the sensor response matrix, we take the first element
+        '''
+        if self.sensor_down_sample_rate <= 1 and self.train_mode == 'image':
+            return sensor_response
+        else:
+            return sensor_response[::self.sensor_down_sample_rate, ::self.sensor_down_sample_rate, :]
             
     def getitem_PH5(self, idx):
         scene_name = self.img_name[idx]
@@ -200,6 +213,8 @@ class HASCID_data(Dataset.Dataset):
         sensor_data = np.matmul(resamp_data_reshaped, self.sensor_R_matrix)  # [H*W, N]
         sensor_data = sensor_data.reshape(H, W, -1)  # [H, W, N]
         # sensor_data = (sensor_data - self.min_sensor) / (self.max_sensor - self.min_sensor)  # normalize to [0, 1]
+        if self.train_mode == 'image' and self.sensor_down_sample_rate > 1:
+            sensor_data = self.down_sample_sensor_response(sensor_data)  # down sample the sensor response
         
         if self.data_format == 'pixel':
             # randomly sample 10 pixels from the image
@@ -236,6 +251,9 @@ class HASCID_data(Dataset.Dataset):
         
         # Rescale gt_data to [-1, 1], original range is [0, 1]
         gt_data = (gt_data - 0.5) * 2.0
+        
+        if self.train_mode == 'image' and self.sensor_down_sample_rate > 1:
+            sensor_data = self.down_sample_sensor_response(sensor_data)  # down sample the sensor response
         
         if self.data_format == 'pixel':
             # randomly sample 10 pixels from the image

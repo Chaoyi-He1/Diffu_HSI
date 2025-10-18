@@ -27,6 +27,8 @@ def get_parser() -> argparse.ArgumentParser:
     parser.add_argument('--eval_ratio', type=float, default=0.1, help='the ratio of test data during training')
     parser.add_argument('--R-n', type=int, default=1, help='the number of random measurements, if None, then use full measurements')
     parser.add_argument('--dataset', type=str, choices=['HASCID', 'HFD'], default='HFD', help='which dataset to use')
+    parser.add_argument('--ds', '--sensor_down_sample_rate', type=int, default=1, help='down sample rate for sensor response when train_mode is image, 1 means no down sampling',
+                        dest='sensor_down_sample_rate')
     
     # model parameters
     parser.add_argument('--spectral_channels', type=int, default=64, help='number of spectral bands of input hyperspectral data')
@@ -57,15 +59,18 @@ def get_parser() -> argparse.ArgumentParser:
                         help='diffusion prediction type')
     
     # output parameters
-    parser.add_argument('--resume', type=str, default='results/2d_hsi_diffusion/HFD/R_1/l1_loss/checkpoint_epoch_51.pth', help='path to resume diffusion model checkpoint')
-    parser.add_argument('--save_path', type=str, default='results/2d_hsi_diffusion/HFD/R_1/l1_loss', help='path to save results')
+    parser.add_argument('--resume', type=str, default='results/2d_hsi_diffusion/HFD/R_1/l1_loss/checkpoint_epoch_51', help='path to resume diffusion model checkpoint')
+    parser.add_argument('--save_path', type=str, default='results/2d_hsi_diffusion/down_sample_2/HFD/R_1/l1_loss', help='path to save results')
     parser.add_argument('--seed', type=int, default=42, help='random seed')
-    parser.add_argument('--device', type=str, default='cuda', help='device to use for computation')
+    parser.add_argument('--device', type=str, default='cuda:1', help='device to use for computation')
     
     return parser
 
 
 def main(args):
+    # create save directory
+    os.makedirs(args.save_path, exist_ok=True)
+    
     # save arguments for reproducibility
     import json
     with open(os.path.join(args.save_path, 'args_2d.json'), 'w') as f:
@@ -82,9 +87,6 @@ def main(args):
     args.device = device
     print(f"Using device: {device}")
     
-    # create save directory
-    os.makedirs(args.save_path, exist_ok=True)
-    
     # create dataset and dataloader
     if args.dataset == 'HASCID':
         train_dataset = HASCID_data(data_path=args.data_path, 
@@ -92,26 +94,30 @@ def main(args):
                                     split='train', 
                                     eval_ratio=args.eval_ratio, 
                                     data_format=args.train_mode,
-                                    R_n=args.R_n)
+                                    R_n=args.R_n,
+                                    sensor_down_sample_rate=args.sensor_down_sample_rate)
         eval_dataset = HASCID_data(data_path=args.data_path,
                                     train_mode=args.train_mode, 
                                     split='test', 
                                     eval_ratio=args.eval_ratio, 
                                     data_format=args.train_mode,
-                                    R_n=args.R_n)
+                                    R_n=args.R_n,
+                                    sensor_down_sample_rate=args.sensor_down_sample_rate)
     elif args.dataset == 'HFD':
         train_dataset = HFD_data(data_path=args.data_path,
                                  train_mode=args.train_mode, 
                                  split='train', 
                                  eval_ratio=args.eval_ratio, 
                                  data_format=args.train_mode,
-                                 R_n=args.R_n)
+                                 R_n=args.R_n,
+                                 sensor_down_sample_rate=args.sensor_down_sample_rate)
         eval_dataset = HFD_data(data_path=args.data_path,
                                 train_mode=args.train_mode, 
                                 split='test', 
                                 eval_ratio=args.eval_ratio, 
                                 data_format=args.train_mode,
-                                R_n=args.R_n)
+                                R_n=args.R_n,
+                                sensor_down_sample_rate=args.sensor_down_sample_rate)
     else:
         raise ValueError(f"Unsupported dataset: {args.dataset}")
     
@@ -324,6 +330,11 @@ if __name__ == '__main__':
         if 'l2_loss' not in os.path.normpath(args.save_path).split(os.sep)[-1]:
             args.save_path = os.path.join(*os.path.normpath(args.save_path).split(os.sep)[:-1], 'l2_loss')
             print(f"\033[91mWarning: save_path argument changed to include 'l2_loss' folder for L2 loss.\033[0m", flush=True)
+            
+    if args.sensor_down_sample_rate:
+        if f'down_sample_{args.sensor_down_sample_rate}' not in os.path.normpath(args.save_path).split(os.sep)[-4]:
+            args.save_path = os.path.join(*os.path.normpath(args.save_path).split(os.sep)[:-4], f'down_sample_{args.sensor_down_sample_rate}', *os.path.normpath(args.save_path).split(os.sep)[-3:])
+            print(f"\033[91mWarning: save_path argument changed to include 'down_sample_{args.sensor_down_sample_rate}' folder.\033[0m", flush=True)
     
     print("="*80)
     print("2D U-Net Diffusion Model for Direct Hyperspectral Reconstruction")

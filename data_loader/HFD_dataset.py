@@ -11,7 +11,7 @@ from scipy.interpolate import interp1d
 
 
 class HFD_data(Dataset.Dataset):
-    def __init__(self, data_path, train_mode='pixel', eval_ratio=0.1, split='train', data_format='pixel', type='Flower', R_n=None):
+    def __init__(self, data_path, train_mode='pixel', eval_ratio=0.1, split='train', data_format='pixel', type='Flower', R_n=None, sensor_down_sample_rate=1):
         super(HFD_data, self).__init__()
         self.data_path = data_path
         self.train_mode = train_mode  # 'pixel' or 'image'
@@ -22,6 +22,7 @@ class HFD_data(Dataset.Dataset):
         self.type = type  # 'Flower' or 'Vegetable'
         self.use_new_R = False if R_n is None else True
         self.R_n = R_n  # if use_new_R is True, load sensor response from R_Device{R_n}.mat
+        self.sensor_down_sample_rate = sensor_down_sample_rate  # down sample rate for sensor response
         
         assert self.train_mode in ['pixel', 'image'], "train_mode must be 'pixel' or 'image'"
         assert self.split in ['train', 'test'], "split must be 'train' or 'test'"
@@ -44,7 +45,10 @@ class HFD_data(Dataset.Dataset):
                     if file.endswith('.mat'):
                         self.img_list.append(os.path.join(folder_path, file))
         self.img_list.sort()  # sort the list to ensure the order is the same every time
-
+        
+        # TODO: remove this line later for full training
+        self.img_list = self.img_list[:10000]  # use only first 10000 images for faster training/testing
+        
         self.split_data()  # split the data into train and test sets
         
         if self.use_new_R:
@@ -148,6 +152,19 @@ class HFD_data(Dataset.Dataset):
 
     def __len__(self):
         return len(self.img_list)
+    
+    def down_sample_sensor_response(self, sensor_response):
+        '''
+        Sensor response: [H, W, N]
+        Based on self.sensor_down_sample_rate, down sample the sensor response matrix
+        for example, if self.sensor_down_sample_rate = 2,
+            then for each 2x2 block in the sensor response matrix, we take the first element
+        '''
+        if self.sensor_down_sample_rate <= 1 and self.train_mode == 'image':
+            return sensor_response
+        else:
+            return sensor_response[::self.sensor_down_sample_rate, ::self.sensor_down_sample_rate, :]
+        
 
     def __getitem__(self, idx):
         # load the .mat file
@@ -163,6 +180,8 @@ class HFD_data(Dataset.Dataset):
         H, W, C = gt_data.shape
         sensor_data = np.matmul(gt_data.reshape(-1, C), self.sensor_R_matrix)  # [H*W, N]
         sensor_data = sensor_data.reshape(H, W, -1)  # [H, W, N]
+        if self.sensor_down_sample_rate > 1 and self.train_mode == 'image':
+            sensor_data = self.down_sample_sensor_response(sensor_data)  # down sample the sensor response
         
         # expand gt_data to 64 bands
         gt_data = self.expand_wavelens(gt_data)  # [H, W, 64]
