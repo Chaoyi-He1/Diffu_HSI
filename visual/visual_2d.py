@@ -20,13 +20,13 @@ def get_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description='Visualization for 2D HSI Diffusion Model')
     
     # dataset parameters
-    parser.add_argument('--data_path', type=str, default='dataset/HASCID-Dataset', choices=['dataset/HASCID-Dataset',
+    parser.add_argument('--data_path', type=str, default='dataset/HFD100 Mat dataset', choices=['dataset/HASCID-Dataset',
                                                                                             'dataset/HFD100 Mat dataset'], help='path to dataset')
     parser.add_argument('--train_mode', type=str, default='image', choices=['pixel', 'image'], 
                         help='training mode')
     parser.add_argument('--eval_ratio', type=float, default=0.1, help='the ratio of test data during training')
     parser.add_argument('--R-n', type=int, default=1, help='the number of random measurements, if None, then use full measurements')
-    parser.add_argument('--dataset', type=str, choices=['HASCID', 'HFD'], default='HASCID', help='which dataset to use')
+    parser.add_argument('--dataset', type=str, choices=['HASCID', 'HFD'], default='HFD', help='which dataset to use')
     parser.add_argument('--ds', '--sensor_down_sample_rate', type=int, default=1, help='down sample rate for sensor response when train_mode is image, 1 means no down sampling',
                         dest='sensor_down_sample_rate')
     
@@ -37,8 +37,8 @@ def get_parser() -> argparse.ArgumentParser:
     
     # visualization parameters
     parser.add_argument('--num_examples', type=int, default=5, help='number of examples to visualize')
-    parser.add_argument('--model_path', type=str, default='results/2d_hsi_diffusion/HFD/R_1/l2_loss/checkpoint_epoch_101.pth', help='path to trained model checkpoint')
-    parser.add_argument('--save_path', type=str, default='results/2d_visualization/HFD/R_1/l2_loss', help='path to save visualization results')
+    parser.add_argument('--model_path', type=str, default='results/2d_hsi_diffusion/HFD/R_1/l1_loss/checkpoint_epoch_201.pth', help='path to trained model checkpoint')
+    parser.add_argument('--save_path', type=str, default='results/2d_visualization/HFD/R_1/l1_loss', help='path to save visualization results')
     parser.add_argument('--split', type=str, default='test', choices=['train', 'test'], help='dataset split to visualize')
     
     # generation parameters

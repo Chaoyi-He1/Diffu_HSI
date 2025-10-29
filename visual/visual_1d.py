@@ -25,7 +25,7 @@ def get_parser() -> argparse.ArgumentParser:
     parser.add_argument('--train_mode', type=str, default='pixel', choices=['pixel', 'image'], 
                         help='training mode')
     parser.add_argument('--eval_ratio', type=float, default=0.1, help='the ratio of test data during training')
-    parser.add_argument('--R-n', type=int, default=1, help='the number of random measurements, if None, then use full measurements')
+    parser.add_argument('--R-n', type=int, default=None, help='the number of random measurements, if None, then use full measurements')
     parser.add_argument('--dataset', type=str, choices=['HASCID', 'HFD'], default='HFD', help='which dataset to use')
     
     # model parameters
@@ -35,8 +35,8 @@ def get_parser() -> argparse.ArgumentParser:
     
     # visualization parameters
     parser.add_argument('--num_examples', type=int, default=5, help='number of examples to visualize')
-    parser.add_argument('--model_path', type=str, default='results/1d_hsi_diffusion/HFD/R_1/checkpoint_epoch_201.pth', help='path to trained model checkpoint')
-    parser.add_argument('--save_path', type=str, default='results/1d_visualization', help='path to save visualization results')
+    parser.add_argument('--model_path', type=str, default='results/1d_hsi_diffusion/HFD/PH5/checkpoint_epoch_111.pth', help='path to trained model checkpoint')
+    parser.add_argument('--save_path', type=str, default='results/1d_visualization/HFD_PH5/', help='path to save visualization results')
     parser.add_argument('--split', type=str, default='test', choices=['train', 'test'], help='dataset split to visualize')
     
     # generation parameters
