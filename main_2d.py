@@ -27,7 +27,7 @@ def get_parser() -> argparse.ArgumentParser:
     parser.add_argument('--eval_ratio', type=float, default=0.1, help='the ratio of test data during training')
     parser.add_argument('--R-n', type=int, default=1, help='the number of random measurements, if None, then use full measurements')
     parser.add_argument('--dataset', type=str, choices=['HASCID', 'HFD'], default='HFD', help='which dataset to use')
-    parser.add_argument('--ds', '--sensor_down_sample_rate', type=int, default=1, help='down sample rate for sensor response when train_mode is image, 1 means no down sampling',
+    parser.add_argument('--ds', '--sensor_down_sample_rate', type=int, default=2, help='down sample rate for sensor response when train_mode is image, 1 means no down sampling',
                         dest='sensor_down_sample_rate')
     
     # model parameters
@@ -59,10 +59,10 @@ def get_parser() -> argparse.ArgumentParser:
                         help='diffusion prediction type')
     
     # output parameters
-    parser.add_argument('--resume', type=str, default='results/2d_hsi_diffusion/HFD/R_1/l1_loss/checkpoint_epoch_201.pth', help='path to resume diffusion model checkpoint')
-    parser.add_argument('--save_path', type=str, default='results/2d_hsi_diffusion/HFD/R_1/l1_loss', help='path to save results')
+    parser.add_argument('--resume', type=str, default='results/2d_hsi_diffusion/down_sample_2/HFD/R_1/l1_loss/checkpoint_epoch_11.pth', help='path to resume diffusion model checkpoint')
+    parser.add_argument('--save_path', type=str, default='results/2d_hsi_diffusion/down_sample_2/HFD/R_1/l1_loss', help='path to save results')
     parser.add_argument('--seed', type=int, default=42, help='random seed')
-    parser.add_argument('--device', type=str, default='cuda', help='device to use for computation')
+    parser.add_argument('--device', type=str, default='cuda:1', help='device to use for computation')
     
     return parser
 
