@@ -59,7 +59,7 @@ def get_parser() -> argparse.ArgumentParser:
                         help='diffusion prediction type')
     
     # output parameters
-    parser.add_argument('--resume', type=str, default='results/2d_hsi_diffusion/down_sample_2/HFD/R_1/l1_loss/checkpoint_epoch_11.pth', help='path to resume diffusion model checkpoint')
+    parser.add_argument('--resume', type=str, default='results/2d_hsi_diffusion/down_sample_2/HFD/R_1/l1_loss/checkpoint_epoch_801.pth', help='path to resume diffusion model checkpoint')
     parser.add_argument('--save_path', type=str, default='results/2d_hsi_diffusion/down_sample_2/HFD/R_1/l1_loss', help='path to save results')
     parser.add_argument('--seed', type=int, default=42, help='random seed')
     parser.add_argument('--device', type=str, default='cuda:1', help='device to use for computation')
