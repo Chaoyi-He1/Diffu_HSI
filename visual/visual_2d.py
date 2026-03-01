@@ -47,13 +47,13 @@ def get_parser() -> argparse.ArgumentParser:
     
     # visualization parameters
     parser.add_argument('--num_examples', type=int, default=5, help='number of examples to visualize')
-    parser.add_argument('--model_path', '--resume', type=str, default='rresults/2d_hsi_diffusion/down_sample_2/HFD/R_1/l1_loss/checkpoint_epoch_71.pth', 
+    parser.add_argument('--model_path', '--resume', type=str, default='results/2d_hsi_diffusion/down_sample_2/HFD/R_1/l1_loss/checkpoint_epoch_71.pth', 
                         dest='model_path', help='path to trained model checkpoint')
     parser.add_argument('--save_path', type=str, default='results/2d_visualization/down_sample_2/HFD/R_1/l1_loss', help='path to save visualization results')
     parser.add_argument('--split', type=str, default='test', choices=['train', 'test'], help='dataset split to visualize')
     
     # generation parameters
-    parser.add_argument('--num_steps', type=int, default=100, help='number of denoising steps')
+    parser.add_argument('--num_steps', type=int, default=1000, help='number of denoising steps')
     parser.add_argument('--method', type=str, default='ddpm', choices=['ddpm', 'ddim'], help='sampling method')
     
     # visualization parameters

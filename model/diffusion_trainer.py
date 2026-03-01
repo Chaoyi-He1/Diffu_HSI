@@ -210,10 +210,8 @@ class DiffusionTrainer:
         x = torch.randn(shape, device=self.device)
 
         if method == "ddpm":
-            if step_interval < 1:
-                raise ValueError("step_interval must be >= 1")
-
-            iterator = range(n_steps - 1, -1, -step_interval)
+            step_interval = max(1, self.n_timesteps // n_steps)
+            iterator = range(self.n_timesteps - 1, -1, -step_interval)
             if progress:
                 iterator = tqdm(iterator, desc="DDPM Sampling")
 
@@ -257,7 +255,8 @@ class DiffusionTrainer:
             return x
 
         # DDIM path - based on diffusion_util.py reference
-        iterator = range(n_steps - 1, -1, -step_interval)
+        step_interval = max(1, self.n_timesteps // n_steps)
+        iterator = range(self.n_timesteps - 1, -1, -step_interval)
         if progress:
             iterator = tqdm(iterator, desc="DDIM Sampling")
 
