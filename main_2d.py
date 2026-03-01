@@ -33,7 +33,7 @@ def get_parser() -> argparse.ArgumentParser:
     # model parameters
     parser.add_argument('--spectral_channels', type=int, default=64, help='number of spectral bands of input hyperspectral data')
     parser.add_argument('--sensor_channels', type=int, default=30, help='number of channels of the sensor response (condition)')
-    parser.add_argument('--base_channels', type=int, default=128, help='base channels of diffusion U-Net model (smaller for direct training)')
+    parser.add_argument('--base_channels', type=int, default=256, help='base channels of diffusion U-Net model (smaller for direct training)')
     
     # optimization parameters
     parser.add_argument('--lr', type=float, default=1e-4, help='learning rate (smaller for direct training)')
@@ -59,10 +59,10 @@ def get_parser() -> argparse.ArgumentParser:
                         help='diffusion prediction type')
     
     # output parameters
-    parser.add_argument('--resume', type=str, default='results/2d_hsi_diffusion/down_sample_2/HFD/R_1/l1_loss/checkpoint_epoch_801.pth', help='path to resume diffusion model checkpoint')
+    parser.add_argument('--resume', type=str, default='results/2d_hsi_diffusion/down_sample_2/HFD/R_1/l1_loss/checkpoint_epoch_71.pth', help='path to resume diffusion model checkpoint')
     parser.add_argument('--save_path', type=str, default='results/2d_hsi_diffusion/down_sample_2/HFD/R_1/l1_loss', help='path to save results')
     parser.add_argument('--seed', type=int, default=42, help='random seed')
-    parser.add_argument('--device', type=str, default='cuda:1', help='device to use for computation')
+    parser.add_argument('--device', type=str, default='cuda', help='device to use for computation')
     
     return parser
 

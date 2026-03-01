@@ -4,3 +4,4 @@ __pycache__/
 results/
 *.txt
 log.txt
+2d_diffusion_HFD_ds2_*

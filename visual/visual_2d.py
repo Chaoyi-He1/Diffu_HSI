@@ -24,25 +24,36 @@ def get_parser() -> argparse.ArgumentParser:
                                                                                             'dataset/HFD100 Mat dataset'], help='path to dataset')
     parser.add_argument('--train_mode', type=str, default='image', choices=['pixel', 'image'], 
                         help='training mode')
+    parser.add_argument('--num_workers', type=int, default=4, help='number of workers to load data')
     parser.add_argument('--eval_ratio', type=float, default=0.1, help='the ratio of test data during training')
     parser.add_argument('--R-n', type=int, default=1, help='the number of random measurements, if None, then use full measurements')
     parser.add_argument('--dataset', type=str, choices=['HASCID', 'HFD'], default='HFD', help='which dataset to use')
-    parser.add_argument('--ds', '--sensor_down_sample_rate', type=int, default=1, help='down sample rate for sensor response when train_mode is image, 1 means no down sampling',
+    parser.add_argument('--ds', '--sensor_down_sample_rate', type=int, default=2, help='down sample rate for sensor response when train_mode is image, 1 means no down sampling',
                         dest='sensor_down_sample_rate')
     
     # model parameters
     parser.add_argument('--spectral_channels', type=int, default=64, help='number of spectral bands of input hyperspectral data')
     parser.add_argument('--sensor_channels', type=int, default=30, help='number of channels of the sensor response')
-    parser.add_argument('--base_channels', type=int, default=128, help='base channels of model')
+    parser.add_argument('--base_channels', type=int, default=256, help='base channels of model')
+    
+    # diffusion parameters (should match training settings)
+    parser.add_argument('--loss_type', type=str, default='l1', choices=['l1', 'l2', 'huber'], 
+                        help='loss type used by diffusion trainer')
+    parser.add_argument('--noise_schedule', type=str, default='linear', choices=['linear', 'cosine'],
+                        help='noise schedule for diffusion process')
+    parser.add_argument('--timesteps', type=int, default=1000, help='number of diffusion timesteps')
+    parser.add_argument('--prediction_type', type=str, default='eps', choices=['eps', 'x0', 'v'],
+                        help='diffusion prediction type')
     
     # visualization parameters
     parser.add_argument('--num_examples', type=int, default=5, help='number of examples to visualize')
-    parser.add_argument('--model_path', type=str, default='results/2d_hsi_diffusion/HFD/R_1/l1_loss/checkpoint_epoch_201.pth', help='path to trained model checkpoint')
-    parser.add_argument('--save_path', type=str, default='results/2d_visualization/HFD/R_1/l1_loss', help='path to save visualization results')
+    parser.add_argument('--model_path', '--resume', type=str, default='rresults/2d_hsi_diffusion/down_sample_2/HFD/R_1/l1_loss/checkpoint_epoch_71.pth', 
+                        dest='model_path', help='path to trained model checkpoint')
+    parser.add_argument('--save_path', type=str, default='results/2d_visualization/down_sample_2/HFD/R_1/l1_loss', help='path to save visualization results')
     parser.add_argument('--split', type=str, default='test', choices=['train', 'test'], help='dataset split to visualize')
     
     # generation parameters
-    parser.add_argument('--num_steps', type=int, default=1000, help='number of denoising steps')
+    parser.add_argument('--num_steps', type=int, default=100, help='number of denoising steps')
     parser.add_argument('--method', type=str, default='ddpm', choices=['ddpm', 'ddim'], help='sampling method')
     
     # visualization parameters
@@ -58,7 +69,7 @@ def get_parser() -> argparse.ArgumentParser:
 
 
 def load_model(model_path: str, device: torch.device, spectral_channels: int = 64, 
-               sensor_channels: int = 30, base_channels: int = 128):
+               sensor_channels: int = 30, base_channels: int = 256):
     """Load the trained 2D diffusion model"""
     model = U2NetHyperspectral(
         spectral_channels=spectral_channels,
@@ -75,12 +86,13 @@ def load_model(model_path: str, device: torch.device, spectral_channels: int = 6
     
     # Handle different checkpoint formats
     if 'model_state_dict' in checkpoint:
-        model.load_state_dict(checkpoint['model_state_dict'])
+        state_dict = checkpoint['model_state_dict']
     else:
         # Assume the checkpoint is just the state dict
-        model.load_state_dict(checkpoint)
+        state_dict = checkpoint
+    model.load_state_dict(state_dict)
     for k, v in model.named_parameters():
-        if not torch.equal(v, checkpoint['model_state_dict'][k]):
+        if not torch.equal(v, state_dict[k]):
             print(f"Warning: Parameter {k} does not match checkpoint value.")
             raise ValueError("Model parameters do not match checkpoint.")
     model = model.to(device)
@@ -141,7 +153,8 @@ def create_comparison_plot(gt_data, sensor_data, generated_data, wavelengths,
     # Ensure save path exists
     os.makedirs(save_path, exist_ok=True)
     
-    B, C, H, W = gt_data.shape
+    B, C, _, _ = gt_data.shape
+    example_metrics = []
     for idx in range(B):
         
         # Extract single image from batch
@@ -170,24 +183,24 @@ def create_comparison_plot(gt_data, sensor_data, generated_data, wavelengths,
         generated_rgb = np.clip((generated_rgb - np.min(generated_rgb)) / (np.max(generated_rgb) - np.min(generated_rgb)), 0, 1)
 
         # Create the main comparison figure
-        fig, axes = plt.subplots(1, 3, figsize=(18, 12))
-        fig.suptitle(f'Example {example_idx + 1}: 2D HSI Reconstruction Comparison', fontsize=16)
+        fig, axes = plt.subplots(1, 3, figsize=(18, 6))
+        fig.suptitle(f'Example {example_idx + 1 + idx}: 2D HSI Reconstruction Comparison', fontsize=16)
         
         # Plot 1: Ground Truth RGB
-        axes[0, 0].imshow(gt_rgb)
-        axes[0, 0].set_title('Ground Truth (RGB)')
-        axes[0, 0].axis('off')
+        axes[0].imshow(gt_rgb)
+        axes[0].set_title('Ground Truth (RGB)')
+        axes[0].axis('off')
         
         # Plot 2: Generated RGB
-        axes[0, 1].imshow(generated_rgb)
-        axes[0, 1].set_title('Generated (RGB)')
-        axes[0, 1].axis('off')
+        axes[1].imshow(generated_rgb)
+        axes[1].set_title('Generated (RGB)')
+        axes[1].axis('off')
         
         # Plot 3: Difference RGB
         diff_rgb = np.abs(gt_rgb - generated_rgb)
-        axes[0, 2].imshow(diff_rgb)
-        axes[0, 2].set_title('Absolute Difference (RGB)')
-        axes[0, 2].axis('off')
+        axes[2].imshow(diff_rgb)
+        axes[2].set_title('Absolute Difference (RGB)')
+        axes[2].axis('off')
         
         plt.tight_layout()
         
@@ -195,26 +208,33 @@ def create_comparison_plot(gt_data, sensor_data, generated_data, wavelengths,
         plot_path = os.path.join(save_path, f'comparison_2d_example_{example_idx + 1 + idx}.png')
         plt.savefig(plot_path, dpi=300, bbox_inches='tight')
         plt.close()
+
+        gt_img_batch = np.expand_dims(gt_img, axis=0)
+        generated_img_batch = np.expand_dims(generated_img, axis=0)
         
-    # Pixel-wise spectral analysis
-    create_spectral_analysis_plot(gt_img, generated_img, wavelengths, example_idx, save_path, spatial_region)
+        # Pixel-wise spectral analysis
+        create_spectral_analysis_plot(
+            gt_img_batch, generated_img_batch, wavelengths, example_idx + idx, save_path, spatial_region
+        )
+        
+        # Calculate metrics
+        mse = np.mean((gt_img - generated_img) ** 2)
+        mae = np.mean(np.abs(gt_img - generated_img))
+        psnr = 10 * np.log10(1 / mse) if mse > 0 else float('inf')
+        
+        # Spectral metrics (average across spatial dimensions)
+        spectral_mse = np.mean(np.mean((gt_img - generated_img) ** 2, axis=(1, 2)))
+        spectral_mae = np.mean(np.mean(np.abs(gt_img - generated_img), axis=(1, 2)))
+
+        example_metrics.append({
+            'mse': mse,
+            'mae': mae,
+            'psnr': psnr,
+            'spectral_mse': spectral_mse,
+            'spectral_mae': spectral_mae
+        })
     
-    # Calculate metrics
-    mse = np.mean((gt_img - generated_img) ** 2)
-    mae = np.mean(np.abs(gt_img - generated_img))
-    psnr = 10 * np.log10(1 / mse) if mse > 0 else float('inf')
-    
-    # Spectral metrics (average across spatial dimensions)
-    spectral_mse = np.mean(np.mean((gt_img - generated_img) ** 2, axis=(1, 2)))
-    spectral_mae = np.mean(np.mean(np.abs(gt_img - generated_img), axis=(1, 2)))
-    
-    return {
-        'mse': mse,
-        'mae': mae,
-        'psnr': psnr,
-        'spectral_mse': spectral_mse,
-        'spectral_mae': spectral_mae
-    }
+    return example_metrics
 
 
 def create_spectral_analysis_plot(gt_img, generated_img, wavelengths, example_idx, save_path, spatial_region='center'):
@@ -245,7 +265,7 @@ def create_spectral_analysis_plot(gt_img, generated_img, wavelengths, example_id
         
         # Create spectral profile plots
         fig, axes = plt.subplots(3, 3, figsize=(18, 15))
-        fig.suptitle(f'Example {example_idx + 1}: Spectral Profile Analysis', fontsize=16)
+        fig.suptitle(f'Example {example_idx + 1 + b_idx}: Spectral Profile Analysis', fontsize=16)
         
         for idx, (h, w) in enumerate(sample_pixels):
             if idx >= 9:
@@ -292,6 +312,9 @@ def create_spectral_analysis_plot(gt_img, generated_img, wavelengths, example_id
 
 def create_summary_plot(all_metrics, save_path):
     """Create a summary plot showing metrics across all examples"""
+    if not all_metrics:
+        print("No metrics available; skipping summary plot.")
+        return
     
     mse_values = [m['mse'] for m in all_metrics]
     mae_values = [m['mae'] for m in all_metrics]
@@ -422,7 +445,7 @@ def visualize_results(args):
     # Create dataloader with image collate function
     args.batch_size = min(args.num_examples, 2)
     dataloader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True, 
-                            collate_fn=image_collate_fn)
+                            num_workers=args.num_workers, collate_fn=image_collate_fn)
     
     print(f"Dataset loaded. Total samples: {len(dataset)}")
     
@@ -431,13 +454,16 @@ def visualize_results(args):
                        args.sensor_channels, args.base_channels)
     
     # Initialize diffusion trainer
-    diffusion_trainer = DiffusionTrainer(device=device)
+    diffusion_trainer = DiffusionTrainer(
+        n_timesteps=args.timesteps,
+        loss_type=args.loss_type,
+        prediction_type=args.prediction_type,
+        beta_schedule=args.noise_schedule,
+        device=device
+    )
     
     # Get wavelengths from dataset
     wavelengths = dataset.wavelens[:args.spectral_channels] if args.dataset == 'HASCID' else dataset.new_wavelens[:args.spectral_channels]
-    
-    # For sensor data, create appropriate wavelength array
-    sensor_wavelengths = np.linspace(400, 1000, args.sensor_channels)
     
     print(f"Generating visualizations for {args.num_examples} examples...")
     
@@ -476,21 +502,22 @@ def visualize_results(args):
         print(f"Generated data range: [{generated_data.min():.3f}, {generated_data.max():.3f}]")
         
         # Create comparison plots
-        example_metrics = create_comparison_plot(
+        batch_metrics = create_comparison_plot(
             gt_data, sensor_data, generated_data,
             wavelengths, examples_processed, args.save_path, 
             args.spatial_region
         )
         
-        all_metrics.append(example_metrics)
-        examples_processed += args.batch_size
-        
-        print(f"Example {examples_processed} metrics:")
-        print(f"  MSE: {example_metrics['mse']:.6f}")
-        print(f"  MAE: {example_metrics['mae']:.6f}")
-        print(f"  PSNR: {example_metrics['psnr']:.2f} dB")
-        print(f"  Spectral MSE: {example_metrics['spectral_mse']:.6f}")
-        print(f"  Spectral MAE: {example_metrics['spectral_mae']:.6f}")
+        all_metrics.extend(batch_metrics)
+        examples_processed += gt_data.shape[0]
+
+        for idx, example_metrics in enumerate(batch_metrics):
+            print(f"Example {examples_processed - gt_data.shape[0] + idx + 1} metrics:")
+            print(f"  MSE: {example_metrics['mse']:.6f}")
+            print(f"  MAE: {example_metrics['mae']:.6f}")
+            print(f"  PSNR: {example_metrics['psnr']:.2f} dB")
+            print(f"  Spectral MSE: {example_metrics['spectral_mse']:.6f}")
+            print(f"  Spectral MAE: {example_metrics['spectral_mae']:.6f}")
     
     # Create summary plot
     create_summary_plot(all_metrics, args.save_path)
@@ -504,11 +531,12 @@ def visualize_results(args):
                    f"{metrics['spectral_mse']:.6f}\t{metrics['spectral_mae']:.6f}\n")
         
         # Add averages
-        f.write(f"\nAverage\t{np.mean([m['mse'] for m in all_metrics]):.6f}\t"
-               f"{np.mean([m['mae'] for m in all_metrics]):.6f}\t"
-               f"{np.mean([m['psnr'] for m in all_metrics]):.2f}\t"
-               f"{np.mean([m['spectral_mse'] for m in all_metrics]):.6f}\t"
-               f"{np.mean([m['spectral_mae'] for m in all_metrics]):.6f}\n")
+        if all_metrics:
+            f.write(f"\nAverage\t{np.mean([m['mse'] for m in all_metrics]):.6f}\t"
+                   f"{np.mean([m['mae'] for m in all_metrics]):.6f}\t"
+                   f"{np.mean([m['psnr'] for m in all_metrics]):.2f}\t"
+                   f"{np.mean([m['spectral_mse'] for m in all_metrics]):.6f}\t"
+                   f"{np.mean([m['spectral_mae'] for m in all_metrics]):.6f}\n")
     
     print(f"\n2D Visualization complete! Results saved to: {args.save_path}")
     print(f"- Individual comparison plots: comparison_2d_example_*.png")
@@ -518,9 +546,68 @@ def visualize_results(args):
     print(f"- Detailed metrics: metrics_2d.txt")
 
 
+def normalize_paths_from_main(args):
+    """Align dataset/save path conventions with main_2d.py."""
+    path_parts = os.path.normpath(args.save_path).split(os.sep)
+
+    if "HASCID" in args.data_path:
+        if args.dataset != 'HASCID':
+            args.dataset = 'HASCID'
+            print("\033[91mWarning: dataset argument changed to 'HASCID' to match data_path.\033[0m", flush=True)
+        if len(path_parts) >= 3 and "HASCID" not in path_parts[-3]:
+            path_parts[-3] = 'HASCID'
+            args.save_path = os.path.join(*path_parts)
+            print("\033[91mWarning: save_path argument changed to include 'HASCID' folder.\033[0m", flush=True)
+    elif "HFD" in args.data_path:
+        if args.dataset != 'HFD':
+            args.dataset = 'HFD'
+            print("\033[91mWarning: dataset argument changed to 'HFD' to match data_path.\033[0m", flush=True)
+        if len(path_parts) >= 3 and "HFD" not in path_parts[-3]:
+            path_parts[-3] = 'HFD'
+            args.save_path = os.path.join(*path_parts)
+            print("\033[91mWarning: save_path argument changed to include 'HFD' folder.\033[0m", flush=True)
+
+    path_parts = os.path.normpath(args.save_path).split(os.sep)
+    if args.R_n is None:
+        if len(path_parts) >= 2 and "PH5" not in path_parts[-2]:
+            path_parts[-2] = 'PH5'
+            args.save_path = os.path.join(*path_parts)
+            print("\033[91mWarning: save_path argument changed to include 'PH5' folder for full measurements.\033[0m", flush=True)
+    elif args.R_n == 1:
+        if len(path_parts) >= 2 and "R_1" not in path_parts[-2]:
+            path_parts[-2] = 'R_1'
+            args.save_path = os.path.join(*path_parts)
+            print("\033[91mWarning: save_path argument changed to include 'R_1' folder for R_n=1.\033[0m", flush=True)
+    elif args.R_n == 2:
+        if len(path_parts) >= 2 and "R_2" not in path_parts[-2]:
+            path_parts[-2] = 'R_2'
+            args.save_path = os.path.join(*path_parts)
+            print("\033[91mWarning: save_path argument changed to include 'R_2' folder for R_n=2.\033[0m", flush=True)
+    else:
+        raise ValueError(f"Unsupported R_n value: {args.R_n}. Supported values are 1, 2, or None for full measurements.")
+
+    if args.loss_type == 'l1':
+        if 'l1_loss' not in os.path.normpath(args.save_path).split(os.sep)[-1]:
+            args.save_path = os.path.join(*os.path.normpath(args.save_path).split(os.sep)[:-1], 'l1_loss')
+            print("\033[91mWarning: save_path argument changed to include 'l1_loss' folder for L1 loss.\033[0m", flush=True)
+    elif args.loss_type == 'l2':
+        if 'l2_loss' not in os.path.normpath(args.save_path).split(os.sep)[-1]:
+            args.save_path = os.path.join(*os.path.normpath(args.save_path).split(os.sep)[:-1], 'l2_loss')
+            print("\033[91mWarning: save_path argument changed to include 'l2_loss' folder for L2 loss.\033[0m", flush=True)
+    
+    if args.sensor_down_sample_rate > 1:
+        parts = os.path.normpath(args.save_path).split(os.sep)
+        expected = f'down_sample_{args.sensor_down_sample_rate}'
+        if len(parts) >= 4 and expected not in parts[-4]:
+            parts[-4] = expected
+            args.save_path = os.path.join(*parts)
+            print(f"\033[91mWarning: save_path argument changed to include '{expected}' folder.\033[0m", flush=True)
+
+
 if __name__ == '__main__':
     parser = get_parser()
     args = parser.parse_args()
+    normalize_paths_from_main(args)
     
     print("2D HSI Diffusion Visualization Arguments:")
     for arg, value in vars(args).items():
