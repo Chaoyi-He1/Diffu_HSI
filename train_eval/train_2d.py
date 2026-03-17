@@ -269,6 +269,7 @@ def save_checkpoint(
     epoch: int,
     loss: float,
     filepath: str,
+    scheduler: Optional[Any] = None,
     diffusion_config: Optional[dict] = None
 ) -> None:
     """
@@ -280,12 +281,14 @@ def save_checkpoint(
         epoch: Current epoch
         loss: Current loss value
         filepath: Path to save checkpoint
+        scheduler: Optional LR scheduler to save
         diffusion_config: Optional diffusion trainer configuration
     """
     checkpoint = {
         'epoch': epoch,
         'model_state_dict': model.state_dict(),
         'optimizer_state_dict': optimizer.state_dict(),
+        'scheduler_state_dict': scheduler.state_dict() if scheduler is not None else None,
         'loss': loss,
         'diffusion_config': diffusion_config
     }
@@ -327,6 +330,7 @@ def train_full_pipeline(
     val_dataloader: Optional[DataLoader],
     num_epochs: int,
     device: torch.device,
+    start_epoch: int = 0,
     optimizer: Optional[optim.Optimizer] = None,
     scheduler: Optional[Any] = None,
     save_dir: Optional[str] = None,
@@ -374,7 +378,7 @@ def train_full_pipeline(
     val_history = []
     best_val_loss = float('inf')
     
-    for epoch in range(num_epochs):
+    for epoch in range(start_epoch, num_epochs):
         print(f'\n=== Epoch {epoch+1}/{num_epochs} ===')
         
         # Training
@@ -412,6 +416,7 @@ def train_full_pipeline(
                 save_checkpoint(
                     model, optimizer, epoch, val_metrics['val_loss'],
                     os.path.join(save_dir, 'best_model.pth'),
+                    scheduler=scheduler,
                     diffusion_config=getattr(diffusion_trainer, '__dict__', None)
                 )
         
@@ -420,6 +425,7 @@ def train_full_pipeline(
             save_checkpoint(
                 model, optimizer, epoch, train_metrics['loss'],
                 os.path.join(save_dir, f'checkpoint_epoch_{epoch+1}.pth'),
+                scheduler=scheduler,
                 diffusion_config=getattr(diffusion_trainer, '__dict__', None)
             )
         
@@ -461,6 +467,7 @@ def train_full_pipeline(
         save_checkpoint(
             model, optimizer, num_epochs-1, train_history[-1]['loss'],
             os.path.join(save_dir, 'final_model.pth'),
+            scheduler=scheduler,
             diffusion_config=getattr(diffusion_trainer, '__dict__', None)
         )
 

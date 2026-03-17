@@ -36,9 +36,9 @@ def get_parser() -> argparse.ArgumentParser:
     parser.add_argument('--base_channels', type=int, default=256, help='base channels of diffusion U-Net model (smaller for direct training)')
     
     # optimization parameters
-    parser.add_argument('--lr', type=float, default=1e-4, help='learning rate (smaller for direct training)')
+    parser.add_argument('--lr', type=float, default=3e-5, help='learning rate (e.g. 3e-5~5e-5 for ~1.5B params; 1e-4 for smaller models)')
     parser.add_argument('--num_epochs', type=int, default=1000, help='number of epochs to train')
-    parser.add_argument('--weight_decay', type=float, default=1e-4, help='weight decay')
+    parser.add_argument('--weight_decay', type=float, default=0, help='weight decay')
     parser.add_argument('--lrf', type=float, default=0.1, help='learning rate decay factor')
     parser.add_argument('--grad_clip', type=float, default=.1, help='gradient clipping threshold')
     parser.add_argument('--scaler', type=str, default='amp', choices=['none', 'amp'], help='use automatic mixed precision training')
@@ -171,20 +171,16 @@ def main(args):
                 raise ValueError(f"Parameter {k} not loaded correctly.")
         print(f"Diffusion model loaded successfully from {args.resume}")
         
-        # if 'optimizer_state_dict' in ckpt and ckpt['optimizer_state_dict'] is not None:
-        #     optimizer.load_state_dict(ckpt['optimizer_state_dict'])
-        #     print("Optimizer state loaded.")
+        if 'optimizer_state_dict' in ckpt and ckpt['optimizer_state_dict'] is not None:
+            optimizer.load_state_dict(ckpt['optimizer_state_dict'])
+            print("Optimizer state loaded.")
         
-        # if 'scheduler_state_dict' in ckpt and ckpt['scheduler_state_dict'] is not None:
-        #     lr_scheduler.load_state_dict(ckpt['scheduler_state_dict'])
-        #     print("LR scheduler state loaded.")
-        # elif 'lr_scheduler' in ckpt and ckpt['lr_scheduler'] is not None:
-        #     lr_scheduler.load_state_dict(ckpt['lr_scheduler'])
-        #     print("LR scheduler state loaded.")
+        if 'scheduler_state_dict' in ckpt and ckpt['scheduler_state_dict'] is not None:
+            lr_scheduler.load_state_dict(ckpt['scheduler_state_dict'])
+            print("LR scheduler state loaded.")
         
-        # start_epoch = ckpt['epoch'] + 1 if 'epoch' in ckpt else 0
-        # lr_scheduler.last_epoch = start_epoch - 1  # Adjust for lr_scheduler step
-        # print(f"Resuming training from epoch {start_epoch}")
+        start_epoch = ckpt['epoch'] + 1 if 'epoch' in ckpt else 0
+        print(f"Resuming training from epoch {start_epoch}")
         
         del ckpt  # free memory
         torch.cuda.empty_cache() # clear cache
@@ -227,6 +223,7 @@ def main(args):
         train_dataloader=train_loader,
         val_dataloader=eval_loader,
         num_epochs=args.num_epochs,
+        start_epoch=start_epoch,
         device=args.device,
         optimizer=optimizer,
         scheduler=lr_scheduler,

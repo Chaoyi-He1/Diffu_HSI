@@ -34,7 +34,7 @@ def get_parser() -> argparse.ArgumentParser:
     # model parameters
     parser.add_argument('--spectral_channels', type=int, default=64, help='number of spectral bands of input hyperspectral data')
     parser.add_argument('--sensor_channels', type=int, default=30, help='number of channels of the sensor response')
-    parser.add_argument('--base_channels', type=int, default=256, help='base channels of model')
+    parser.add_argument('--base_channels', type=int, default=512, help='base channels of model')
     
     # diffusion parameters (should match training settings)
     parser.add_argument('--loss_type', type=str, default='l1', choices=['l1', 'l2', 'huber'], 
@@ -47,7 +47,7 @@ def get_parser() -> argparse.ArgumentParser:
     
     # visualization parameters
     parser.add_argument('--num_examples', type=int, default=5, help='number of examples to visualize')
-    parser.add_argument('--model_path', '--resume', type=str, default='results/2d_hsi_diffusion/down_sample_2/HFD/R_1/l1_loss/checkpoint_epoch_71.pth', 
+    parser.add_argument('--model_path', '--resume', type=str, default='results/2d_hsi_diffusion/down_sample_2/HFD/R_1/l1_loss_fsdp/best_model.pth', 
                         dest='model_path', help='path to trained model checkpoint')
     parser.add_argument('--save_path', type=str, default='results/2d_visualization/down_sample_2/HFD/R_1/l1_loss', help='path to save visualization results')
     parser.add_argument('--split', type=str, default='test', choices=['train', 'test'], help='dataset split to visualize')
@@ -217,10 +217,10 @@ def create_comparison_plot(gt_data, sensor_data, generated_data, wavelengths,
             gt_img_batch, generated_img_batch, wavelengths, example_idx + idx, save_path, spatial_region
         )
         
-        # Calculate metrics
+        # Calculate metrics — data is normalized to [-1, 1], so peak value = 2 and MAX^2 = 4
         mse = np.mean((gt_img - generated_img) ** 2)
         mae = np.mean(np.abs(gt_img - generated_img))
-        psnr = 10 * np.log10(1 / mse) if mse > 0 else float('inf')
+        psnr = 10 * np.log10(4.0 / mse) if mse > 0 else float('inf')
         
         # Spectral metrics (average across spatial dimensions)
         spectral_mse = np.mean(np.mean((gt_img - generated_img) ** 2, axis=(1, 2)))

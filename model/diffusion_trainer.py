@@ -292,7 +292,11 @@ class DiffusionTrainer:
             
             # DDIM sampling step: x0_t = (x_t - eps * sqrt(1-alpha_bar)) / sqrt(alpha_bar)
             #                     x_next = sqrt(alpha_bar_next) * x0_t + sqrt(1-alpha_bar_next) * eps
+            # Clamp x0_t to the data range to prevent numerical blowup: at high t,
+            # sqrt(alpha_bar) is tiny (~0.007 at t=999), so prediction errors are amplified
+            # ~143× in x0_t. Without clamping, errors compound across steps.
             x0_t = (x - pred_eps * torch.sqrt(1 - alpha_bar)) / torch.sqrt(alpha_bar)
+            x0_t = x0_t.clamp(-1, 1)
             x = torch.sqrt(alpha_bar_next) * x0_t + torch.sqrt(1 - alpha_bar_next) * pred_eps
 
         return x
