@@ -24,6 +24,9 @@ cd /mnt/shared-scratch/Katehi_L/chaoyi_he/Diffu/
 source /mnt/shared-scratch/Katehi_L/chaoyi_he/conda/miniconda/bin/activate
 conda activate /mnt/shared-scratch/Katehi_L/chaoyi_he/conda_envs/hsi
 
+# Reduce allocator fragmentation after OOM retries (see PyTorch CUDA memory notes)
+export PYTORCH_ALLOC_CONF=expandable_segments:True
+
 which python
 python -c "import torch; print('PyTorch:', torch.__version__)"
 python -c "import torch; print('CUDA devices:', torch.cuda.device_count())"
@@ -40,11 +43,37 @@ MASTER_PORT=29500
 # -----------------------------------------------------------------------
 # Single-node launch (most common on TAMU GRACE/TERRA)
 # -----------------------------------------------------------------------
+# Global batch is split across GPUs; full-res attention in stage6 is VRAM-heavy.
+# If OOM persists: lower --batch_size further and/or reduce --base_channels.
+#
+# NOTE on new defaults (set in main_2d_fsdp.py; overridden below where useful):
+#   --prediction_type v       v-prediction is much more stable than eps at both
+#                             high and low SNR (default in main_2d_fsdp.py)
+#   --lrf 0.033               eta_min ≈ lr*0.033 = 1e-6 at lr=3e-5 —
+#                             avoids bf16 precision collapse at tail of cosine
+#   --channel_num_filters 4   4 parallel 3D filters per ChannelSpatialConv
+#                             (was 1; multiplies spectral expressivity ~free)
+#   --ds_warmup_epochs 20     First 20 epochs run with sensor_down_sample_rate=1
+#                             regardless of --ds; then anneals to --ds
+#
+# IMPORTANT: pre-April-17 checkpoints are INCOMPATIBLE with these defaults
+# (layer shapes + prediction target changed). The --resume path below points
+# to the NEW save dir, so it will miss and start fresh on the first run.
 torchrun \
     --standalone \
     --nproc_per_node=$GPUS_PER_NODE \
     main_2d_fsdp.py \
-    --batch_size 12 \
+    --batch_size 16 \
+    --lr 1e-4 \
+    --base_channels 512 \
+    --use_channel_3d_conv \
+    --channel_num_filters 4 \
+    --prediction_type v \
+    --lrf 0.033 \
+    --ds_warmup_epochs 20 \
+    --ds 2 \
+    --resume results/2d_hsi_diffusion/down_sample_2/HFD/R_1/vpred_cf4_fsdp_3dconv/checkpoint_epoch \
+    --save_path results/2d_hsi_diffusion/down_sample_2/HFD/R_1/vpred_cf4_fsdp_3dconv
 
 # -----------------------------------------------------------------------
 # Multi-node launch example (uncomment and adjust for 2-node jobs)

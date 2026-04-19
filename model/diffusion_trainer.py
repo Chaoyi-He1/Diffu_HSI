@@ -32,6 +32,7 @@ class DiffusionTrainer:
         weight_decay: float = 0.0,
         ema_decay: Optional[float] = 0.995,
         grad_clip: Optional[float] = None,
+        clamp_x0: Optional[Tuple[float, float]] = (-1.0, 1.0),
     ) -> None:
         device = device or (torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu"))
         self.device = device
@@ -43,6 +44,7 @@ class DiffusionTrainer:
         self.weight_decay = weight_decay
         self.ema_decay = ema_decay
         self.grad_clip = grad_clip
+        self.clamp_x0 = clamp_x0
 
         # Build beta schedule
         if beta_schedule == "linear":
@@ -118,7 +120,15 @@ class DiffusionTrainer:
             return nn.L1Loss()(pred, target)
         return nn.MSELoss()(pred, target)
 
-    def get_loss(self, model: nn.Module, x_0: torch.Tensor, cond: Optional[torch.Tensor] = None, t: Optional[torch.Tensor] = None) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
+    def get_loss(
+        self,
+        model: nn.Module,
+        x_0: torch.Tensor,
+        cond: Optional[torch.Tensor] = None,
+        t: Optional[torch.Tensor] = None,
+        *,
+        loss_in_fp32: bool = False,
+    ) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
         """Compute training loss for a batch.
 
         Supports models that accept signature model(x_t, cond, t) and predict according
@@ -159,7 +169,10 @@ class DiffusionTrainer:
         else:
             raise ValueError(f"Unknown prediction_type={self.prediction_type}")
 
-        loss = self._loss_fn(pred, target)
+        if loss_in_fp32:
+            loss = self._loss_fn(pred.float(), target.float())
+        else:
+            loss = self._loss_fn(pred, target)
         info = {
             "loss": loss.detach(),
             "x_t": x_t.detach(),
@@ -178,6 +191,29 @@ class DiffusionTrainer:
         return loss, info
 
     # ----- sampling -----
+    def _model_to_x0_eps(
+        self,
+        model_out: torch.Tensor,
+        x_t: torch.Tensor,
+        t: torch.Tensor,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Convert raw model output to (x0_pred, eps_pred) for any prediction_type."""
+        sqrt_ab = self.sqrt_alpha_bars[t].view(-1, *([1] * (x_t.dim() - 1)))
+        sqrt_1_ab = self.sqrt_one_minus_alpha_bars[t].view(-1, *([1] * (x_t.dim() - 1)))
+        if self.prediction_type == "eps":
+            pred_eps = model_out
+            x0_pred = (x_t - sqrt_1_ab * pred_eps) / sqrt_ab
+        elif self.prediction_type == "x0":
+            x0_pred = model_out
+            pred_eps = (x_t - sqrt_ab * x0_pred) / sqrt_1_ab
+        elif self.prediction_type == "v":
+            v = model_out
+            x0_pred = sqrt_ab * x_t - sqrt_1_ab * v
+            pred_eps = sqrt_ab * v + sqrt_1_ab * x_t
+        else:
+            raise ValueError(f"Unknown prediction_type={self.prediction_type}")
+        return x0_pred, pred_eps
+
     @torch.no_grad()
     def sample(
         self,
@@ -190,6 +226,7 @@ class DiffusionTrainer:
         eta: float = 0.0,
         use_interpolated_alphas: bool = False,
         progress: bool = True,
+        clamp_x0: Optional[Tuple[float, float]] = None,
     ) -> torch.Tensor:
         """Unified sampler. Choose method 'ddpm' (ancestral) or 'ddim'.
 
@@ -197,7 +234,11 @@ class DiffusionTrainer:
             method: 'ddpm' or 'ddim'.
             step_interval: for 'ddpm', stride between timesteps (>=1).
             eta: for 'ddim', controls stochasticity (0 deterministic).
-            use_interpolated_alphas: for 'ddim', whether to interpolate alpha_bars.
+            use_interpolated_alphas: unused (kept for backward compatibility).
+            clamp_x0: override instance default; if provided, clamps the x0 estimate
+                      each step to this range (e.g. (-1, 1)). Pass `None` to use the
+                      instance default (`self.clamp_x0`); pass `(-inf, inf)` or set
+                      instance default to `None` to disable clamping.
         """
         method = method.lower()
         if method not in ("ddpm", "ddim"):
@@ -207,97 +248,74 @@ class DiffusionTrainer:
         if n_steps is None:
             n_steps = self.n_timesteps
 
+        clamp_range = clamp_x0 if clamp_x0 is not None else self.clamp_x0
+
+        def _maybe_clamp(x0_pred: torch.Tensor) -> torch.Tensor:
+            if clamp_range is None:
+                return x0_pred
+            return x0_pred.clamp(clamp_range[0], clamp_range[1])
+
         x = torch.randn(shape, device=self.device)
 
-        if method == "ddpm":
-            step_interval = max(1, self.n_timesteps // n_steps)
-            iterator = range(self.n_timesteps - 1, -1, -step_interval)
-            if progress:
-                iterator = tqdm(iterator, desc="DDPM Sampling")
-
-            for timestep in iterator:
-                # Generate noise for all timesteps except the last one
-                z = torch.randn_like(x) if timestep > 0 else torch.zeros_like(x)
-                
-                # Get timestep tensor for batch
-                t = torch.full((shape[0],), timestep, device=self.device, dtype=torch.long)
-                
-                # Get model prediction
-                model_out = model(x, cond, t)
-
-                # Convert model output to epsilon prediction
-                if self.prediction_type == "eps":
-                    pred_eps = model_out
-                elif self.prediction_type == "x0":
-                    x0_pred = model_out
-                    pred_eps = self.predict_eps_from_x0(x, t, x0_pred)
-                elif self.prediction_type == "v":
-                    sqrt_ab = self.sqrt_alpha_bars[t].view(-1, *([1] * (x.dim() - 1)))
-                    sqrt_1_ab = self.sqrt_one_minus_alpha_bars[t].view(-1, *([1] * (x.dim() - 1)))
-                    v = model_out
-                    # Convert v-prediction to x0: x0 = sqrt(alpha_bar) * x_t - sqrt(1-alpha_bar) * v
-                    x0_pred = sqrt_ab * x - sqrt_1_ab * v
-                    pred_eps = self.predict_eps_from_x0(x, t, x0_pred)
-                else:
-                    raise ValueError(f"Unknown prediction_type={self.prediction_type}")
-
-                # Get schedule parameters
-                alpha = self.alphas[t].view(-1, *([1] * (x.dim() - 1)))
-                alpha_bar = self.alpha_bars[t].view(-1, *([1] * (x.dim() - 1)))
-                
-                # DDPM sampling step: x_{t-1} = c0 * (x_t - c1 * eps) + sigma * z
-                c0 = 1.0 / torch.sqrt(alpha)
-                c1 = (1 - alpha) / torch.sqrt(1 - alpha_bar)
-                
-                # Apply the DDPM update
-                x = c0 * (x - c1 * pred_eps) + torch.sqrt(self.post_variance[t].view(-1, *([1] * (x.dim() - 1)))) * z
-
-            return x
-
-        # DDIM path - based on diffusion_util.py reference
+        # Build descending timestep schedule (respaced if n_steps < n_timesteps)
         step_interval = max(1, self.n_timesteps // n_steps)
-        iterator = range(self.n_timesteps - 1, -1, -step_interval)
-        if progress:
-            iterator = tqdm(iterator, desc="DDIM Sampling")
+        ts = list(range(self.n_timesteps - 1, -1, -step_interval))
+        iterator = tqdm(ts, desc=f"{method.upper()} Sampling") if progress else ts
 
-        for timestep in iterator:
-            # Get timestep tensor for batch
-            t = torch.full((shape[0],), timestep, device=self.device, dtype=torch.long)
-            
-            # Get model prediction
+        B = shape[0]
+
+        for i, timestep in enumerate(iterator):
+            t = torch.full((B,), timestep, device=self.device, dtype=torch.long)
+            # prev timestep (the one we transition TO); -1 means "output x_0"
+            prev_timestep = ts[i + 1] if i + 1 < len(ts) else -1
+
             model_out = model(x, cond, t)
+            x0_pred, _ = self._model_to_x0_eps(model_out, x, t)
 
-            # Convert model output to epsilon prediction
-            if self.prediction_type == "eps":
-                pred_eps = model_out
-            elif self.prediction_type == "x0":
-                x0_pred = model_out
-                pred_eps = self.predict_eps_from_x0(x, t, x0_pred)
-            elif self.prediction_type == "v":
-                sqrt_ab = self.sqrt_alpha_bars[t].view(-1, *([1] * (x.dim() - 1)))
-                sqrt_1_ab = self.sqrt_one_minus_alpha_bars[t].view(-1, *([1] * (x.dim() - 1)))
-                v = model_out
-                # Convert v-prediction to x0: x0 = sqrt(alpha_bar) * x_t - sqrt(1-alpha_bar) * v
-                x0_pred = sqrt_ab * x - sqrt_1_ab * v
-                pred_eps = self.predict_eps_from_x0(x, t, x0_pred)
-            else:
-                raise ValueError(f"Unknown prediction_type={self.prediction_type}")
+            # (a) clamp x0 estimate — prevents 1/sqrt(alpha_bar_t) ≈ 143× error
+            #     amplification at high t from compounding across sampling steps.
+            x0_pred = _maybe_clamp(x0_pred)
 
-            # Get schedule parameters
-            alpha_bar = self.alpha_bars[t].view(-1, *([1] * (x.dim() - 1)))
-            
-            # Calculate next timestep alpha_bar
-            next_timestep = max(0, timestep - step_interval)
-            alpha_bar_next = self.alpha_bars[next_timestep].view(-1, *([1] * (x.dim() - 1)))
-            
-            # DDIM sampling step: x0_t = (x_t - eps * sqrt(1-alpha_bar)) / sqrt(alpha_bar)
-            #                     x_next = sqrt(alpha_bar_next) * x0_t + sqrt(1-alpha_bar_next) * eps
-            # Clamp x0_t to the data range to prevent numerical blowup: at high t,
-            # sqrt(alpha_bar) is tiny (~0.007 at t=999), so prediction errors are amplified
-            # ~143× in x0_t. Without clamping, errors compound across steps.
-            x0_t = (x - pred_eps * torch.sqrt(1 - alpha_bar)) / torch.sqrt(alpha_bar)
-            x0_t = x0_t.clamp(-1, 1)
-            x = torch.sqrt(alpha_bar_next) * x0_t + torch.sqrt(1 - alpha_bar_next) * pred_eps
+            alpha_bar_t = self.alpha_bars[t].view(-1, *([1] * (x.dim() - 1)))
+
+            if prev_timestep < 0:
+                # Final step: return the clamped x0 estimate directly.
+                x = x0_pred
+                continue
+
+            t_prev = torch.full((B,), prev_timestep, device=self.device, dtype=torch.long)
+            alpha_bar_prev = self.alpha_bars[t_prev].view(-1, *([1] * (x.dim() - 1)))
+
+            if method == "ddpm":
+                # Strided ancestral update in x0 parameterization.
+                # Let alpha_tilde = alpha_bar_t / alpha_bar_prev (product of alphas
+                # between prev and t — reduces to alpha_t when step_interval == 1).
+                alpha_tilde = alpha_bar_t / alpha_bar_prev
+                beta_tilde = 1.0 - alpha_tilde
+                one_minus_ab_t = 1.0 - alpha_bar_t
+                # Posterior mean q(x_prev | x_t, x0):
+                #   mu = (sqrt(ab_prev) * beta_tilde / (1 - ab_t)) * x0
+                #      + (sqrt(alpha_tilde) * (1 - ab_prev) / (1 - ab_t)) * x_t
+                coef_x0 = torch.sqrt(alpha_bar_prev) * beta_tilde / one_minus_ab_t
+                coef_xt = torch.sqrt(alpha_tilde) * (1.0 - alpha_bar_prev) / one_minus_ab_t
+                mean = coef_x0 * x0_pred + coef_xt * x
+                # Posterior variance
+                var = beta_tilde * (1.0 - alpha_bar_prev) / one_minus_ab_t
+                noise = torch.randn_like(x)
+                x = mean + torch.sqrt(var.clamp(min=0.0)) * noise
+            else:  # DDIM
+                # Recompute eps consistent with the (clamped) x0 so clamping
+                # actually influences the next iterate.
+                sqrt_1_ab_t = torch.sqrt(1.0 - alpha_bar_t)
+                eps_consistent = (x - torch.sqrt(alpha_bar_t) * x0_pred) / sqrt_1_ab_t
+                sigma = eta * torch.sqrt(
+                    (1.0 - alpha_bar_prev) / (1.0 - alpha_bar_t)
+                    * (1.0 - alpha_bar_t / alpha_bar_prev)
+                )
+                dir_xt = torch.sqrt((1.0 - alpha_bar_prev - sigma ** 2).clamp(min=0.0)) * eps_consistent
+                x = torch.sqrt(alpha_bar_prev) * x0_pred + dir_xt
+                if eta > 0:
+                    x = x + sigma * torch.randn_like(x)
 
         return x
 

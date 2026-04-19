@@ -5,4 +5,6 @@ results/
 *.txt
 log.txt
 2d_diffusion_HFD_ds2_*
+2d_diffusion_ds2_*
 logs/*
+.claude/

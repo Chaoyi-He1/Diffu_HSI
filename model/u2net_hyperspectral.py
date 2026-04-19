@@ -34,7 +34,18 @@ class U2NetBlock2D(nn.Module):
         Stage1 → Stage5: Preserves fine spatial details from highest resolution
         Stage2 → Stage4: Preserves medium-scale spatial features
     """
-    def __init__(self, in_channels, mid_channels, out_channels, context_dim):
+    def __init__(
+        self,
+        in_channels,
+        mid_channels,
+        out_channels,
+        context_dim,
+        time_dim=None,
+        use_channel_3d_conv=False,
+        channel_kernel=3,
+        spatial_kernel=3,
+        channel_num_filters=4,
+    ):
         """
         Initialize a U2NetBlock2D for hyperspectral diffusion.
 
@@ -62,8 +73,19 @@ class U2NetBlock2D(nn.Module):
         """
         super(U2NetBlock2D, self).__init__()
         
+        conv_kwargs = {"time_dim": time_dim}
+        ConvBlockCls = ConvBlock2D
+        if use_channel_3d_conv:
+            ConvBlockCls = ConvBlock2D_ChannelAware
+            conv_kwargs = {
+                "channel_kernel": channel_kernel,
+                "spatial_kernel": spatial_kernel,
+                "num_filters": channel_num_filters,
+                "time_dim": time_dim,
+            }
+
         # Stage 1: Downsampling path [B, Cin, H, W] → [B, M, H, W] → [B, M, H/2, W/2]
-        self.stage1 = ConvBlock2D(in_channels, mid_channels)              # [B, Cin, H, W] → [B, M, H, W]
+        self.stage1 = ConvBlockCls(in_channels, mid_channels, **conv_kwargs)              # [B, Cin, H, W] → [B, M, H, W]
         self.pool1 = nn.MaxPool2d(kernel_size=2, stride=2)               # [B, M, H, W] → [B, M, H/2, W/2]
         self.norm1 = nn.LayerNorm(mid_channels)                          # For attention: [B, H*W, M]
         # Context projection from global conditioning to local dimension
@@ -74,7 +96,7 @@ class U2NetBlock2D(nn.Module):
         )
         
         # Stage 2: Downsampling path [B, M, H/2, W/2] → [B, M, H/2, W/2] → [B, M, H/4, W/4]
-        self.stage2 = ConvBlock2D(mid_channels, mid_channels)            # [B, M, H/2, W/2] → [B, M, H/2, W/2]
+        self.stage2 = ConvBlockCls(mid_channels, mid_channels, **conv_kwargs)            # [B, M, H/2, W/2] → [B, M, H/2, W/2]
         self.pool2 = nn.MaxPool2d(kernel_size=2, stride=2)               # [B, M, H/2, W/2] → [B, M, H/4, W/4]
         self.norm2 = nn.LayerNorm(mid_channels)                          # For attention: [B, H*W/4, M]
         self.context_proj2 = nn.Linear(context_dim, mid_channels)        # Project [B, H*W, context_dim] → [B, H*W, M]
@@ -84,7 +106,7 @@ class U2NetBlock2D(nn.Module):
         )
         
         # Stage 3: Bridge [B, M, H/4, W/4] → [B, M, H/4, W/4]
-        self.stage3 = ConvBlock2D(mid_channels, mid_channels)            # [B, M, H/4, W/4] → [B, M, H/4, W/4]
+        self.stage3 = ConvBlockCls(mid_channels, mid_channels, **conv_kwargs)            # [B, M, H/4, W/4] → [B, M, H/4, W/4]
         self.norm3 = nn.LayerNorm(mid_channels)                          # For attention: [B, H*W/16, M]
         self.context_proj3 = nn.Linear(context_dim, mid_channels)        # Project [B, H*W, context_dim] → [B, H*W, M]
         self.attn3 = BasicTransformerBlock(                              # [B, H*W/16, M] → [B, H*W/16, M]
@@ -95,7 +117,7 @@ class U2NetBlock2D(nn.Module):
         # Stage 4: Upsampling path [B, M, H/4, W/4] → [B, 2M, H/2, W/2] → [B, M, H/2, W/2]
         self.up1 = nn.Upsample(scale_factor=2, mode='bilinear',          # [B, M, H/4, W/4] → [B, M, H/2, W/2]
                               align_corners=True)
-        self.stage4 = ConvBlock2D(mid_channels * 2, mid_channels)        # [B, 2M, H/2, W/2] → [B, M, H/2, W/2]
+        self.stage4 = ConvBlockCls(mid_channels * 2, mid_channels, **conv_kwargs)        # [B, 2M, H/2, W/2] → [B, M, H/2, W/2]
         self.norm4 = nn.LayerNorm(mid_channels)                          # For attention: [B, H*W/4, M]
         self.context_proj4 = nn.Linear(context_dim, mid_channels)        # Project [B, H*W, context_dim] → [B, H*W, M]
         self.attn4 = BasicTransformerBlock(                              # [B, H*W/4, M] → [B, H*W/4, M]
@@ -106,7 +128,7 @@ class U2NetBlock2D(nn.Module):
         # Stage 5: Upsampling path [B, M, H/2, W/2] → [B, 2M, H, W] → [B, Cout, H, W]
         self.up2 = nn.Upsample(scale_factor=2, mode='bilinear',          # [B, M, H/2, W/2] → [B, M, H, W]
                               align_corners=True)
-        self.stage5 = ConvBlock2D(mid_channels * 2, out_channels)        # [B, 2M, H, W] → [B, Cout, H, W]
+        self.stage5 = ConvBlockCls(mid_channels * 2, out_channels, **conv_kwargs)        # [B, 2M, H, W] → [B, Cout, H, W]
         self.norm5 = nn.LayerNorm(out_channels)                          # For attention: [B, H*W, Cout]
         self.context_proj5 = nn.Linear(context_dim, out_channels)        # Project [B, H*W, context_dim] → [B, H*W, Cout]
         self.attn5 = BasicTransformerBlock(                              # [B, H*W, Cout] → [B, H*W, Cout]
@@ -114,7 +136,7 @@ class U2NetBlock2D(nn.Module):
             d_head=out_channels//4, gated_ff=True
         )
 
-    def forward(self, x, context=None):
+    def forward(self, x, context=None, t_emb=None):
         """
         Forward pass of the U2NetBlock2D.
 
@@ -126,6 +148,9 @@ class U2NetBlock2D(nn.Module):
                 W = width
             context (torch.Tensor, optional): Context tensor for conditional attention
                 Shape: [B, H*W, context_dim] (will be downsampled as needed)
+            t_emb (torch.Tensor, optional): Time embedding [B, time_dim] used
+                to FiLM-modulate every conv stage. Ignored when the block was
+                constructed with time_dim=None.
 
         Returns:
             torch.Tensor: Output tensor of shape [B, out_channels, H, W]
@@ -164,7 +189,7 @@ class U2NetBlock2D(nn.Module):
         
         # Encoder path with cross-attention
         # Stage 1: Downsampling path (H,W → H/2,W/2)
-        x1 = self.stage1(x)                                    # [B, Cin, H, W]     → [B, M, H, W]
+        x1 = self.stage1(x, t_emb)                             # [B, Cin, H, W]     → [B, M, H, W]
         x1_att = to_attention_format(x1)                       # [B, M, H, W]       → [B, H*W, M]
         if context is not None:
             # Use context at full resolution for stage 1
@@ -176,7 +201,7 @@ class U2NetBlock2D(nn.Module):
         x = self.pool1(x1)                                    # [B, M, H, W]       → [B, M, H/2, W/2]
         
         # Stage 2: Downsampling path (H/2,W/2 → H/4,W/4)
-        x2 = self.stage2(x)                                    # [B, M, H/2, W/2]   → [B, M, H/2, W/2]
+        x2 = self.stage2(x, t_emb)                             # [B, M, H/2, W/2]   → [B, M, H/2, W/2]
         x2_att = to_attention_format(x2)                       # [B, M, H/2, W/2]   → [B, H*W/4, M]
         if context is not None:
             # Downsample context for stage 2
@@ -189,7 +214,7 @@ class U2NetBlock2D(nn.Module):
         x = self.pool2(x2)                                    # [B, M, H/2, W/2]   → [B, M, H/4, W/4]
         
         # Stage 3: Bridge (process at lowest resolution)
-        x = self.stage3(x)                                    # [B, M, H/4, W/4]   → [B, M, H/4, W/4]
+        x = self.stage3(x, t_emb)                             # [B, M, H/4, W/4]   → [B, M, H/4, W/4]
         x_att = to_attention_format(x)                        # [B, M, H/4, W/4]   → [B, H*W/16, M]
         if context is not None:
             # Downsample context for stage 3
@@ -203,7 +228,7 @@ class U2NetBlock2D(nn.Module):
         # Stage 4: Upsampling path with skip connection from Stage 2
         x = self.up1(x)                                       # [B, M, H/4, W/4]   → [B, M, H/2, W/2]
         x = torch.cat([x, x2], dim=1)                         # [B, M, H/2, W/2]   → [B, 2M, H/2, W/2]
-        x = self.stage4(x)                                    # [B, 2M, H/2, W/2]  → [B, M, H/2, W/2]
+        x = self.stage4(x, t_emb)                             # [B, 2M, H/2, W/2]  → [B, M, H/2, W/2]
         x_att = to_attention_format(x)                        # [B, M, H/2, W/2]   → [B, H*W/4, M]
         if context is not None:
             # Use downsampled context for stage 4
@@ -217,7 +242,7 @@ class U2NetBlock2D(nn.Module):
         # Stage 5: Upsampling path with skip connection from Stage 1
         x = self.up2(x)                                       # [B, M, H/2, W/2]   → [B, M, H, W]
         x = torch.cat([x, x1], dim=1)                         # [B, M, H, W]       → [B, 2M, H, W]
-        x = self.stage5(x)                                    # [B, 2M, H, W]      → [B, Cout, H, W]
+        x = self.stage5(x, t_emb)                             # [B, 2M, H, W]      → [B, Cout, H, W]
         x_att = to_attention_format(x)                        # [B, Cout, H, W]    → [B, H*W, Cout]
         if context is not None:
             # Use full resolution context for stage 5
@@ -271,7 +296,16 @@ class U2NetHyperspectral(nn.Module):
         - Both are combined and used in cross-attention throughout network
     """
     
-    def __init__(self, spectral_channels, sensor_channels, base_channels=64):
+    def __init__(
+        self,
+        spectral_channels,
+        sensor_channels,
+        base_channels=64,
+        use_channel_3d_conv=False,
+        channel_kernel=3,
+        spatial_kernel=3,
+        channel_num_filters=4,
+    ):
         """
         Args:
             spectral_channels (int): Number of spectral channels (L) in hyperspectral image
@@ -310,25 +344,44 @@ class U2NetHyperspectral(nn.Module):
         # Input projection from spectral to base channels
         self.input_proj = nn.Conv2d(spectral_channels, base_channels, kernel_size=3, padding=1)
         
+        block_kwargs = {
+            "time_dim": time_dim,
+            "use_channel_3d_conv": use_channel_3d_conv,
+            "channel_kernel": channel_kernel,
+            "spatial_kernel": spatial_kernel,
+            "channel_num_filters": channel_num_filters,
+        }
+
+        conv_kwargs = {"time_dim": time_dim}
+        BridgeConvCls = ConvBlock2D
+        if use_channel_3d_conv:
+            BridgeConvCls = ConvBlock2D_ChannelAware
+            conv_kwargs = {
+                "channel_kernel": channel_kernel,
+                "spatial_kernel": spatial_kernel,
+                "num_filters": channel_num_filters,
+                "time_dim": time_dim,
+            }
+
         # Encoder Path: Progressive downsampling and channel expansion
         # Stage 1: Input level
         self.stage1 = U2NetBlock2D(base_channels, base_channels, base_channels, 
-                                  context_dim=base_channels * 8)                    # [B, Base_C, H, W] → [B, Base_C, H, W]
+                                  context_dim=base_channels * 8, **block_kwargs)    # [B, Base_C, H, W] → [B, Base_C, H, W]
         self.pool1 = nn.MaxPool2d(kernel_size=2, stride=2)                         # [B, Base_C, H, W] → [B, Base_C, H/2, W/2]
         
         # Stage 2: First downsampling level
         self.stage2 = U2NetBlock2D(base_channels, base_channels * 2, base_channels * 2,
-                                  context_dim=base_channels * 8)                    # [B, Base_C, H/2, W/2] → [B, Base_C*2, H/2, W/2]
+                                  context_dim=base_channels * 8, **block_kwargs)    # [B, Base_C, H/2, W/2] → [B, Base_C*2, H/2, W/2]
         self.pool2 = nn.MaxPool2d(kernel_size=2, stride=2)                         # [B, Base_C*2, H/2, W/2] → [B, Base_C*2, H/4, W/4]
         
         # Stage 3: Second downsampling level
         self.stage3 = U2NetBlock2D(base_channels * 2, base_channels * 4, base_channels * 4,
-                                  context_dim=base_channels * 8)                    # [B, Base_C*2, H/4, W/4] → [B, Base_C*4, H/4, W/4]
+                                  context_dim=base_channels * 8, **block_kwargs)    # [B, Base_C*2, H/4, W/4] → [B, Base_C*4, H/4, W/4]
         self.pool3 = nn.MaxPool2d(kernel_size=2, stride=2)                         # [B, Base_C*4, H/4, W/4] → [B, Base_C*4, H/8, W/8]
         
         # Bridge: Bottleneck with maximum channels and attention
         bridge_channels = base_channels * 8
-        self.bridge = ConvBlock2D(base_channels * 4, bridge_channels)              # [B, Base_C*4, H/8, W/8] → [B, Base_C*8, H/8, W/8]
+        self.bridge = BridgeConvCls(base_channels * 4, bridge_channels, **conv_kwargs)  # [B, Base_C*4, H/8, W/8] → [B, Base_C*8, H/8, W/8]
         self.bridge_norm = nn.LayerNorm(bridge_channels)                           # For attention: [B, H*W/64, Base_C*8]
         self.bridge_attn = BasicTransformerBlock(
             dim=bridge_channels,                                                   # Processes: [B, H*W/64, Base_C*8]
@@ -343,19 +396,19 @@ class U2NetHyperspectral(nn.Module):
         self.up1 = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)  # [B, Base_C*8, H/8, W/8] → [B, Base_C*8, H/4, W/4]
         # Concat with stage3: [B, Base_C*8 + Base_C*4, H/4, W/4] = [B, Base_C*12, H/4, W/4]
         self.stage4 = U2NetBlock2D(base_channels * 12, base_channels * 4, base_channels * 4,
-                                  context_dim=base_channels * 8)                    # [B, Base_C*12, H/4, W/4] → [B, Base_C*4, H/4, W/4]
+                                  context_dim=base_channels * 8, **block_kwargs)    # [B, Base_C*12, H/4, W/4] → [B, Base_C*4, H/4, W/4]
         
         # Stage 5: Second upsampling level
         self.up2 = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)  # [B, Base_C*4, H/4, W/4] → [B, Base_C*4, H/2, W/2]
         # Concat with stage2: [B, Base_C*4 + Base_C*2, H/2, W/2] = [B, Base_C*6, H/2, W/2]
         self.stage5 = U2NetBlock2D(base_channels * 6, base_channels * 2, base_channels * 2,
-                                  context_dim=base_channels * 8)                    # [B, Base_C*6, H/2, W/2] → [B, Base_C*2, H/2, W/2]
+                                  context_dim=base_channels * 8, **block_kwargs)    # [B, Base_C*6, H/2, W/2] → [B, Base_C*2, H/2, W/2]
         
         # Stage 6: Final upsampling level
         self.up3 = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)  # [B, Base_C*2, H/2, W/2] → [B, Base_C*2, H, W]
         # Concat with stage1: [B, Base_C*2 + Base_C, H, W] = [B, Base_C*3, H, W]
         self.stage6 = U2NetBlock2D(base_channels * 3, base_channels, base_channels,
-                                  context_dim=base_channels * 8)                    # [B, Base_C*3, H, W] → [B, Base_C, H, W]
+                                  context_dim=base_channels * 8, **block_kwargs)    # [B, Base_C*3, H, W] → [B, Base_C, H, W]
         
         # Final projection to match spectral channels
         self.final = nn.Conv2d(base_channels, spectral_channels, kernel_size=1)     # [B, Base_C, H, W] → [B, L, H, W]
@@ -396,38 +449,38 @@ class U2NetHyperspectral(nn.Module):
         
         # Encoder path - progressively reduce spatial resolution, increase channels
         context_full = create_context_for_resolution(H, W)        # Context at full resolution
-        x1 = self.stage1(x, context_full)                        # [B, Base_C, H, W] → [B, Base_C, H, W]
+        x1 = self.stage1(x, context_full, t_emb)                 # [B, Base_C, H, W] → [B, Base_C, H, W]
         x = self.pool1(x1)                                       # [B, Base_C, H, W] → [B, Base_C, H/2, W/2]
-        
+
         context_half = create_context_for_resolution(H//2, W//2)  # Context at half resolution
-        x2 = self.stage2(x, context_half)                        # [B, Base_C, H/2, W/2] → [B, Base_C*2, H/2, W/2]
+        x2 = self.stage2(x, context_half, t_emb)                 # [B, Base_C, H/2, W/2] → [B, Base_C*2, H/2, W/2]
         x = self.pool2(x2)                                       # [B, Base_C*2, H/2, W/2] → [B, Base_C*2, H/4, W/4]
-        
+
         context_quarter = create_context_for_resolution(H//4, W//4)  # Context at quarter resolution
-        x3 = self.stage3(x, context_quarter)                     # [B, Base_C*2, H/4, W/4] → [B, Base_C*4, H/4, W/4]
+        x3 = self.stage3(x, context_quarter, t_emb)              # [B, Base_C*2, H/4, W/4] → [B, Base_C*4, H/4, W/4]
         x = self.pool3(x3)                                       # [B, Base_C*4, H/4, W/4] → [B, Base_C*4, H/8, W/8]
-        
+
         # Bridge with transformer attention
-        x = self.bridge(x)                                       # [B, Base_C*4, H/8, W/8] → [B, Base_C*8, H/8, W/8]
+        x = self.bridge(x, t_emb)                                # [B, Base_C*4, H/8, W/8] → [B, Base_C*8, H/8, W/8]
         # Reshape for attention: [B, Base_C*8, H/8, W/8] → [B, H*W/64, Base_C*8]
         context_eighth = create_context_for_resolution(H//8, W//8)  # Context at eighth resolution
         x_bridge = x.view(B, self.base_channels * 8, (H//8) * (W//8)).permute(0, 2, 1)
         x_bridge = self.bridge_attn(x_bridge, context_eighth)    # Apply conditioned attention
         # Reshape back: [B, H*W/64, Base_C*8] → [B, Base_C*8, H/8, W/8]
         x = x_bridge.permute(0, 2, 1).view(B, self.base_channels * 8, H//8, W//8)
-        
+
         # Decoder path - progressively increase spatial resolution, decrease channels
         x = self.up1(x)                                          # [B, Base_C*8, H/8, W/8] → [B, Base_C*8, H/4, W/4]
         x = torch.cat([x, x3], dim=1)                            # [B, Base_C*8+Base_C*4, H/4, W/4] = [B, Base_C*12, H/4, W/4]
-        x = self.stage4(x, context_quarter)                      # [B, Base_C*12, H/4, W/4] → [B, Base_C*4, H/4, W/4]
-        
+        x = self.stage4(x, context_quarter, t_emb)               # [B, Base_C*12, H/4, W/4] → [B, Base_C*4, H/4, W/4]
+
         x = self.up2(x)                                          # [B, Base_C*4, H/4, W/4] → [B, Base_C*4, H/2, W/2]
         x = torch.cat([x, x2], dim=1)                            # [B, Base_C*4+Base_C*2, H/2, W/2] = [B, Base_C*6, H/2, W/2]
-        x = self.stage5(x, context_half)                         # [B, Base_C*6, H/2, W/2] → [B, Base_C*2, H/2, W/2]
-        
+        x = self.stage5(x, context_half, t_emb)                  # [B, Base_C*6, H/2, W/2] → [B, Base_C*2, H/2, W/2]
+
         x = self.up3(x)                                          # [B, Base_C*2, H/2, W/2] → [B, Base_C*2, H, W]
         x = torch.cat([x, x1], dim=1)                            # [B, Base_C*2+Base_C, H, W] = [B, Base_C*3, H, W]
-        x = self.stage6(x, context_full)                         # [B, Base_C*3, H, W] → [B, Base_C, H, W]
+        x = self.stage6(x, context_full, t_emb)                  # [B, Base_C*3, H, W] → [B, Base_C, H, W]
         
         # Final output projection to spectral channels
         x = self.final(x)                                        # [B, Base_C, H, W] → [B, L, H, W]
