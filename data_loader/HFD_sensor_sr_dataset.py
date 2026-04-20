@@ -10,7 +10,6 @@ scripts/compute_sensor_stats.py).
 """
 import json
 import os
-import random
 
 import numpy as np
 import scipy.io as sio
