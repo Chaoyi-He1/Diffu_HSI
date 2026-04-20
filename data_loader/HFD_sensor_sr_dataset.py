@@ -70,6 +70,20 @@ class HFD_SensorSR_data(Dataset.Dataset):
             )
         with open(stats_path, 'r') as f:
             stats = json.load(f)
+        # Guard against using stats computed on a different (type, R_n)
+        # — silent mismatch would train against off-scale normalization.
+        if 'type' in stats and stats['type'] != type:
+            raise ValueError(
+                f'stats file {stats_path} was computed for type={stats["type"]!r} '
+                f'but dataset is using type={type!r}. Re-run '
+                f'scripts/compute_sensor_stats.py with --type {type}.'
+            )
+        if 'R_n' in stats and int(stats['R_n']) != int(R_n):
+            raise ValueError(
+                f'stats file {stats_path} was computed for R_n={stats["R_n"]} '
+                f'but dataset is using R_n={R_n}. Re-run '
+                f'scripts/compute_sensor_stats.py with --R-n {R_n}.'
+            )
         self.sensor_min = float(stats['sensor_min'])
         self.sensor_max = float(stats['sensor_max'])
         print(f'[HFD_SensorSR_data] global stats: '

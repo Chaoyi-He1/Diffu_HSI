@@ -199,7 +199,7 @@ def main(args):
     use_bf16 = not args.no_mixed_precision
     batch_per_gpu = args.batch_size // world_size
     assert batch_per_gpu > 0, \
-        f'batch_size ({args.batch_size}) >= world_size ({world_size})'
+        f'batch_size ({args.batch_size}) must be >= world_size ({world_size})'
 
     if is_main_process():
         os.makedirs(args.save_path, exist_ok=True)
@@ -343,7 +343,11 @@ def main(args):
                 model, diffusion_trainer, eval_loader, local_rank, use_bf16
             )
             print_rank0(f'  → val_loss: {vm["val_loss"]:.6f}')
-            if is_main_process() and vm['val_loss'] < best_val_loss:
+            # All ranks see the same averaged val_loss (all_reduce in
+            # validate_one_epoch), so the decision to save is consistent.
+            # save_fsdp_checkpoint itself runs FSDP collectives — must be
+            # called by every rank, not gated on is_main_process().
+            if vm['val_loss'] < best_val_loss:
                 best_val_loss = vm['val_loss']
                 save_fsdp_checkpoint(
                     model, optimizer, scheduler, epoch, best_val_loss,
@@ -357,12 +361,13 @@ def main(args):
                              f'checkpoint_epoch_{epoch+1}.pth'),
             )
 
+    # save_fsdp_checkpoint runs FSDP collectives; call on every rank.
+    save_fsdp_checkpoint(
+        model, optimizer, scheduler, args.num_epochs - 1,
+        train_history[-1]['loss'] if train_history else 0.0,
+        os.path.join(args.save_path, 'final_model.pth'),
+    )
     if is_main_process():
-        save_fsdp_checkpoint(
-            model, optimizer, scheduler, args.num_epochs - 1,
-            train_history[-1]['loss'] if train_history else 0.0,
-            os.path.join(args.save_path, 'final_model.pth'),
-        )
         if train_history:
             header = ','.join(train_history[0].keys())
             rows = [[m[k] for k in train_history[0]] for m in train_history]
