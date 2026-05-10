@@ -60,7 +60,7 @@ def get_parser():
     p.add_argument('--ds_sr', type=int, default=8,
                    help='Spatial downsample rate for sensor conditioning.')
     p.add_argument('--sr_downsample_method', type=str, default='strided',
-                   choices=['strided', 'avg_pool'])
+                   choices=['strided', 'avg_pool', 'area_resize'])
     p.add_argument('--sensor_stats_path', type=str, required=True,
                    help='JSON file produced by scripts/compute_sensor_stats.py')
 
@@ -92,6 +92,9 @@ def get_parser():
     p.add_argument('--timesteps', type=int, default=1000)
     p.add_argument('--prediction_type', type=str, default='v',
                    choices=['eps', 'x0', 'v'])
+    p.add_argument('--snr_gamma', type=float, default=5.0,
+                   help='min-SNR-γ loss weighting (Hang et al. 2023). '
+                        'Set to 0 or negative to disable.')
 
     # FSDP
     p.add_argument('--sharding_strategy', type=str, default='FULL_SHARD',
@@ -286,6 +289,7 @@ def main(args):
         prediction_type=args.prediction_type,
         beta_schedule=args.noise_schedule,
         device=device,
+        snr_gamma=args.snr_gamma,
     )
 
     adam_eps = 1e-6 if use_bf16 else 1e-8
@@ -293,9 +297,15 @@ def main(args):
         model.parameters(), lr=args.lr,
         weight_decay=args.weight_decay, eps=adam_eps,
     )
+    # Restart cosine from args.lr over the REMAINING epochs on resume so the
+    # LR tail isn't crushed to near-zero by a full-T_max + loaded last_epoch.
+    cosine_T = max(1, args.num_epochs - start_epoch)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-        optimizer, T_max=args.num_epochs, eta_min=args.lr * args.lrf
+        optimizer, T_max=cosine_T, eta_min=args.lr * args.lrf
     )
+    if start_epoch > 0:
+        print_rank0(f'Cosine LR restarted from {args.lr:.2e} over '
+                    f'{cosine_T} remaining epochs (eta_min={args.lr * args.lrf:.2e}).')
 
     if ckpt_optim_state is not None:
         sharded = FSDP.optim_state_dict_to_load(
@@ -307,10 +317,16 @@ def main(args):
 
     for g in optimizer.param_groups:
         g['eps'] = adam_eps
+        # CosineAnnealingLR.get_lr() recurses on the *current* group['lr'] in
+        # its general branch (not on base_lrs), so load_state_dict above just
+        # pinned us to the previous run's tail-LR (~eta_min). Reset both lr
+        # and initial_lr to args.lr so the restart actually starts from there.
+        g['lr'] = args.lr
+        g['initial_lr'] = args.lr
 
     if ckpt_sched_state is not None:
-        scheduler.load_state_dict(ckpt_sched_state)
-        print_rank0(f'Scheduler restored (last_epoch={scheduler.last_epoch}).')
+        print_rank0('Scheduler state from checkpoint intentionally discarded '
+                    '(cosine restarted — see above).')
 
     print_rank0('=' * 80)
     print_rank0(f'Starting training: epochs {start_epoch + 1} → {args.num_epochs}')
