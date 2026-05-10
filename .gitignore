@@ -8,3 +8,5 @@ log.txt
 2d_diffusion_ds2_*
 logs/*
 .claude/
+*.log
+*.err
