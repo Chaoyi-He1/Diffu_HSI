@@ -33,7 +33,7 @@ class HFD_SensorSR_data(Dataset.Dataset):
         super().__init__()
         assert split in ('train', 'test')
         assert type in ('Flower', 'Leaves', 'Scenses')
-        assert sr_downsample_method in ('strided', 'avg_pool')
+        assert sr_downsample_method in ('strided', 'avg_pool', 'area_resize')
 
         self.data_path = data_path
         self.split = split
@@ -127,14 +127,22 @@ class HFD_SensorSR_data(Dataset.Dataset):
             return full_sensor
         if self.sr_downsample_method == 'strided':
             return full_sensor[::ds, ::ds, :]
-        # avg_pool: reshape-based block mean
+        if self.sr_downsample_method == 'avg_pool':
+            H, W, C = full_sensor.shape
+            Hn, Wn = H // ds, W // ds
+            return (
+                full_sensor[:Hn * ds, :Wn * ds, :]
+                .reshape(Hn, ds, Wn, ds, C)
+                .mean(axis=(1, 3))
+            )
+        # area_resize: F.interpolate area mode — works for any integer rate,
+        # including rates that don't evenly divide H/W. Output size is
+        # round(H/ds) × round(W/ds), preserving signal energy via area weighting.
         H, W, C = full_sensor.shape
-        Hn, Wn = H // ds, W // ds
-        return (
-            full_sensor[:Hn * ds, :Wn * ds, :]
-            .reshape(Hn, ds, Wn, ds, C)
-            .mean(axis=(1, 3))
-        )
+        Hn, Wn = int(round(H / ds)), int(round(W / ds))
+        t = torch.from_numpy(full_sensor).permute(2, 0, 1).unsqueeze(0)
+        t = torch.nn.functional.interpolate(t, size=(Hn, Wn), mode='area')
+        return t.squeeze(0).permute(1, 2, 0).contiguous().numpy()
 
     def __len__(self):
         return len(self.img_list)
@@ -149,10 +157,12 @@ class HFD_SensorSR_data(Dataset.Dataset):
         gt = gt * 2.0 - 1.0
 
         H, W, C = gt.shape
-        assert H % self.sr_downsample_rate == 0 and \
-               W % self.sr_downsample_rate == 0, (
-            f'image {H}x{W} not divisible by ds={self.sr_downsample_rate}'
-        )
+        if self.sr_downsample_method != 'area_resize':
+            assert H % self.sr_downsample_rate == 0 and \
+                   W % self.sr_downsample_rate == 0, (
+                f'image {H}x{W} not divisible by ds={self.sr_downsample_rate}; '
+                f'use sr_downsample_method=area_resize for non-divisible rates'
+            )
 
         full_sensor = (gt.reshape(-1, C) @ self.sensor_R_matrix) \
             .reshape(H, W, -1).astype(np.float32)  # [H, W, 30]
@@ -206,4 +216,48 @@ if __name__ == '__main__':
     fb, lb = sensor_sr_image_collate_fn(batch)
     print(f'collated: full={fb.shape} low={lb.shape}')
     assert fb.shape[1] == 30 and lb.shape[1] == 30
+
+    # --- area_resize sweep smoke ---
+    # Validates the new method on rates that both divide and don't divide H=64.
+    expected_lowres = {2: 32, 3: 21, 4: 16, 6: 11}
+    for rate in (2, 3, 4, 6):
+        ds_rate = HFD_SensorSR_data(
+            data_path='dataset/HFD100 Mat dataset',
+            stats_path='dataset/HFD100 Mat dataset/sensor_stats_R1.json',
+            sr_downsample_rate=rate,
+            sr_downsample_method='area_resize',
+        )
+        full_r, low_r = ds_rate[0]
+        assert full_r.shape[0] == full_r.shape[1], \
+            f'expected square full image, got {full_r.shape}'
+        side = expected_lowres[rate]
+        assert low_r.shape[0] == side and low_r.shape[1] == side, (
+            f'ds={rate} area_resize: expected lowres {side}x{side}, '
+            f'got {low_r.shape[0]}x{low_r.shape[1]}'
+        )
+        assert low_r.shape[-1] == 30, f'ds={rate}: lowres channels {low_r.shape[-1]} != 30'
+        assert low_r.min() >= -1.0 - 1e-6 and low_r.max() <= 1.0 + 1e-6, \
+            f'ds={rate}: lowres out of [-1,1]: [{low_r.min():.4f}, {low_r.max():.4f}]'
+        print(f'  area_resize ds={rate}: full={full_r.shape} low={low_r.shape} '
+              f'range=[{low_r.min():.4f}, {low_r.max():.4f}]')
+
+    # area_resize and avg_pool must agree on integer-divisible rates.
+    ds_area = HFD_SensorSR_data(
+        data_path='dataset/HFD100 Mat dataset',
+        stats_path='dataset/HFD100 Mat dataset/sensor_stats_R1.json',
+        sr_downsample_rate=2, sr_downsample_method='area_resize',
+    )
+    ds_pool = HFD_SensorSR_data(
+        data_path='dataset/HFD100 Mat dataset',
+        stats_path='dataset/HFD100 Mat dataset/sensor_stats_R1.json',
+        sr_downsample_rate=2, sr_downsample_method='avg_pool',
+    )
+    _, low_area = ds_area[0]
+    _, low_pool = ds_pool[0]
+    assert low_area.shape == low_pool.shape, \
+        f'area vs pool shape mismatch: {low_area.shape} vs {low_pool.shape}'
+    diff = float(np.abs(low_area - low_pool).max())
+    assert diff < 1e-5, f'area_resize and avg_pool disagree on ds=2: max abs diff {diff:.2e}'
+    print(f'  area_resize ≈ avg_pool on ds=2: max abs diff {diff:.2e}')
+
     print('OK')
