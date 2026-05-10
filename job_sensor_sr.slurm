@@ -43,4 +43,6 @@ torchrun \
     --lrf 0.033 \
     --ds_sr 8 \
     --sr_downsample_method strided \
-    --save_path results/2d_sensor_sr/ds8_strided/HFD/R_1/3dconv
+    --save_path results/2d_sensor_sr/ds8_strided/HFD/R_1/l1_loss/3dconv \
+    --num_epochs 200 \
+    --resume results/2d_sensor_sr/ds8_strided/HFD/R_1/l1_loss/3dconv/checkpoint_epoch_100.pth

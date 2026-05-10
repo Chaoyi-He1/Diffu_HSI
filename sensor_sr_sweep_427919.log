@@ -1,0 +1,62 @@
+/mnt/shared-scratch/Katehi_L/chaoyi_he/conda_envs/hsi/bin/python
+PyTorch: 2.10.0+cu130
+CUDA devices: 2
+==========================================
+Sensor-SR sweep run: DS_SR=2
+Save path: results/2d_sensor_sr/ds2_area/HFD/R_1/l1_loss/3dconv
+==========================================
+================================================================================
+Sensor Super-Resolution Diffusion — FSDP Multi-GPU Training
+================================================================================
+  data_path: dataset/HFD100 Mat dataset
+  type: Flower
+  num_workers: 4
+  batch_size: 16
+  eval_ratio: 0.1
+  R_n: 1
+  ds_sr: 2
+  sr_downsample_method: area_resize
+  sensor_stats_path: dataset/HFD100 Mat dataset/sensor_stats_R1.json
+  sensor_channels: 30
+  base_channels: 256
+  use_channel_3d_conv: True
+  channel_kernel: 7
+  spatial_kernel: 3
+  channel_num_filters: 4
+  lr: 0.0001
+  num_epochs: 200
+  weight_decay: 0.0
+  lrf: 0.033
+  grad_clip: 1.0
+  val_every: 100
+  save_every: 10
+  log_interval: 200
+  loss_type: l1
+  noise_schedule: linear
+  timesteps: 1000
+  prediction_type: v
+  snr_gamma: 5.0
+  sharding_strategy: FULL_SHARD
+  no_mixed_precision: False
+  cpu_offload: False
+  wrap_min_params: 1000000
+  resume: 
+  save_path: results/2d_sensor_sr/ds2_area/HFD/R_1/l1_loss/3dconv
+  seed: 42
+================================================================================
+[HFD_SensorSR_data] global stats: min=-25.0252 max=23.7132
+[HFD_SensorSR_data] global stats: min=-25.0252 max=23.7132
+[HFD_SensorSR_data] global stats: min=-25.0252 max=23.7132
+[HFD_SensorSR_data] global stats: min=-25.0252 max=23.7132
+Train: 9000  Eval: 1000  Batch/GPU: 8  World: 2  ds_sr: 2 (area_resize)
+
+FSDP model ready — 336,573,999 params total
+  sharding: FULL_SHARD  bf16: True  cpu_offload: False
+  use_channel_3d_conv: True  base_channels: 256
+L1 Loss used in diffusion trainer
+min-SNR-γ loss weighting enabled (γ=5.0, pred=v)
+L1 Loss used in diffusion trainer
+min-SNR-γ loss weighting enabled (γ=5.0, pred=v)
+================================================================================
+Starting training: epochs 1 → 200
+================================================================================

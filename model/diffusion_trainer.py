@@ -33,6 +33,7 @@ class DiffusionTrainer:
         ema_decay: Optional[float] = 0.995,
         grad_clip: Optional[float] = None,
         clamp_x0: Optional[Tuple[float, float]] = (-1.0, 1.0),
+        snr_gamma: Optional[float] = 5.0,
     ) -> None:
         device = device or (torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu"))
         self.device = device
@@ -45,6 +46,8 @@ class DiffusionTrainer:
         self.ema_decay = ema_decay
         self.grad_clip = grad_clip
         self.clamp_x0 = clamp_x0
+        # min-SNR-γ loss weighting (Hang et al. 2023). None or <=0 disables.
+        self.snr_gamma = snr_gamma if (snr_gamma is not None and snr_gamma > 0) else None
 
         # Build beta schedule
         if beta_schedule == "linear":
@@ -70,6 +73,8 @@ class DiffusionTrainer:
             print('L1 Loss used in diffusion trainer')
         else:
             print('MSE Loss used in diffusion trainer')
+        if self.snr_gamma is not None:
+            print(f'min-SNR-γ loss weighting enabled (γ={self.snr_gamma}, pred={self.prediction_type})')
             
     # ----- utilities: q(x_t | x_0) and helpers -----
     def q_sample(self, x_0: torch.Tensor, t: torch.Tensor, noise: Optional[torch.Tensor] = None) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -170,9 +175,33 @@ class DiffusionTrainer:
             raise ValueError(f"Unknown prediction_type={self.prediction_type}")
 
         if loss_in_fp32:
-            loss = self._loss_fn(pred.float(), target.float())
+            pred_loss = pred.float()
+            target_loss = target.float()
         else:
-            loss = self._loss_fn(pred, target)
+            pred_loss = pred
+            target_loss = target
+
+        # Per-sample reduction over all non-batch dims → shape [B]
+        if self.loss_type == "l1":
+            per_sample = (pred_loss - target_loss).abs()
+        else:
+            per_sample = (pred_loss - target_loss).pow(2)
+        per_sample = per_sample.mean(dim=list(range(1, per_sample.dim())))
+
+        if self.snr_gamma is not None:
+            # SNR(t) = alpha_bar_t / (1 - alpha_bar_t); weight per Hang et al. 2023.
+            snr = self.alpha_bars[t] / (1.0 - self.alpha_bars[t])
+            snr_clamped = snr.clamp(max=self.snr_gamma)
+            if self.prediction_type == "eps":
+                w = snr_clamped / snr
+            elif self.prediction_type == "v":
+                w = snr_clamped / (snr + 1.0)
+            else:  # x0
+                w = snr_clamped
+            w = w.to(per_sample.dtype).detach()
+            loss = (w * per_sample).mean()
+        else:
+            loss = per_sample.mean()
         info = {
             "loss": loss.detach(),
             "x_t": x_t.detach(),

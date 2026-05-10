@@ -64,7 +64,7 @@ torchrun \
     --nproc_per_node=$GPUS_PER_NODE \
     main_2d_fsdp.py \
     --batch_size 16 \
-    --lr 1e-4 \
+    --lr 5e-5 \
     --base_channels 512 \
     --use_channel_3d_conv \
     --channel_num_filters 4 \
@@ -72,8 +72,9 @@ torchrun \
     --lrf 0.033 \
     --ds_warmup_epochs 20 \
     --ds 2 \
-    --resume results/2d_hsi_diffusion/down_sample_2/HFD/R_1/vpred_cf4_fsdp_3dconv/checkpoint_epoch \
-    --save_path results/2d_hsi_diffusion/down_sample_2/HFD/R_1/vpred_cf4_fsdp_3dconv
+    --num_epochs 300 \
+    --resume results/2d_hsi_diffusion/down_sample_2/down_sample_2/HFD/R_1/l1_loss/checkpoint_epoch_110.pth \
+    --save_path results/2d_hsi_diffusion/down_sample_2/HFD/R_1/l1_loss/vpred_cf4_fsdp_3dconv/
 
 # -----------------------------------------------------------------------
 # Multi-node launch example (uncomment and adjust for 2-node jobs)

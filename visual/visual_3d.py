@@ -53,12 +53,12 @@ def get_parser() -> argparse.ArgumentParser:
     parser.add_argument('--noise_schedule', type=str, default='linear', choices=['linear', 'cosine'],
                         help='noise schedule for diffusion process')
     parser.add_argument('--timesteps', type=int, default=1000, help='number of diffusion timesteps')
-    parser.add_argument('--prediction_type', type=str, default='eps', choices=['eps', 'x0', 'v'],
+    parser.add_argument('--prediction_type', type=str, default='v', choices=['eps', 'x0', 'v'],
                         help='diffusion prediction type')
 
     parser.add_argument('--num_examples', type=int, default=5, help='number of examples to visualize')
     parser.add_argument('--model_path', '--resume', type=str,
-                        default='results/2d_hsi_diffusion/down_sample_2/HFD/R_1/l1_loss_fsdp_3dconv/checkpoint_epoch_40.pth',
+                        default='results/2d_hsi_diffusion/down_sample_2/down_sample_2/HFD/R_1/l1_loss/checkpoint_epoch_190.pth',
                         dest='model_path', help='path to trained model checkpoint')
     parser.add_argument('--save_path', type=str,
                         default='results/3d_conv_visualization/down_sample_2/HFD/R_1/l1_loss_fsdp_3dconv',
