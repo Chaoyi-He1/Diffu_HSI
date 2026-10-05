@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Diffusion Recovers HSI</title>
+<meta name="description" content="Why conditional diffusion recovers a hyperspectral cube from 30 sensor channels, why convolving along the spectral/channel axis is the wrong hypothesis class, why the 2-D + 1-D factorisation and the two-stage sensor-SR pipeline are justified, and the current results of the Diffu_HSI repository.">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script>
+<style>
+  :root {
+    --bg: #fbfaf7; --fg: #1d1d1b; --muted: #5d5b55; --rule: #dcd8cf; --accent: #8a3b12;
+    --box: #f1eee6; --thead: #ebe7dd; --code: #efece4; --link: #1f4f8a;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #15161a; --fg: #e6e4de; --muted: #a8a59c; --rule: #33353c; --accent: #e0905c;
+      --box: #1e2026; --thead: #23252c; --code: #22242b; --link: #8db4ea;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #15161a; --fg: #e6e4de; --muted: #a8a59c; --rule: #33353c; --accent: #e0905c;
+    --box: #1e2026; --thead: #23252c; --code: #22242b; --link: #8db4ea;
+  }
+  html { background: var(--bg); }
+  body { margin: 0; padding: 0 16px 64px; background: var(--bg); color: var(--fg);
+         font: 17px/1.6 Georgia, "Times New Roman", serif; }
+  main { max-width: 880px; margin: 0 auto; }
+  h1 { font-size: 1.9rem; line-height: 1.25; margin: 2.2rem 0 .4rem; }
+  h2 { font-size: 1.35rem; margin: 2.6rem 0 .8rem; padding-top: .6rem; border-top: 1px solid var(--rule); }
+  h3 { font-size: 1.1rem; margin: 1.8rem 0 .5rem; }
+  p.meta { color: var(--muted); font-size: .95rem; margin-bottom: 2rem; }
+  a { color: var(--link); }
+  code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .88em; }
+  code { background: var(--code); padding: .08em .35em; border-radius: 3px; }
+  pre { background: var(--code); padding: .8rem 1rem; border-radius: 6px; overflow-x: auto; }
+  pre code { background: none; padding: 0; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0 1.4rem; font-size: .93rem; display: block; overflow-x: auto; }
+  thead th { background: var(--thead); text-align: left; }
+  th, td { border: 1px solid var(--rule); padding: .4rem .6rem; vertical-align: top; }
+  tbody tr:nth-child(even) td { background: color-mix(in srgb, var(--box) 60%, var(--bg)); }
+  .thm { background: var(--box); border-left: 4px solid var(--accent); padding: .7rem 1rem; margin: 1.2rem 0; border-radius: 0 6px 6px 0; }
+  .thm b.lbl { color: var(--accent); }
+  .remark { border-left: 3px solid var(--rule); padding: .2rem 1rem; margin: 1rem 0; color: var(--muted); }
+  .remark b { color: var(--fg); }
+  .key { font-weight: bold; }
+  .katex-display { overflow-x: auto; overflow-y: hidden; padding: .2rem 0; }
+  nav.toc { background: var(--box); padding: .8rem 1.2rem; border-radius: 6px; font-size: .95rem; }
+  nav.toc ol { margin: .3rem 0 0; padding-left: 1.3rem; }
+  nav.toc li { margin: .15rem 0; }
+  .qed { float: right; }
+  footer { margin-top: 3rem; color: var(--muted); font-size: .9rem; border-top: 1px solid var(--rule); padding-top: 1rem; }
+</style>
+</head>
+<body>
+<main>
+
+<h1>Why conditional diffusion recovers a hyperspectral cube from 30 sensor channels — and why the spectral/channel axis must be mixed densely, not convolved</h1>
+<p class="meta">Working note for the <code>Diffu_HSI</code> repository, 2026-10-04. Every number quoted here is produced by <code>docs/analysis/sensor_identifiability.py</code>, which uses the exact preprocessing of <code>data_loader/HFD_dataset.py</code>, <code>data_loader/my_dataset.py</code> and <code>data_loader/HFD_sensor_sr_dataset.py</code>. Run it from the repo root in the <code>hsi</code> environment.</p>
+
+<nav class="toc">
+<b>Contents</b>
+<ol start="0">
+  <li><a href="#s0">Setting, as implemented</a></li>
+  <li><a href="#s1">The inverse problem: nominally almost square, effectively very under-determined</a></li>
+  <li><a href="#s2">Identifiability: on the spectral manifold, $y$ determines $x$</a></li>
+  <li><a href="#s3">Why <em>diffusion</em> computes this posterior</a></li>
+  <li><a href="#s4">Why convolving along the spectral or channel axis ("3-D diffusion") is the wrong hypothesis class</a></li>
+  <li><a href="#s5">Why the 2-D (spatial) + 1-D (spectral) factorisation and the two-stage sensor-SR pipeline work</a></li>
+  <li><a href="#s6">Current results</a></li>
+  <li><a href="#s7">References</a></li>
+</ol>
+</nav>
+
+<!-- ============================================================ -->
+<h2 id="s0">0. Setting, as implemented in this repository</h2>
+
+<table>
+<thead><tr><th>symbol</th><th>meaning</th><th>HFD100</th><th>HASCID</th></tr></thead>
+<tbody>
+<tr><td>$L$</td><td>spectral bands of the ground truth $x$</td><td>31 (451–855 nm), linearly interpolated to 64 for the network</td><td>204 measured, first 160 reconstructed</td></tr>
+<tr><td>$N$</td><td>sensor channels of the measurement $y$</td><td>30</td><td>30</td></tr>
+<tr><td>$R\in\mathbb R^{L\times N}$</td><td>sensor response: 30 uniformly chosen columns of <code>R_Device1/2.mat</code> or <code>PH5_interp_results.mat</code>, resampled to the data wavelengths, each column min-max normalised</td><td colspan="2"></td></tr>
+<tr><td>$P=HW$</td><td>pixels per cube</td><td>$64\times64$</td><td>$512\times512$</td></tr>
+<tr><td>$d$</td><td>spatial down-sampling of the sensor grid (<code>--ds</code>, <code>--ds_sr</code>)</td><td>1, 2 (HSI model); 2, 3, 4, 6, 8 (sensor-SR model)</td><td>1</td></tr>
+</tbody>
+</table>
+
+<p>The forward model is <span class="key">per pixel, linear, and wavelength-indexed</span>:</p>
+$$
+y_p \;=\; R^{\mathsf T} x_p \in\mathbb R^{N},\qquad p=1,\dots,P,
+\qquad\text{i.e.}\qquad Y = R^{\mathsf T} X,\; X\in\mathbb R^{L\times P}. \tag{0.1}
+$$
+<p>With a down-sampled sensor grid only a coarse version $Y_d = \mathcal D_d(Y)$ of the sensor image is observed ($\mathcal D_d$ = stride-$d$ subsampling in <code>HFD_data</code>; strided, average-pool or area resize in <code>HFD_SensorSR_data</code>).</p>
+
+<p>Two diffusion models exist, both trained in data space by DDPM (<code>DiffusionTrainer</code>: linear $\beta_t\in[10^{-4},0.02]$, $T=1000$; $\varepsilon$- or $v$-prediction, $L_1$ loss, optional min-SNR-$\gamma$ weighting) and conditioned through cross-attention:</p>
+<ol>
+  <li><b>HSI model</b> (<code>U2NetHyperspectral</code>, <code>main_2d.py</code> / <code>main_2d_fsdp.py</code>): $x_0 = X\in\mathbb R^{64\times H\times W}$, condition $Y$ or $Y_d$. Optionally with <code>--use_channel_3d_conv</code>, which replaces the $3\times3$ 2-D convolutions in every conv block by <code>ConvBlock2D_ChannelAware</code> (§4.3).</li>
+  <li><b>Sensor-SR model</b> (<code>U2NetSensorSR</code>, <code>main_2d_sensor_sr_fsdp.py</code>): $x_0 = Y\in\mathbb R^{30\times H\times W}$ (globally normalised), condition $Y_d$. Its purpose is the two-stage pipeline $Y_d\to Y\to X$ (§5.4).</li>
+</ol>
+
+<p>This note answers: <span class="key">why is $X$ recoverable from $Y$ (or $Y_d$) at all, why does diffusion recover it, why must the spectral/channel axis be mixed densely rather than convolved, and why is the spatial-2-D + spectral-1-D factorisation — including the two-stage pipeline — the right design?</span></p>
+
+<!-- ============================================================ -->
+<h2 id="s1">1. The inverse problem: nominally almost square, effectively very under-determined</h2>
+
+<h3>1.1 Nominal structure</h3>
+<p>$R^{\mathsf T}:\mathbb R^{L}\to\mathbb R^{N}$ has a null space of dimension $\ge L-N$. For HFD ($L=31,N=30$) that is a <em>single</em> direction; for HASCID ($L=160$) it is $\ge130$ directions. Nominally HFD looks almost well-posed. It is not.</p>
+
+<h3>1.2 Conditioning (measured)</h3>
+<p>Singular values of $R^{\mathsf T}$ after the loader's preprocessing:</p>
+<table>
+<thead><tr><th>sensor</th><th>rank</th><th>$\kappa=\sigma_1/\sigma_{\min}$</th><th>#$\{\sigma_i/\sigma_1>10^{-2}\}$</th><th>#$\{>10^{-3}\}$</th><th>#$\{>5\cdot10^{-4}\}$ (fp16 $\epsilon$)</th></tr></thead>
+<tbody>
+<tr><td><code>R_Device1</code>, HFD (30×31)</td><td>30</td><td>$2.3\times10^{9}$</td><td><b>11</b></td><td>17</td><td>19</td></tr>
+<tr><td><code>R_Device2</code>, HFD (30×31)</td><td>30</td><td>$5.1\times10^{7}$</td><td><b>9</b></td><td>16</td><td>18</td></tr>
+<tr><td><code>PH5</code>, HFD (30×31)</td><td>16</td><td>$2.9\times10^{19}$</td><td><b>4</b></td><td>6</td><td>7</td></tr>
+<tr><td><code>R_Device1</code>, HASCID, 160 target bands (30×160)</td><td>30</td><td>$1.5\times10^{7}$</td><td><b>13</b></td><td>18</td><td>21</td></tr>
+</tbody>
+</table>
+<p>The singular values of <code>R_Device1</code> fall from 15.3 to $7\times10^{-9}$. Under <em>any</em> perturbation of $y$ — read-out noise, the fp16/bf16 autocast the network runs in ($\epsilon_{\text{fp16}}\approx5\times10^{-4}$, $\epsilon_{\text{bf16}}\approx4\times10^{-3}$), even float32 round-off relative to $\kappa$ — only about <span class="key">11–19 of the 30 channels carry usable information</span>. The remaining directions of $x$ have to come from somewhere else. Concretely, for <code>R_Device1</code> on sampled HFD pixels (relative $\ell_2$ error per pixel):</p>
+<table>
+<thead><tr><th>estimator</th><th>noiseless</th><th>SNR 60 dB</th><th>SNR 40 dB</th><th>SNR 30 dB</th></tr></thead>
+<tbody>
+<tr><td>pseudo-inverse $(R^{\mathsf T})^{+}y$</td><td>0.017</td><td>$2.7\times10^{5}$</td><td>$2.7\times10^{6}$</td><td>$8.5\times10^{6}$</td></tr>
+<tr><td>Gaussian-prior MMSE $\mu+CR(R^{\mathsf T}CR+\sigma^2 I)^{-1}(y-R^{\mathsf T}\mu)$</td><td>—</td><td><b>0.049</b></td><td><b>0.088</b></td><td><b>0.139</b></td></tr>
+</tbody>
+</table>
+<p>Direct inversion is useless at any realistic precision; a prior is not optional. The Gaussian-prior row is the <em>linear</em> Bayesian baseline — the floor that any learned method must beat, and a cheap sanity check for the diffusion model (§6).</p>
+
+<h3>1.3 The prior is low-dimensional (measured)</h3>
+<p>PCA of per-image-normalised spectra:</p>
+<table>
+<thead><tr><th>data</th><th>$k$ for 99 % variance</th><th>99.9 %</th><th>99.99 %</th></tr></thead>
+<tbody>
+<tr><td>HFD (31 bands, 120 000 pixels)</td><td><b>8</b></td><td>19</td><td>29</td></tr>
+<tr><td>HASCID (160 bands, 60 000 pixels)</td><td><b>3</b></td><td>7</td><td>61</td></tr>
+<tr><td>sensor image $Y=R^{\mathsf T}X$, HFD, <code>R_Device1</code> (30-dim per pixel)</td><td><b>3</b></td><td>4</td><td>—</td></tr>
+</tbody>
+</table>
+<p>and the measurement sees the part that matters: for <code>R_Device1</code> on HFD, the 11 well-conditioned directions of $R^{\mathsf T}$ contain <b>98.0 %</b> of the spectral variance (17 directions: 99.4 %); on HASCID the 13 well-conditioned directions contain 99.8 %. For <code>PH5</code> the 4 usable directions contain only 61 % — which predicts, before training anything, that PH5 reconstructions will be markedly worse than <code>R_Device1/2</code>.</p>
+
+<!-- ============================================================ -->
+<h2 id="s2">2. Identifiability: on the spectral manifold, $y$ determines $x$</h2>
+
+<p>Let $\mathcal M\subset\mathbb R^{L}$ be the set of spectra that occur (a compact set of intrinsic dimension $k\approx 8$ for HFD, $3$–$7$ for HASCID, by §1.3), and $A=R^{\mathsf T}$.</p>
+
+<div class="thm"><b class="lbl">Proposition 1 (generic injectivity).</b> If $N>2k$, then for Lebesgue-almost-every linear $A:\mathbb R^{L}\to\mathbb R^{N}$ the restriction $A|_{\mathcal M}$ is injective.<br>
+<em>Proof.</em> This is the embedology theorem of Sauer, Yorke &amp; Casdagli (1991), the measure-theoretic form of Whitney's embedding theorem: a compact set of (box-counting) dimension $k$ is injectively mapped by almost every projection to $\mathbb R^{N}$ as soon as $N>2k$. <span class="qed">$\square$</span></div>
+
+<p>Here $N=30>2\cdot 8=16$ (HFD) and $30>2\cdot7=14$ (HASCID). The theorem is about <em>generic</em> $A$; for the <em>actual</em> $A$ the relevant certificate is the <span class="key">restricted conditioning</span> on the principal subspace $V_k$ that carries the manifold,</p>
+$$
+\rho_k \;=\; \frac{\sigma_{\min}(R^{\mathsf T}V_k)}{\sigma_{\max}(R^{\mathsf T}V_k)} ,
+$$
+<p>because $\rho_k>0$ means $A$ is bi-Lipschitz on $\operatorname{span}V_k\supset\mathcal M$ (up to the 1 % of energy outside it), which implies injectivity on $\mathcal M$ with a quantitative inverse-Lipschitz constant $1/\rho_k$:</p>
+<table>
+<thead><tr><th>$k$</th><th><code>R_Device1</code> HFD</th><th><code>R_Device2</code> HFD</th><th><code>PH5</code> HFD</th><th><code>R_Device1</code> HASCID</th></tr></thead>
+<tbody>
+<tr><td>5</td><td>$4.1\times10^{-2}$</td><td>$3.2\times10^{-2}$</td><td>$7.0\times10^{-4}$</td><td>$6.6\times10^{-2}$</td></tr>
+<tr><td>8</td><td>$3.2\times10^{-2}$</td><td>$1.2\times10^{-2}$</td><td>$1.2\times10^{-4}$</td><td>$3.1\times10^{-2}$</td></tr>
+<tr><td>12</td><td>$2.7\times10^{-3}$</td><td>$1.3\times10^{-3}$</td><td>$1.6\times10^{-5}$</td><td>$9.1\times10^{-3}$</td></tr>
+</tbody>
+</table>
+
+<div class="thm"><b class="lbl">Corollary 2.</b> Under a prior supported on $\mathcal M$, the noiseless posterior $p(x\mid y)\propto p(x)\,\delta(y-R^{\mathsf T}x)$ is supported on $\mathcal M\cap(x^\star+\ker R^{\mathsf T})$, which by Proposition 1 is the single point $x^\star$: the posterior is a point mass and $x=g(y)$ for a (nonlinear) inverse $g$ defined on $A(\mathcal M)$. With noise or finite precision, the posterior has spread of order $\sigma/\rho_k$ along the $k$ manifold directions and <em>no</em> spread elsewhere — in contrast to the linear-Gaussian posterior of §1.2, which spreads over all $L-11$ poorly measured directions.</div>
+
+<p>That is the whole reason reconstruction is possible: <span class="key">the 30 channels do not determine the 31 (or 160) numbers, but they determine the 8 (or 7) numbers that the spectra actually have.</span> A method succeeds exactly to the degree that it (i) knows $\mathcal M$ and (ii) can apply the dense, wavelength-specific operator that maps $y$ onto it.</p>
+
+<!-- ============================================================ -->
+<h2 id="s3">3. Why <em>diffusion</em> computes this posterior</h2>
+
+<p>Notation as in <code>model/diffusion_trainer.py</code>: $\bar\alpha_t=\prod_{s\le t}(1-\beta_s)$, $x_t=\sqrt{\bar\alpha_t}\,x_0+\sqrt{1-\bar\alpha_t}\,\varepsilon$, $\varepsilon\sim\mathcal N(0,I)$, $t\sim\mathcal U\{0,\dots,T-1\}$.</p>
+
+<div class="thm"><b class="lbl">Proposition 3 (the trained network is the conditional score).</b> The minimiser of the conditional $\varepsilon$-objective
+$$
+\mathcal L(\theta)=\mathbb E_{t,x_0,y,\varepsilon}\,w(t)\,\big\|\varepsilon-\varepsilon_\theta(x_t,y,t)\big\|_2^2
+$$
+over all measurable functions, for any positive weighting $w(t)$ (uniform, or min-SNR-$\gamma$), is $\varepsilon^\star(x_t,y,t)=\mathbb E[\varepsilon\mid x_t,y]$, and
+$$
+\nabla_{x_t}\log p_t(x_t\mid y)\;=\;-\frac{\varepsilon^\star(x_t,y,t)}{\sqrt{1-\bar\alpha_t}} . \tag{3.1}
+$$
+<em>Proof.</em> The minimiser is pointwise in $(x_t,y,t)$, so a $t$-dependent weight does not change it; the first statement is the $L_2$ projection property of conditional expectation. For (3.1), $p_t(x_t\mid y)=\int\mathcal N(x_t;\sqrt{\bar\alpha_t}x_0,(1-\bar\alpha_t)I)\,p(x_0\mid y)\,dx_0$; differentiating under the integral,
+$\nabla_{x_t}\log p_t(x_t|y)=-\mathbb E\!\left[\frac{x_t-\sqrt{\bar\alpha_t}x_0}{1-\bar\alpha_t}\,\Big|\,x_t,y\right]=-\frac{\mathbb E[\varepsilon|x_t,y]}{\sqrt{1-\bar\alpha_t}}$ (Tweedie / Robbins; Efron 2011). <span class="qed">$\square$</span></div>
+
+<div class="remark"><b>Remark ($v$-prediction).</b> The FSDP runs use $v=\sqrt{\bar\alpha_t}\,\varepsilon-\sqrt{1-\bar\alpha_t}\,x_0$ as target. Since $v$ is an invertible affine function of $(x_0,\varepsilon)$ given $x_t$, $\mathbb E[v\mid x_t,y]$ determines $\mathbb E[\varepsilon\mid x_t,y]$ and hence the same score; $v$-prediction only changes the conditioning of the regression problem at the two ends of the noise schedule (Salimans &amp; Ho 2022), which is why it trains more stably in bf16.</div>
+
+<div class="remark"><b>Remark ($L_1$ loss).</b> The repository minimises $\mathbb E|\varepsilon-\varepsilon_\theta|$ (or $|v-v_\theta|$), whose minimiser is the coordinate-wise conditional <em>median</em>. It coincides with the mean whenever the conditional law is symmetric — in particular at small $t$, where the posterior is unimodal and nearly Gaussian — and is a common robustness choice, but strictly speaking the sampler below assumes the mean. A modelling choice, not a flaw in the argument; §6 lists it as something to ablate.</div>
+
+<div class="thm"><b class="lbl">Proposition 4 (sampling the posterior).</b> Let $s_\theta(x_t,y,t)\approx\nabla\log p_t(x_t|y)$ with $\mathbb E_{t,x_t}\|s_\theta-\nabla\log p_t\|^2\le\varepsilon_{\text{score}}^2$. The reverse-time process with drift built from $s_\theta$ (Anderson 1982; Song et al. 2021), discretised as the DDPM ancestral or DDIM sampler implemented in <code>DiffusionTrainer.sample</code>, produces a distribution $\hat p$ with
+$$
+\mathrm{TV}\big(\hat p,\;p(\cdot\mid y)\big)\;\le\;C\big(\varepsilon_{\text{score}}\sqrt{T}+\text{discretisation}+e^{-T}\big)
+$$
+for <b>any</b> conditional data distribution with finite second moment — no log-concavity, smoothness, or full support is required (Chen, Lee, Lu et al., ICLR 2023; the manifold-supported case is covered by their early-stopping variant).</div>
+
+<div class="thm"><b class="lbl">Theorem 5 (reconstruction).</b> Combining Corollary 2 with Propositions 3–4: a conditional diffusion model trained to small loss on $(x,y=R^{\mathsf T}x)$ pairs and sampled with the DDPM/DDIM reverse process returns samples concentrated at $g(y)=x^\star$, with error controlled by (a) the prior spread allowed by $\rho_k$ and the measurement precision, and (b) the score approximation and discretisation error. In the noiseless, perfectly trained limit the sample <em>is</em> $x^\star$. <span class="qed">$\square$</span></div>
+
+<h3>3.1 What the score must contain (this drives the architecture question)</h3>
+<p>By Bayes,</p>
+$$
+\nabla_{x_t}\log p_t(x_t\mid y)\;=\;\underbrace{\nabla_{x_t}\log p_t(x_t)}_{\text{prior: spatial }\times\text{ spectral}}\;+\;\underbrace{\nabla_{x_t}\log p_t(y\mid x_t)}_{\text{likelihood}} . \tag{3.2}
+$$
+<p>Because (0.1) is pixel-wise, $p(y|x_0)=\prod_p p(y_p|x_{0,p})$ and the likelihood term is <span class="key">per pixel and purely spectral</span>. Under the usual Gaussian approximation of $p(x_0\mid x_t)$ (Song et al. 2023, ΠGDM; Chung et al. 2023, DPS),</p>
+$$
+\nabla_{x_t}\log p_t(y_p\mid x_t)\;\approx\;\sqrt{\bar\alpha_t}\;J_p^{\mathsf T}\,R\,\big(R^{\mathsf T}\Sigma_t R+\sigma^2I\big)^{-1}\big(y_p-R^{\mathsf T}\hat x_{0,p}(x_t)\big), \tag{3.3}
+$$
+<p>a <span class="key">dense $L\times N$ wavelength-indexed linear map</span> applied at every pixel. The conditional network does not need $R$ at test time — it learns (3.3) <em>amortised</em> from data, which is also why it tolerates calibration error in $R$ — but it must be <em>able to represent</em> an arbitrary dense map between the sensor index $j$ and the wavelength index $\lambda$ (and, inside the network, between the feature channels that carry them). Section 4 shows what convolving along that axis does to this ability; Section 5 shows that the 2-D-spatial + channel-spectral network has it in one layer.</p>
+
+<h3>3.2 Why not a plain regressor $y\mapsto x$?</h3>
+<p>A regressor trained with $L_2$ learns $\mathbb E[x\mid y]$. When the posterior is multimodal (folds of $\mathcal M$ seen through $A$, or $d>1$ where unmeasured pixels have genuinely several plausible spectra) the mean lies <em>off</em> $\mathcal M$ — a blurred, physically impossible spectrum. Diffusion samples the posterior and so stays on $\mathcal M$; in the identifiable regime of Theorem 5 both agree, but diffusion additionally regularises the ill-conditioned directions of §1.2 adaptively (through the learned prior score) instead of with a fixed ridge, and repeated samples give a calibrated uncertainty for free.</p>
+
+<!-- ============================================================ -->
+<h2 id="s4">4. Why convolving along the spectral or channel axis ("3-D diffusion") is the wrong hypothesis class</h2>
+
+<p>Two things are called "3-D" here, and the argument covers both: (a) the textbook idea of treating the cube as a one-channel volume $[1,L,H,W]$ and sliding 3-D kernels over $(\lambda,h,w)$; (b) what this repository implements with <code>--use_channel_3d_conv</code>: inside the U-Net, each $3\times3$ 2-D convolution between $C$ feature channels is replaced by <code>ChannelSpatialConv</code>, which reshapes $[B,C,H,W]\to[B,1,C,H,W]$, applies $K$ parallel <code>Conv3d</code> kernels of size $(k_c,3,3)$ over the $(c,h,w)$ volume and mixes the $K$ outputs back to one with a $1\times1\times1$ convolution.</p>
+
+<h3>4.1 Lemma (a 3-D convolution is a Toeplitz-constrained channel-mixing 2-D convolution)</h3>
+<div class="thm">Let a 3-D convolution with $C_{\text{in}}\to C_{\text{out}}$ volume channels and kernel $w[c',c,\delta_\lambda,\delta_h,\delta_w]$ act on $u[c,\lambda,h,w]$. Reshape $u$ to a 2-D feature map with $C_{\text{in}}L$ channels indexed by $(c,\lambda)$. Then the 3-D convolution equals a 2-D convolution with $C_{\text{in}}L\to C_{\text{out}}L$ channels whose channel-mixing matrix at each spatial offset $(\delta_h,\delta_w)$ is
+$$
+W_{\delta_h\delta_w}\big[(c',\lambda'),(c,\lambda)\big]\;=\;w[c',c,\lambda'-\lambda,\delta_h,\delta_w]\cdot\mathbf 1_{|\lambda'-\lambda|&lt;k_\lambda}, \tag{4.1}
+$$
+i.e. <b>block-Toeplitz and banded along the convolved axis</b>. <em>Proof:</em> write out the sum defining the 3-D convolution and regroup the $\lambda$ index into the channel index. <span class="qed">$\square$</span></div>
+
+<p>Consequently</p>
+$$
+\mathcal F_{\text{3D}}\;\subsetneq\;\mathcal F_{\text{2D, axis as channels}}
+$$
+<p>with identical spatial kernels: everything a 3-D convolution can compute, the 2-D convolution with dense channel mixing can compute, and the latter additionally realises <b>any</b> channel-mixing matrix — in particular $R$, $(R^{\mathsf T})^{+}$, the projector onto $V_k$, and the map (3.3) — in a single $1\times1$ layer. Replacing dense mixing by 3-D convolution never adds expressivity; it removes a degree of freedom. The question is whether the removed freedom was <em>needed</em>, i.e. whether the structure that the constraint presumes — shift-invariance and locality along the convolved axis — is true for this problem.</p>
+
+<h3>4.2 Case (a): a volume over wavelength — the presumed symmetry is false</h3>
+<p>A stack of 3-D convolutions, point-wise nonlinearities and shared-weight pooling/up-sampling along $\lambda$ (with circular or infinite padding) is <span class="key">equivariant to spectral translations</span> $S_\lambda$: $F(S_\lambda u)=S_\lambda F(u)$ (Cohen &amp; Welling 2016; for strided pooling, to translations by multiples of the stride). By (3.1) the target of training is the Bayes denoiser $D^\star(x_t,y,t)=\mathbb E[x_0\mid x_t,y]$. For an equivariant class, the best achievable approximation of $D^\star$ is its Reynolds (shift-)average $\Pi D^\star$, and the <b>irreducible error</b> is $\|D^\star-\Pi D^\star\|$. Three independent facts make it large:</p>
+<ol>
+<li><b>The likelihood is not shift-covariant.</b> For $F$ to be jointly equivariant in $(x,y)$ there must be a shift $S'$ on the sensor index with $R^{\mathsf T}S_\lambda=S'R^{\mathsf T}$, i.e. $R^{\mathsf T}$ must be (block-)Toeplitz. The Reynolds average of a matrix over simultaneous row/column shifts is exactly its projection onto Toeplitz matrices, so the irreducible <em>relative</em> error of the best shift-equivariant linear approximation of the measurement operator is $\|R^{\mathsf T}-\Pi_{\text{Toep}}R^{\mathsf T}\|_F/\|R^{\mathsf T}\|_F$, measured:
+<table>
+<thead><tr><th><code>R_Device1</code> HFD</th><th><code>R_Device2</code> HFD</th><th><code>PH5</code> HFD</th><th><code>R_Device1</code> HASCID</th><th>i.i.d. Gaussian (reference)</th></tr></thead>
+<tbody><tr><td><b>0.59</b></td><td>0.26</td><td>0.49</td><td><b>0.60</b></td><td>0.97</td></tr></tbody>
+</table>
+For the device actually used, a spectrally shift-equivariant model mis-represents the physics by 59 % before any learning happens.</li>
+<li><b>The prior is not stationary along $\lambda$.</b> The spectral covariance of HFD spectra is 0.44 (relative Frobenius) away from the nearest Toeplitz matrix (HASCID: 0.12); the mean spectrum has its steepest slope at 761 nm (the vegetation red edge) and its variance peak at 572 nm. Absolute wavelength carries meaning; a shift-equivariant prior cannot tell 572 nm from 761 nm.</li>
+<li><b>The condition cannot even be placed on the $\lambda$-axis.</b> $y_p\in\mathbb R^{30}$ while $x_p\in\mathbb R^{31}$, $\mathbb R^{64}$ or $\mathbb R^{160}$; the 30 sensor channels are a uniformly thinned list of broadband filters with no metric on their index $j$. Any lifting $y\mapsto$ volume requires a learned dense $N\to L$ map — which <em>is</em> a channel-mixing $1\times1$ operator, i.e. the 2-D ingredient. A purely 3-D conditional model is therefore either ill-defined or already a 2-D-channel model in disguise.</li>
+</ol>
+<p>Together: $\|D^\star-F\|\ge\|D^\star-\Pi D^\star\|>0$ for every spectrally equivariant $F$. The Toeplitz distances above are the exact value of this irreducible error for the <em>linear</em> part of the map ($R^{\mathsf T}$ itself, and the linear-Gaussian denoiser built from $C$ and $R$); for the full nonlinear $D^\star$ they quantify the obstruction rather than bound it tightly. <span class="qed">$\square$</span></p>
+
+<div class="remark"><b>Remark (what a real 3-D net can and cannot do about it).</b> Zero padding leaks absolute position near the boundaries (Islam, Jia &amp; Bruce, ICLR 2020; Kayhan &amp; van Gemert, CVPR 2020), so a deep 3-D network is only <em>approximately</em> equivariant and could in principle infer wavelength identity from distance to the spectral border — through many layers, without guarantee. Adding explicit $\lambda$-positional encodings removes the equivariance and concedes the point: the spectral axis is then being treated as a labelled channel axis at $L$-fold cost. The honest statement is: <em>the inductive bias of 3-D convolution is the negation of the structure that makes the problem solvable (§2–3.1); whatever a 3-D model achieves, it achieves by undoing that bias.</em></div>
+
+<h3>4.3 Case (b): what <code>--use_channel_3d_conv</code> actually does</h3>
+<p>In <code>ConvBlock2D_ChannelAware</code> the convolved axis is not wavelength but the <em>feature-channel</em> axis of the U-Net (the 64 bands have already been mixed densely by the $1\times1$ <code>input_proj</code>). Apply Lemma 4.1 with $C_{\text{in}}=C_{\text{out}}=1$ volume channel: <code>ChannelSpatialConv</code> on a $C$-channel map is <b>exactly</b> a $3\times3$ <code>Conv2d</code>$(C\to C)$ whose weight tensor is</p>
+$$
+W[c',c,\delta_h,\delta_w]\;=\;\sum_{k=1}^{K} m_k\,w_k[c'-c,\delta_h,\delta_w]\cdot\mathbf 1_{|c'-c|\le\lfloor k_c/2\rfloor}, \tag{4.2}
+$$
+<p>a Toeplitz band of width $k_c$ along the channel axis, generated by $K$ kernels. Consequences:</p>
+<ul>
+<li><b>Strict loss of expressivity relative to the block it replaces.</b> The plain <code>ConvBlock2D</code> has $9C^2$ free channel-mixing weights per convolution; <code>ChannelSpatialConv</code> has $9Kk_c+K$. With the configuration that was run ($C=256$ or $512$, $K=4$, $k_c=7$) that is $9\cdot4\cdot7+4=256$ weights in place of $5.9\times10^{5}$ (or $2.4\times10^{6}$) — a reduction by three to four orders of magnitude <em>per conv</em>. The spec's statement that $K>1$ "multiplies the block's expressivity" is true relative to $K=1$, but relative to the dense block that was replaced the variant is a severe restriction. Everything in (3.3) that requires arbitrary channel mixing must now be carried by the surviving dense layers: <code>input_proj</code>/<code>final</code>, the $1\times1$ up/down projections (present only when $C_{\text{in}}\ne C_{\text{out}}$), and the attention/FFN layers.</li>
+<li><b>The convolved axis has no metric.</b> Feature-channel indices of a freshly initialised network are exchangeable: permuting channels (with the matching permutation of the following layer) leaves the function unchanged. Locality along $c$ — "channel $c$ is related to channel $c\pm1$ but not $c\pm10$" — is therefore not a property of the data; the network must <em>create</em> a smooth channel ordering during training for the kernel to be useful. The same holds for the sensor index $j$ of the condition. This is weaker than the false-symmetry argument of §4.2 (nothing is <em>mis</em>represented), but it means the constraint buys no correct prior knowledge in exchange for the capacity it removes.</li>
+<li><b>Prediction.</b> Because $\mathcal F_{\text{3D}}\subsetneq\mathcal F_{\text{2D}}$ at equal width, the 3-D-conv variant cannot out-represent the plain 2-D block; any empirical gain must come from regularisation (fewer parameters in the conv path) and should disappear or reverse once the dense model is trained to convergence with comparable regularisation. The clean experiment is an A/B at equal <em>parameter</em> count, not equal width.</li>
+</ul>
+
+<h3>4.4 Cost (not the mathematical core, but decisive in practice for case (a))</h3>
+<p>Activations of a $\lambda$-volume model are $L$ times those of the 2-D model at equal width: the first stage of <code>U2NetHyperspectral</code> at <code>base_channels=128</code> holds $128\times64\times64$ values per sample; the volume analogue holds $128\times64\times64\times64$ — $64\times$ more. The 2-D model already uses 16 GB at batch 3 on a 20 GB GPU. FLOPs scale by a further $k_\lambda$. Dense 30↔64 spectral mixing, which the 2-D model does in one layer with $30\cdot64$ weights, needs $\lceil (L-1)/(k_\lambda-1)\rceil$ stacked 3-D layers merely to connect the first and last band. (Case (b) does not pay this price — <code>ChannelSpatialConv</code> keeps $[B,C,H,W]$ activations — which is precisely why it is the version that could be trained; it pays in capacity instead, §4.3.)</p>
+
+<!-- ============================================================ -->
+<h2 id="s5">5. Why the 2-D (spatial) + 1-D (spectral) factorisation and the two-stage pipeline work</h2>
+
+<p>The two axes of the cube have <span class="key">opposite symmetry properties with respect to the measurement operator</span>, and the factorised architecture assigns to each the inductive bias that is actually true:</p>
+<table>
+<thead><tr><th>axis</th><th>does $R^{\mathsf T}$ commute with translation?</th><th>is the prior stationary?</th><th>right operator</th><th>used in this repo</th></tr></thead>
+<tbody>
+<tr><td>spatial $(h,w)$</td><td><b>yes, exactly</b>: $R^{\mathsf T}(XS_{h})=(R^{\mathsf T}X)S_{h}$ because (0.1) is pixel-wise</td><td>approximately (lag-1 autocorrelation 0.966, lag-2 0.921)</td><td>shared-weight 2-D convolution + attention</td><td>spatial U-Net</td></tr>
+<tr><td>spectral $\lambda$ / sensor $j$</td><td><b>no</b> (59 % off Toeplitz)</td><td>no (44 % off Toeplitz)</td><td>dense, position-aware mixing</td><td>bands as channels; $1\times1$ convs, attention; 1-D model per pixel</td></tr>
+</tbody>
+</table>
+
+<h3>5.1 The 1-D (per-pixel) model is already a consistent estimator</h3>
+<p>Since the likelihood factorises over pixels, the posterior with the <em>marginal</em> spectral prior, $p(x_p\mid y_p)\propto p(x_p)\,\delta(y_p-R^{\mathsf T}x_p)$, is well defined and — by Corollary 2 — a point mass at the true spectrum when $d=1$. The 1-D model (<code>main_1d.py</code>, <code>U2Net1D</code>, condition injected by cross-attention) learns exactly this posterior, and it does so from every pixel as an independent sample: $40{,}811\times4{,}096\approx1.7\times10^{8}$ spectra in 31 dimensions, instead of $4\times10^{4}$ cubes in $1.3\times10^{5}$ dimensions. Nonparametric density-estimation rates scale with the intrinsic dimension, $n^{-O(1/k)}$, so this is the statistically cheapest route to learning $\mathcal M$. It ignores the spatial prior, which costs it only the residual spread of §2 — and it cannot help at all when $d>1$.</p>
+
+<h3>5.2 The 2-D model adds the spatial prior where it is needed</h3>
+<p>With <code>--ds 2</code>, three quarters of the pixels have <b>no</b> measurement; per-pixel identifiability fails for them and the spatial prior term of (3.2) must supply their spectra from their neighbours. The spatial prior is rich: bilinear interpolation of a stride-2 cube is already within <b>6.4 %</b> relative error of the original, and the model's cross-attention to the bilinearly resized context (<code>create_context_for_resolution</code>) is precisely a learned, spectrum-aware version of that fill-in. Meanwhile the spectral axis remains a dense channel operator, so every pixel that <em>is</em> measured still gets the exact operator (3.3). The 2-D model is thus the minimal architecture that is correct for both $d=1$ and $d>1$.</p>
+
+<h3>5.3 Summary of the options</h3>
+<table>
+<thead><tr><th></th><th>3-D conv over $(\lambda,h,w)$</th><th><code>ChannelSpatialConv</code> (3-D over feature channels)</th><th>1-D per pixel</th><th>2-D spatial + dense channels</th></tr></thead>
+<tbody>
+<tr><td>can represent the dense spectral operator (3.3)?</td><td>no (Lemma 4.1)</td><td>only through the surviving $1\times1$/attention layers</td><td>yes</td><td>yes, one layer</td></tr>
+<tr><td>imposes a false or unmotivated structure?</td><td>false symmetry along $\lambda$</td><td>locality on an axis with no metric</td><td>no</td><td>no</td></tr>
+<tr><td>uses the true spatial symmetry?</td><td>yes</td><td>yes</td><td>no</td><td>yes</td></tr>
+<tr><td>handles $d>1$?</td><td>—</td><td>yes</td><td>no</td><td>yes</td></tr>
+<tr><td>activation memory</td><td>$\times L$</td><td>baseline</td><td>tiny</td><td>baseline</td></tr>
+</tbody>
+</table>
+
+<h3>5.4 The two-stage pipeline $Y_d\to Y\to X$ is exact posterior sampling</h3>
+<p>The sensor-SR model samples $Y\sim p(Y\mid Y_d)$; the HSI model then samples $X\sim p(X\mid Y)$. Because $Y_d=\mathcal D_d(Y)$ is a deterministic function of $Y$, $X$ is conditionally independent of $Y_d$ given $Y$, hence</p>
+$$
+p(X\mid Y_d)\;=\;\int p(X\mid Y)\,p(Y\mid Y_d)\,dY , \tag{5.1}
+$$
+<p>and sampling the two stages in sequence is <em>ancestral sampling</em> from the joint posterior $p(X,Y\mid Y_d)$ — nothing is lost by the factorisation. With approximate stages the errors add: by the triangle inequality and the data-processing inequality for total variation,</p>
+$$
+\mathrm{TV}\big(\hat p(X\mid Y_d),\,p(X\mid Y_d)\big)\;\le\;\mathrm{TV}\big(\hat p(Y\mid Y_d),\,p(Y\mid Y_d)\big)\;+\;\mathbb E_{Y\mid Y_d}\,\mathrm{TV}\big(\hat p(X\mid Y),\,p(X\mid Y)\big), \tag{5.2}
+$$
+<p>each term controlled by Proposition 4. Two structural facts make the first stage well posed:</p>
+<ul>
+<li><b>The sensor image is spectrally even lower-dimensional than the cube.</b> Each pixel $y_p=R^{\mathsf T}x_p$ lies on $R^{\mathsf T}(\mathcal M)$, and because $R^{\mathsf T}$ compresses the manifold through its three dominant singular directions, <b>3 principal components carry 99 %</b> of the per-pixel variance of $Y$ (4 for 99.9 %). Sensor-domain SR is therefore a spatial-SR problem on a 30-channel image with a 3–4-dimensional per-pixel manifold — the regime in which conditional diffusion SR (Saharia et al. 2022, SR3) is known to work.</li>
+<li><b>The spatial prior quantifies what each rate must recover.</b> Trivial baseline (area down-sampling, bilinear up-sampling) on full-resolution sensor images, <code>R_Device1</code>:
+<table>
+<thead><tr><th>$d$</th><th>2</th><th>3</th><th>4</th><th>6</th><th>8</th></tr></thead>
+<tbody>
+<tr><td>low-res grid</td><td>32×32</td><td>21×21</td><td>16×16</td><td>11×11</td><td>8×8</td></tr>
+<tr><td>fraction of pixels kept</td><td>0.25</td><td>0.11</td><td>0.06</td><td>0.03</td><td>0.016</td></tr>
+<tr><td>bilinear relative error</td><td><b>0.044</b></td><td>0.088</td><td>0.099</td><td>0.146</td><td><b>0.179</b></td></tr>
+</tbody>
+</table>
+A learned SR model is justified exactly where it beats this row; at $d=2$ the headroom is 4.4 %, at $d=8$ it is 18 %.</li>
+</ul>
+<p>Why split at all, rather than condition the HSI model directly on $Y_d$? Both are valid (Theorem 5 applies to either conditioning); the split moves the spatial fill-in into a model whose target has 30 channels and a 3-dimensional per-pixel manifold instead of 64 channels and an 8-dimensional one, and lets the HSI stage be trained once, at $d=1$, where per-pixel identifiability holds (§5.1). Note the price in (5.2): the HSI stage sees <em>sampled</em> $Y$, so it must be robust to the SR stage's residual — which argues for training it with mild noise/augmentation on $Y$, or fine-tuning it on SR outputs.</p>
+
+<!-- ============================================================ -->
+<h2 id="s6">6. Current results (as of 2026-10-04)</h2>
+
+<h3>6.1 Legacy single-GPU runs (<code>main_2d.py</code>, $\varepsilon$-prediction, logs on this machine)</h3>
+<p>HFD, <code>R_Device1</code>, 64 interpolated bands, <code>base_channels 128</code>, batch 3, AdamW lr $10^{-4}$ cosine to $10^{-5}$, fp16 AMP, $L_1$ on $\varepsilon$, $T=1000$. The metric is the training $\varepsilon$-$L_1$ averaged over uniformly random $t$; the trivial predictor $\varepsilon_\theta\equiv0$ scores $\mathbb E|\varepsilon|=\sqrt{2/\pi}=0.798$, and the first-epoch average of 0.69–0.71 in the from-scratch logs is consistent with that start.</p>
+<table>
+<thead><tr><th>run (log)</th><th>data</th><th>sensor grid</th><th>epochs in log</th><th>$\varepsilon$-$L_1$ start → end</th><th>notes</th></tr></thead>
+<tbody>
+<tr><td><code>log.txt</code></td><td>full 36 730 cubes, lr $5\cdot10^{-5}$</td><td>$d=1$</td><td>87</td><td>0.689 → 0.255</td><td>crashed (CUBLAS error)</td></tr>
+<tr><td><code>log1.txt</code></td><td>full 36 730 cubes</td><td>$d=1$</td><td>208</td><td>0.297 → 0.153</td><td>warm start from the above</td></tr>
+<tr><td><code>log2.txt</code></td><td>9 000-cube subset</td><td>$d=1$</td><td>910</td><td>0.153 → <b>0.151</b> (val 0.151 at launch)</td><td>plateau from epoch 1; ended on a failed checkpoint write</td></tr>
+<tr><td><code>log_down2.txt</code></td><td>9 000-cube subset</td><td>$d=2$</td><td>804</td><td>0.708 → 0.170</td><td>crashed (CUBLAS error)</td></tr>
+<tr><td><code>log_down2_1.txt</code></td><td>9 000-cube subset</td><td>$d=2$</td><td>793</td><td>0.171 → <b>0.162</b></td><td>warm start from the above</td></tr>
+<tr><td>1-D, HASCID, <code>PH5</code></td><td>per pixel, 160 bands</td><td>$d=1$</td><td>—</td><td>0.031 → <b>0.026</b></td><td><code>results/1d_hsi_diffusion/HASCID/PH5/</code></td></tr>
+<tr><td>VAE, HASCID (160→12 latent)</td><td>—</td><td>—</td><td>—</td><td>best val loss 0.041</td><td><code>results/vae_hyperspectral/base_128_latent_12/</code></td></tr>
+</tbody>
+</table>
+<p><b>Reading these through §2–3.</b> For a perfectly identifiable problem the $\varepsilon$-loss can in principle reach zero at <em>every</em> $t$: once $x_0=g(y)$ is known, $\varepsilon=(x_t-\sqrt{\bar\alpha_t}\,g(y))/\sqrt{1-\bar\alpha_t}$ is exactly computable. A floor of 0.151 therefore reflects the sum of (a) posterior spread that the measurement precision and $\rho_k$ leave, (b) the 1 % of spectral energy outside the well-measured subspace, and (c) model capacity/optimisation. The $d=2$ floor is higher (0.162 vs 0.151), as §5.2 predicts. The $d=1$ model made no progress over 900 epochs on the 9 000-cube subset — a capacity/optimisation plateau, not a data-limited one. The 1-D HASCID floor (0.026) is far lower, consistent with a $k\approx3$–7 manifold seen by 13 well-conditioned channels and $10^{8}$ training spectra. Both surviving $L_1$ checkpoints of these runs are unusable (<code>checkpoint_epoch_911.pth</code> truncated by a failed save, <code>checkpoint_epoch_811.pth</code> empty), so no PSNR/SAM exists for them.</p>
+
+<h3>6.2 Cluster runs (<code>main_2d_fsdp.py</code>, <code>main_2d_sensor_sr_fsdp.py</code>; Feb–May 2026, SLURM, 2×GPU FSDP, bf16)</h3>
+<p>Configuration: $v$-prediction with min-SNR-$\gamma=5$ weighting, $L_1$, FiLM time conditioning in the conv blocks, lr $3$–$5\times10^{-5}$ cosine to $\approx10^{-6}$, <code>--ds_warmup_epochs 20</code> (first 20 epochs at $d=1$, then $d=2$), <code>base_channels</code> 256–512, <code>--use_channel_3d_conv --channel_num_filters 4 --channel_kernel 7</code>.</p>
+<table>
+<thead><tr><th>model</th><th>status recorded in the repository</th><th>where the artefacts live</th></tr></thead>
+<tbody>
+<tr><td>HSI model, $d=2$, 3-D-conv variant, <code>base_channels 512</code></td><td>design spec of 2026-04-19 reports a plateau at <b>0.35–0.36</b> ($L_1$ on $v$, min-SNR weighted; not comparable with the $\varepsilon$-$L_1$ numbers above) after ~20 epochs of a 100-epoch schedule — the motivation for the sensor-SR pipeline</td><td>cluster: <code>results/2d_hsi_diffusion/down_sample_2/HFD/R_1/l1_loss/vpred_cf4_fsdp_3dconv/</code></td></tr>
+<tr><td>Sensor-SR, $d_{sr}=8$, strided</td><td>"one in-progress training run" as of 2026-05-09</td><td>cluster</td></tr>
+<tr><td>Sensor-SR sweep $d_{sr}\in\{2,3,4,6\}$, area resize, 3-D-conv variant, <code>base_channels 256</code> (337 M parameters), 200 epochs</td><td>launched 2026-05-10 (job 427919); the log in the repo shows only the first step ($v$-$L_1$ 0.175 at step 0 for $d_{sr}=2$)</td><td>cluster: <code>results/2d_sensor_sr/ds{2,3,4,6}_area/HFD/R_1/l1_loss/3dconv/</code></td></tr>
+</tbody>
+</table>
+<p>None of the cluster checkpoints or logs are on this machine, so <b>no reconstruction metric (PSNR, SAM, relative RMSE on held-out cubes) exists anywhere in the repository yet</b>; the only quantitative evidence is the loss tables above.</p>
+
+<h3>6.3 What this note implies should be measured next</h3>
+<ol>
+<li><b>Evaluate against the free baselines.</b> HSI stage: relative RMSE / SAM on the test split versus the Gaussian-prior MMSE of §1.2 (5–14 % depending on assumed SNR). Sensor-SR stage: versus the bilinear row of §5.4 (4.4 % at $d_{sr}=2$ … 17.9 % at $d_{sr}=8$). A diffusion model that does not beat these has learned nothing beyond the second-order statistics.</li>
+<li><b>A/B the 3-D-conv variant against the dense block at equal parameter count</b> (§4.3). Lemma 4.1 predicts the dense block wins or ties once both converge; if the 3-D variant wins, the gain is regularisation and should be reproducible with weight decay/dropout on the dense block.</li>
+<li><b>Device ordering.</b> §1–2 predict <code>R_Device1</code> ≳ <code>R_Device2</code> ≫ <code>PH5</code> at equal training; a cheap confirmation of the identifiability analysis.</li>
+<li><b>Reconstruct 31 bands and interpolate to 64 afterwards.</b> The 31→64 map (<code>expand_wavelens</code>) has rank 31, so the 64-band target lives on a 31-dimensional subspace the network currently has to learn.</li>
+<li><b>Two-stage robustness</b> (5.2): train or fine-tune the HSI stage on sampled $Y$ from the SR stage, or with noise on $Y$ matched to the SR residual.</li>
+<li><b>HASCID.</b> 10.7 % of the measurement energy comes from bands 161–204 that are not part of the 160-band target; either reconstruct all 204 bands or compute $y$ from the first 160 only, otherwise those bands act as structured noise in $y$.</li>
+<li><b>Housekeeping.</b> Atomic checkpoint saves (write to a temporary name, then <code>os.replace</code>) — the legacy runs lost both final checkpoints to interrupted writes. In the legacy fp16 path (<code>train_eval/train_2d.py</code>) gradient clipping is applied to <em>scaled</em> gradients (<code>clip_grad_norm_</code> without <code>scaler.unscale_</code>); the FSDP path (bf16, <code>model.clip_grad_norm_</code>) is correct. The sampler's <code>n_steps</code> semantics were fixed upstream (it now strides from $T-1$). Ablate $L_1$ vs $L_2$ (Remark after Proposition 3).</li>
+</ol>
+
+<!-- ============================================================ -->
+<h2 id="s7">7. References</h2>
+<ul>
+<li>Anderson, B. D. O. (1982). Reverse-time diffusion equation models. <em>Stoch. Proc. Appl.</em></li>
+<li>Chen, S., Chewi, S., Li, J., Li, Y., Salim, A., Zhang, A. (2023). Sampling is as easy as learning the score: theory for diffusion models with minimal data assumptions. <em>ICLR</em>.</li>
+<li>Chung, H., Kim, J., Mccann, M. T., Klasky, M. L., Ye, J. C. (2023). Diffusion posterior sampling for general noisy inverse problems. <em>ICLR</em>.</li>
+<li>Cohen, T., Welling, M. (2016). Group equivariant convolutional networks. <em>ICML</em>.</li>
+<li>Efron, B. (2011). Tweedie's formula and selection bias. <em>JASA</em>.</li>
+<li>Hang, T., Gu, S., Li, C., Bao, J., Chen, D., Hu, H., Geng, X., Guo, B. (2023). Efficient diffusion training via min-SNR weighting strategy. <em>ICCV</em>.</li>
+<li>Ho, J., Jain, A., Abbeel, P. (2020). Denoising diffusion probabilistic models. <em>NeurIPS</em>.</li>
+<li>Islam, M. A., Jia, S., Bruce, N. D. B. (2020). How much position information do convolutional neural networks encode? <em>ICLR</em>.</li>
+<li>Kayhan, O. S., van Gemert, J. C. (2020). On translation invariance in CNNs: convolutional layers can exploit absolute spatial location. <em>CVPR</em>.</li>
+<li>Saharia, C., Ho, J., Chan, W., Salimans, T., Fleet, D. J., Norouzi, M. (2022). Image super-resolution via iterative refinement (SR3). <em>IEEE TPAMI</em>.</li>
+<li>Salimans, T., Ho, J. (2022). Progressive distillation for fast sampling of diffusion models ($v$-parameterisation). <em>ICLR</em>.</li>
+<li>Sauer, T., Yorke, J. A., Casdagli, M. (1991). Embedology. <em>J. Stat. Phys.</em></li>
+<li>Song, J., Vahdat, A., Mardani, M., Kautz, J. (2023). Pseudoinverse-guided diffusion models for inverse problems. <em>ICLR</em>.</li>
+<li>Song, Y., Sohl-Dickstein, J., Kingma, D. P., Kumar, A., Ermon, S., Poole, B. (2021). Score-based generative modeling through stochastic differential equations. <em>ICLR</em>.</li>
+<li>Zheng, Y., Zhang, T., Fu, Y. (2022). A large-scale hyperspectral dataset for flower classification. <em>Knowledge-Based Systems</em>.</li>
+</ul>
+
+<footer>Reproduce every number: <code>python docs/analysis/sensor_identifiability.py</code> from the repository root (needs <code>dataset/HFD100 Mat dataset</code> and <code>dataset/HASCID-Dataset</code>). Math is rendered client-side with KaTeX from jsDelivr; open the file in any browser with network access.</footer>
+</main>
+</body>
+</html>

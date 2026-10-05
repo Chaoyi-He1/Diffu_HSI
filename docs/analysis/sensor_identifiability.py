@@ -149,6 +149,22 @@ def main():
     print('\n--- Spatial structure')
     print(f'  spatial autocorrelation: lag 1 = {np.mean(c1):.3f}, lag 2 = {np.mean(c2):.3f}')
     print(f'  rel. error of bilinear up-sampling of a stride-2 subsampled cube: {np.mean(errs):.4f}')
+
+    # --- sensor-domain super-resolution (main_2d_sensor_sr_fsdp.py): trivial baseline per ds rate
+    Ys = [torch.tensor(g @ R).permute(2, 0, 1)[None] for g in cubes[:200]]  # full-res sensor images [1, 30, H, W]
+    print('\n--- Sensor image Y = R^T X (R_Device1): area-downsample then bilinear-upsample baseline')
+    for ds in [2, 3, 4, 6, 8]:
+        e = []
+        for Y in Ys:
+            lo = F.interpolate(Y, size=(round(64 / ds), round(64 / ds)), mode='area')
+            up = F.interpolate(lo, size=(64, 64), mode='bilinear', align_corners=False)
+            e.append(((up - Y).norm() / Y.norm()).item())
+        print(f'  ds_sr={ds}: low-res {round(64 / ds)}x{round(64 / ds)}, '
+              f'pixels kept {round(64 / ds) ** 2 / 4096:.3f}, rel. error {np.mean(e):.4f}')
+    Pix = torch.cat(Ys).permute(0, 2, 3, 1).reshape(-1, N_SENSOR).numpy()
+    ey = np.linalg.eigvalsh(np.cov(Pix.T))[::-1]
+    cum = np.cumsum(ey) / ey.sum()
+    print(f'  per-pixel PCA of Y (30-dim): k99={np.searchsorted(cum, .99) + 1}, k99.9={np.searchsorted(cum, .999) + 1}')
     print(f'\nE|eps| for eps ~ N(0,1) (trivial eps-L1 baseline): {np.sqrt(2 / np.pi):.4f}')
 
     # --- HASCID
