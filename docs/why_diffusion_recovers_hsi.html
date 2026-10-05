@@ -1,382 +1,721 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Diffusion Recovers HSI</title>
-<meta name="description" content="Why conditional diffusion recovers a hyperspectral cube from 30 sensor channels, why convolving along the spectral/channel axis is the wrong hypothesis class, why the 2-D + 1-D factorisation and the two-stage sensor-SR pipeline are justified, and the current results of the Diffu_HSI repository.">
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
-<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
-<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
-  onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script>
+<title>Why Diffusion Recovers the Spectrum</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600;700&display=swap">
+<script>
+window.MathJax={tex:{inlineMath:[['$','$']],displayMath:[['$$','$$']],tags:'none'},svg:{fontCache:'global'},options:{skipHtmlTags:['script','noscript','style','textarea','pre','code','svg']}};
+</script>
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-svg.js"></script>
 <style>
-  :root {
-    --bg: #fbfaf7; --fg: #1d1d1b; --muted: #5d5b55; --rule: #dcd8cf; --accent: #8a3b12;
-    --box: #f1eee6; --thead: #ebe7dd; --code: #efece4; --link: #1f4f8a;
+/* Layout: one 900px reading column; each section is built around a panel-card figure with a caption. */
+:root{
+  --bg:#f3f5f8; --panel:#ffffff; --panel-2:#eaeef4; --ink:#141a24; --ink-2:#475164; --muted:#6e7a8e;
+  --rule:#dbe1ea; --rule-strong:#a9b3c2;
+  --accent:#2a78d6; --accent-bg:#e2edfb; --s2:#eb6834; --s2-bg:#fde8df; --s3:#1baf7a; --s3-bg:#dcf3ea; --de:#a2aab7;
+  --good:#1d8a4e; --good-bg:#dff2e6; --bad:#c43d3d; --bad-bg:#fbe4e4; --warn:#9a6700; --warn-bg:#fff1cc;
+  --sans:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    color-scheme:dark;
+    --bg:#0e1218; --panel:#161b23; --panel-2:#1c222c; --ink:#e8ecf2; --ink-2:#b3bccb; --muted:#8893a4;
+    --rule:#29303b; --rule-strong:#4a5565;
+    --accent:#3987e5; --accent-bg:#162840; --s2:#d95926; --s2-bg:#3a2118; --s3:#199e70; --s3-bg:#12302a; --de:#5e6778;
+    --good:#46b676; --good-bg:#15301f; --bad:#e66767; --bad-bg:#3b1b1b; --warn:#e2b84a; --warn-bg:#3a2f12;
   }
-  @media (prefers-color-scheme: dark) {
-    :root:not([data-theme="light"]) {
-      --bg: #15161a; --fg: #e6e4de; --muted: #a8a59c; --rule: #33353c; --accent: #e0905c;
-      --box: #1e2026; --thead: #23252c; --code: #22242b; --link: #8db4ea;
-    }
-  }
-  :root[data-theme="dark"] {
-    --bg: #15161a; --fg: #e6e4de; --muted: #a8a59c; --rule: #33353c; --accent: #e0905c;
-    --box: #1e2026; --thead: #23252c; --code: #22242b; --link: #8db4ea;
-  }
-  html { background: var(--bg); }
-  body { margin: 0; padding: 0 16px 64px; background: var(--bg); color: var(--fg);
-         font: 17px/1.6 Georgia, "Times New Roman", serif; }
-  main { max-width: 880px; margin: 0 auto; }
-  h1 { font-size: 1.9rem; line-height: 1.25; margin: 2.2rem 0 .4rem; }
-  h2 { font-size: 1.35rem; margin: 2.6rem 0 .8rem; padding-top: .6rem; border-top: 1px solid var(--rule); }
-  h3 { font-size: 1.1rem; margin: 1.8rem 0 .5rem; }
-  p.meta { color: var(--muted); font-size: .95rem; margin-bottom: 2rem; }
-  a { color: var(--link); }
-  code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .88em; }
-  code { background: var(--code); padding: .08em .35em; border-radius: 3px; }
-  pre { background: var(--code); padding: .8rem 1rem; border-radius: 6px; overflow-x: auto; }
-  pre code { background: none; padding: 0; }
-  table { border-collapse: collapse; width: 100%; margin: 1rem 0 1.4rem; font-size: .93rem; display: block; overflow-x: auto; }
-  thead th { background: var(--thead); text-align: left; }
-  th, td { border: 1px solid var(--rule); padding: .4rem .6rem; vertical-align: top; }
-  tbody tr:nth-child(even) td { background: color-mix(in srgb, var(--box) 60%, var(--bg)); }
-  .thm { background: var(--box); border-left: 4px solid var(--accent); padding: .7rem 1rem; margin: 1.2rem 0; border-radius: 0 6px 6px 0; }
-  .thm b.lbl { color: var(--accent); }
-  .remark { border-left: 3px solid var(--rule); padding: .2rem 1rem; margin: 1rem 0; color: var(--muted); }
-  .remark b { color: var(--fg); }
-  .key { font-weight: bold; }
-  .katex-display { overflow-x: auto; overflow-y: hidden; padding: .2rem 0; }
-  nav.toc { background: var(--box); padding: .8rem 1.2rem; border-radius: 6px; font-size: .95rem; }
-  nav.toc ol { margin: .3rem 0 0; padding-left: 1.3rem; }
-  nav.toc li { margin: .15rem 0; }
-  .qed { float: right; }
-  footer { margin-top: 3rem; color: var(--muted); font-size: .9rem; border-top: 1px solid var(--rule); padding-top: 1rem; }
+}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --bg:#0e1218; --panel:#161b23; --panel-2:#1c222c; --ink:#e8ecf2; --ink-2:#b3bccb; --muted:#8893a4;
+  --rule:#29303b; --rule-strong:#4a5565;
+  --accent:#3987e5; --accent-bg:#162840; --s2:#d95926; --s2-bg:#3a2118; --s3:#199e70; --s3-bg:#12302a; --de:#5e6778;
+  --good:#46b676; --good-bg:#15301f; --bad:#e66767; --bad-bg:#3b1b1b; --warn:#e2b84a; --warn-bg:#3a2f12;
+}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:16px;line-height:1.7;padding-inline:20px;padding-block:0 72px;margin:0}
+main{max-width:900px;margin:0 auto}
+a{color:var(--accent)}
+a:focus-visible,summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
+header{padding-block:52px 12px}
+.eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.08em;color:var(--muted)}
+h1{font-size:clamp(32px,5.2vw,46px);font-weight:700;line-height:1.15;letter-spacing:-.015em;margin:.25em 0 .35em;text-wrap:balance}
+.lede{font-size:17px;color:var(--ink-2);max-width:42em;margin:0}
+nav.toc{display:flex;flex-wrap:wrap;gap:8px;margin:22px 0 4px}
+nav.toc a{font-size:13px;color:var(--ink-2);text-decoration:none;border:1px solid var(--rule-strong);border-radius:999px;padding:3px 12px;background:var(--panel)}
+nav.toc a:hover{border-color:var(--accent);color:var(--accent)}
+nav.toc b{font-family:var(--mono);font-weight:600;color:var(--accent);margin-right:6px}
+section{padding-block:36px 4px;border-top:1px solid var(--rule);margin-top:28px}
+h2{font-size:27px;font-weight:700;line-height:1.25;margin:0 0 8px;text-wrap:balance;display:flex;align-items:baseline;gap:12px}
+h2 .no{font-family:var(--mono);font-size:15px;font-weight:700;color:var(--accent);letter-spacing:.04em}
+h3{font-size:19px;font-weight:600;margin:30px 0 4px;text-wrap:balance}
+p{margin:6px 0}
+.lead{color:var(--ink-2);max-width:42em}
+figure{margin:18px 0 26px;background:var(--panel);border:1px solid var(--rule);border-radius:12px;padding:18px 18px 14px;min-width:0}
+figcaption{font-size:14px;color:var(--ink-2);margin-top:10px;max-width:48em;line-height:1.65}
+.charthead{font-size:15px;font-weight:600;margin:0 0 8px}
+.scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+.scroll>svg{display:block;width:100%;height:auto}
+.legend{display:flex;flex-wrap:wrap;gap:6px 18px;font-size:13px;color:var(--ink-2);margin:0 0 8px}
+.legend span{display:inline-flex;align-items:center;gap:7px}
+.legend i{display:inline-block;width:16px;height:3px;border-radius:2px}
+.legend i.sq{width:11px;height:11px;border-radius:3px}
+.kv{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:16px 0 4px}
+.kv div{background:var(--panel);border:1px solid var(--rule);border-radius:10px;padding:10px 14px;min-width:0}
+.kv small{display:block;font-size:12px;color:var(--muted)}
+.kv b{font-family:var(--mono);font-size:15px;font-weight:600}
+.tbl{overflow-x:auto}
+table.t{border-collapse:collapse;width:100%;font-size:14px;min-width:560px}
+table.t th{font-size:12.5px;font-weight:500;color:var(--muted);text-align:left;padding:6px 10px;border-bottom:1px solid var(--rule-strong)}
+table.t td{padding:9px 10px;border-bottom:1px solid var(--rule);vertical-align:top}
+table.t td.num{font-family:var(--mono);font-variant-numeric:tabular-nums;white-space:nowrap}
+table.t tr:last-child td{border-bottom:0}
+.pill{display:inline-flex;align-items:center;gap:4px;padding:1px 10px;border-radius:999px;font-size:12.5px;font-weight:700;white-space:nowrap}
+.pill.ok{background:var(--good-bg);color:var(--good)}
+.pill.no{background:var(--bad-bg);color:var(--bad)}
+.pill.wn{background:var(--warn-bg);color:var(--warn)}
+.thm{background:var(--panel);border:1px solid var(--rule);border-left:4px solid var(--accent);border-radius:0 12px 12px 0;padding:12px 18px;margin:18px 0}
+.thm .lbl{font-family:var(--mono);font-size:12.5px;font-weight:700;letter-spacing:.04em;color:var(--accent);display:block;margin-bottom:2px}
+.thm .pf{color:var(--ink-2);font-size:15px;margin-top:6px}
+.thm .pf b{color:var(--ink)}
+.remark{border-left:3px solid var(--rule-strong);padding:2px 16px;margin:14px 0;color:var(--ink-2);font-size:15px}
+.remark b{color:var(--ink)}
+.gloss{display:grid;grid-template-columns:repeat(auto-fit,minmax(270px,1fr));gap:6px 22px;margin:22px 0 4px;padding:16px 18px;background:var(--panel);border:1px solid var(--rule);border-radius:12px}
+.gloss h3{grid-column:1/-1;margin:0 0 4px;font-size:16px}
+.gloss div{font-size:14px;color:var(--ink-2);line-height:1.6;min-width:0}
+.gloss b{color:var(--ink);margin-right:8px;font-weight:600}
+ul.concl{padding-left:0;list-style:none;display:grid;gap:12px;margin:14px 0}
+ul.concl li{background:var(--panel);border:1px solid var(--rule);border-radius:12px;padding:12px 16px;min-width:0}
+ul.concl b{display:block;margin-bottom:2px}
+ol.steps{padding-left:1.3em;margin:10px 0}
+ol.steps li{margin:6px 0}
+code{font-family:var(--mono);font-size:.86em;background:var(--panel-2);padding:1px 5px;border-radius:4px}
+footer{margin-top:40px;padding-top:18px;border-top:1px solid var(--rule);font-size:13px;color:var(--muted)}
+footer code{font-size:12.5px}
+details.data{margin-top:8px;font-size:13px}
+details.data summary{cursor:pointer;color:var(--muted)}
+table.dt{border-collapse:collapse;margin-top:6px;font-size:12.5px}
+table.dt th,table.dt td{padding:3px 12px 3px 0;border-bottom:1px solid var(--rule);text-align:right;font-family:var(--mono);font-variant-numeric:tabular-nums;font-weight:400}
+table.dt th{color:var(--muted);font-family:var(--sans)}
+table.dt td:first-child,table.dt th:first-child{text-align:left;font-family:var(--sans)}
+mjx-container[display="true"]{overflow-x:auto;overflow-y:hidden;padding:4px 0;margin:10px 0!important}
+#tip{position:fixed;z-index:20;left:0;top:0;background:var(--panel);color:var(--ink);border:1px solid var(--rule-strong);border-radius:8px;padding:7px 10px;font-size:12.5px;line-height:1.55;box-shadow:0 8px 24px rgb(0 0 0 / .14);pointer-events:none;max-width:300px}
+#tip .tr{display:flex;align-items:center;gap:7px}
+#tip i{width:12px;height:3px;border-radius:2px;flex:none}
+#tip b{margin-left:auto;padding-left:12px;font-family:var(--mono);font-weight:600;white-space:nowrap}
+#tip .sub{color:var(--muted);font-size:12px}
+/* SVG */
+svg text{font-family:var(--sans);font-size:12.5px;fill:var(--ink)}
+svg .bt{font-weight:600;font-size:13px}
+svg .bs{font-size:11.5px;fill:var(--ink-2)}
+svg .sm{font-size:11px;fill:var(--muted)}
+svg .mono{font-family:var(--mono)}
+svg .tag{font-family:var(--mono);font-size:11px;fill:var(--muted);letter-spacing:.06em}
+svg .big{font-family:var(--mono);font-weight:700;font-size:22px}
+svg .vl{font-family:var(--mono);font-size:11.5px;fill:var(--ink-2)}
+svg .box{fill:var(--bg);stroke:var(--rule-strong);stroke-width:1.2}
+svg .box-acc{fill:var(--accent-bg);stroke:var(--accent)}
+svg .box-s2{fill:var(--s2-bg);stroke:var(--s2)}
+svg .box-s3{fill:var(--s3-bg);stroke:var(--s3)}
+svg .pane{fill:none;stroke:var(--rule);stroke-width:1}
+svg .frame{fill:none;stroke:var(--rule-strong);stroke-width:1}
+svg .ar{fill:none;stroke:var(--ink-2);stroke-width:1.4;stroke-linejoin:round}
+svg .ar-acc{stroke:var(--accent)}
+svg .ar-s2{stroke:var(--s2)}
+svg .thin{stroke-width:1;opacity:.75}
+svg .mk{fill:var(--ink-2)}
+svg .mk-acc{fill:var(--accent)}
+svg .mk-s2{fill:var(--s2)}
+svg .cell{fill:var(--accent)}
+svg .cell-de{fill:var(--de)}
+svg .cell-s2{fill:var(--s2)}
+svg .bar{fill:var(--accent)}
+svg .bar-s2{fill:var(--s2)}
+svg .grid{stroke:var(--rule);stroke-width:1}
+svg .axis{stroke:var(--rule-strong);stroke-width:1}
+svg .tick{font-family:var(--mono);font-size:11px;fill:var(--muted)}
+svg .axt{font-size:11.5px;fill:var(--muted)}
+svg .ln{fill:none;stroke-width:2;stroke-linejoin:round;stroke-linecap:round}
+svg .dot{stroke:var(--panel);stroke-width:2}
+svg .cross{stroke:var(--rule-strong);stroke-width:1}
+svg .hit{fill:transparent;cursor:crosshair}
+svg .ref{stroke:var(--muted);stroke-width:1;stroke-dasharray:4 4}
+svg .reflbl{font-size:11.5px;fill:var(--muted)}
+svg .endlbl{font-family:var(--mono);font-size:12px;fill:var(--ink-2);font-weight:600}
+svg .vlbl{font-family:var(--mono);font-size:11.5px;fill:var(--ink-2)}
+svg .barhit{cursor:default}
+svg .wire{fill:none;stroke:var(--ink-2);stroke-width:1.4}
+svg .okt{fill:var(--good);font-weight:700}
+svg .badt{fill:var(--bad);font-weight:700}
+@media (max-width:520px){ body{font-size:15px} h2{font-size:23px} figure{padding:14px 12px 12px} }
+@media (prefers-reduced-motion: reduce){ *{scroll-behavior:auto} }
 </style>
-</head>
-<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <defs>
+    <marker id="mI" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="mk"/></marker>
+    <marker id="mA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="mk-acc"/></marker>
+    <marker id="mS" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="mk-s2"/></marker>
+  </defs>
+</svg>
+<div id="tip" hidden></div>
+
 <main>
-
-<h1>Why conditional diffusion recovers a hyperspectral cube from 30 sensor channels — and why the spectral/channel axis must be mixed densely, not convolved</h1>
-<p class="meta">Working note for the <code>Diffu_HSI</code> repository, 2026-10-04. Every number quoted here is produced by <code>docs/analysis/sensor_identifiability.py</code>, which uses the exact preprocessing of <code>data_loader/HFD_dataset.py</code>, <code>data_loader/my_dataset.py</code> and <code>data_loader/HFD_sensor_sr_dataset.py</code>. Run it from the repo root in the <code>hsi</code> environment.</p>
-
-<nav class="toc">
-<b>Contents</b>
-<ol start="0">
-  <li><a href="#s0">Setting, as implemented</a></li>
-  <li><a href="#s1">The inverse problem: nominally almost square, effectively very under-determined</a></li>
-  <li><a href="#s2">Identifiability: on the spectral manifold, $y$ determines $x$</a></li>
-  <li><a href="#s3">Why <em>diffusion</em> computes this posterior</a></li>
-  <li><a href="#s4">Why convolving along the spectral or channel axis ("3-D diffusion") is the wrong hypothesis class</a></li>
-  <li><a href="#s5">Why the 2-D (spatial) + 1-D (spectral) factorisation and the two-stage sensor-SR pipeline work</a></li>
-  <li><a href="#s6">Current results</a></li>
-  <li><a href="#s7">References</a></li>
-</ol>
-</nav>
-
-<!-- ============================================================ -->
-<h2 id="s0">0. Setting, as implemented in this repository</h2>
-
-<table>
-<thead><tr><th>symbol</th><th>meaning</th><th>HFD100</th><th>HASCID</th></tr></thead>
-<tbody>
-<tr><td>$L$</td><td>spectral bands of the ground truth $x$</td><td>31 (451–855 nm), linearly interpolated to 64 for the network</td><td>204 measured, first 160 reconstructed</td></tr>
-<tr><td>$N$</td><td>sensor channels of the measurement $y$</td><td>30</td><td>30</td></tr>
-<tr><td>$R\in\mathbb R^{L\times N}$</td><td>sensor response: 30 uniformly chosen columns of <code>R_Device1/2.mat</code> or <code>PH5_interp_results.mat</code>, resampled to the data wavelengths, each column min-max normalised</td><td colspan="2"></td></tr>
-<tr><td>$P=HW$</td><td>pixels per cube</td><td>$64\times64$</td><td>$512\times512$</td></tr>
-<tr><td>$d$</td><td>spatial down-sampling of the sensor grid (<code>--ds</code>, <code>--ds_sr</code>)</td><td>1, 2 (HSI model); 2, 3, 4, 6, 8 (sensor-SR model)</td><td>1</td></tr>
-</tbody>
-</table>
-
-<p>The forward model is <span class="key">per pixel, linear, and wavelength-indexed</span>:</p>
-$$
-y_p \;=\; R^{\mathsf T} x_p \in\mathbb R^{N},\qquad p=1,\dots,P,
-\qquad\text{i.e.}\qquad Y = R^{\mathsf T} X,\; X\in\mathbb R^{L\times P}. \tag{0.1}
-$$
-<p>With a down-sampled sensor grid only a coarse version $Y_d = \mathcal D_d(Y)$ of the sensor image is observed ($\mathcal D_d$ = stride-$d$ subsampling in <code>HFD_data</code>; strided, average-pool or area resize in <code>HFD_SensorSR_data</code>).</p>
-
-<p>Two diffusion models exist, both trained in data space by DDPM (<code>DiffusionTrainer</code>: linear $\beta_t\in[10^{-4},0.02]$, $T=1000$; $\varepsilon$- or $v$-prediction, $L_1$ loss, optional min-SNR-$\gamma$ weighting) and conditioned through cross-attention:</p>
-<ol>
-  <li><b>HSI model</b> (<code>U2NetHyperspectral</code>, <code>main_2d.py</code> / <code>main_2d_fsdp.py</code>): $x_0 = X\in\mathbb R^{64\times H\times W}$, condition $Y$ or $Y_d$. Optionally with <code>--use_channel_3d_conv</code>, which replaces the $3\times3$ 2-D convolutions in every conv block by <code>ConvBlock2D_ChannelAware</code> (§4.3).</li>
-  <li><b>Sensor-SR model</b> (<code>U2NetSensorSR</code>, <code>main_2d_sensor_sr_fsdp.py</code>): $x_0 = Y\in\mathbb R^{30\times H\times W}$ (globally normalised), condition $Y_d$. Its purpose is the two-stage pipeline $Y_d\to Y\to X$ (§5.4).</li>
-</ol>
-
-<p>This note answers: <span class="key">why is $X$ recoverable from $Y$ (or $Y_d$) at all, why does diffusion recover it, why must the spectral/channel axis be mixed densely rather than convolved, and why is the spatial-2-D + spectral-1-D factorisation — including the two-stage pipeline — the right design?</span></p>
+<header>
+  <div class="eyebrow">Diffu_HSI · research note · October 2026</div>
+  <h1>Why diffusion recovers the spectrum from 30 sensor channels</h1>
+  <p class="lede">A snapshot camera gives us 30 numbers per pixel. We want 31 (or 160) spectral bands back. This note shows, with the actual sensor matrix and the actual data, why that is possible, why a conditional diffusion model is the right tool, why convolving along the spectral axis ("3-D diffusion") is the wrong tool, and where the experiments stand.</p>
+  <figure>
+    <div class="scroll" data-fig="pipeline" data-aria="Forward physics: the hyperspectral cube X is multiplied by the sensor response R to give the sensor image Y, which is spatially down-sampled to Y_d. Reconstruction runs backwards with two diffusion models: sensor super-resolution from Y_d to Y, then spectral reconstruction from Y to X."></div>
+    <figcaption>Top row: what the camera does. Bottom row: what the two diffusion models undo. Each pixel of the cube lives on an 8-dimensional set of plausible spectra; each pixel of the sensor image on a 3-dimensional one. Those two numbers, not the raw channel counts, decide whether the problem is solvable.</figcaption>
+  </figure>
+  <nav class="toc" aria-label="Contents">
+    <a href="#s1"><b>1</b>The inverse problem</a><a href="#s2"><b>2</b>Identifiability</a><a href="#s3"><b>3</b>Why diffusion</a><a href="#s4"><b>4</b>Why not 3-D</a><a href="#s5"><b>5</b>Why 2-D + 1-D</a><a href="#s6"><b>6</b>Results</a><a href="#s7"><b>7</b>Conclusions</a>
+  </nav>
+  <div class="gloss">
+    <h3>Terms used below</h3>
+    <div><b>Cube $X$</b>the hyperspectral image, $L$ bands at every pixel; $L=31$ for HFD100 (interpolated to 64 for the network), 160 for HASCID</div>
+    <div><b>Sensor matrix $R$</b>an $L\times30$ matrix: column $j$ is the spectral response of filter $j$. From <code>R_Device1.mat</code>, <code>R_Device2.mat</code> or <code>PH5_interp_results.mat</code></div>
+    <div><b>Sensor image $Y$</b>$Y=R^{\mathsf T}X$: 30 numbers per pixel, what the camera records</div>
+    <div><b>$Y_d$</b>the sensor image kept only on a stride-$d$ grid (<code>--ds</code>, <code>--ds_sr</code>)</div>
+    <div><b>Posterior $p(x\mid y)$</b>the distribution of cubes that could have produced the measurement; reconstruction means sampling or summarising it</div>
+    <div><b>Score</b>$\nabla_x\log p_t(x\mid y)$, the direction towards more plausible cubes at noise level $t$; this is what the network learns</div>
+    <div><b>Manifold $\mathcal M$</b>the set of spectra that actually occur; its dimension $k$ is far below $L$</div>
+    <div><b>Singular values $\sigma_i$</b>the gains of $R^{\mathsf T}$ along its 30 principal directions; a tiny $\sigma_i$ means that direction is measured but drowned by noise</div>
+    <div><b>Toeplitz</b>a matrix whose entry depends only on $i-j$: what a convolution looks like when written as a matrix</div>
+    <div><b>Equivariant</b>a network that commutes with a shift of its input; convolution is equivariant to shifts along the axes it slides over</div>
+  </div>
+</header>
 
 <!-- ============================================================ -->
-<h2 id="s1">1. The inverse problem: nominally almost square, effectively very under-determined</h2>
-
-<h3>1.1 Nominal structure</h3>
-<p>$R^{\mathsf T}:\mathbb R^{L}\to\mathbb R^{N}$ has a null space of dimension $\ge L-N$. For HFD ($L=31,N=30$) that is a <em>single</em> direction; for HASCID ($L=160$) it is $\ge130$ directions. Nominally HFD looks almost well-posed. It is not.</p>
-
-<h3>1.2 Conditioning (measured)</h3>
-<p>Singular values of $R^{\mathsf T}$ after the loader's preprocessing:</p>
-<table>
-<thead><tr><th>sensor</th><th>rank</th><th>$\kappa=\sigma_1/\sigma_{\min}$</th><th>#$\{\sigma_i/\sigma_1>10^{-2}\}$</th><th>#$\{>10^{-3}\}$</th><th>#$\{>5\cdot10^{-4}\}$ (fp16 $\epsilon$)</th></tr></thead>
-<tbody>
-<tr><td><code>R_Device1</code>, HFD (30×31)</td><td>30</td><td>$2.3\times10^{9}$</td><td><b>11</b></td><td>17</td><td>19</td></tr>
-<tr><td><code>R_Device2</code>, HFD (30×31)</td><td>30</td><td>$5.1\times10^{7}$</td><td><b>9</b></td><td>16</td><td>18</td></tr>
-<tr><td><code>PH5</code>, HFD (30×31)</td><td>16</td><td>$2.9\times10^{19}$</td><td><b>4</b></td><td>6</td><td>7</td></tr>
-<tr><td><code>R_Device1</code>, HASCID, 160 target bands (30×160)</td><td>30</td><td>$1.5\times10^{7}$</td><td><b>13</b></td><td>18</td><td>21</td></tr>
-</tbody>
-</table>
-<p>The singular values of <code>R_Device1</code> fall from 15.3 to $7\times10^{-9}$. Under <em>any</em> perturbation of $y$ — read-out noise, the fp16/bf16 autocast the network runs in ($\epsilon_{\text{fp16}}\approx5\times10^{-4}$, $\epsilon_{\text{bf16}}\approx4\times10^{-3}$), even float32 round-off relative to $\kappa$ — only about <span class="key">11–19 of the 30 channels carry usable information</span>. The remaining directions of $x$ have to come from somewhere else. Concretely, for <code>R_Device1</code> on sampled HFD pixels (relative $\ell_2$ error per pixel):</p>
-<table>
-<thead><tr><th>estimator</th><th>noiseless</th><th>SNR 60 dB</th><th>SNR 40 dB</th><th>SNR 30 dB</th></tr></thead>
-<tbody>
-<tr><td>pseudo-inverse $(R^{\mathsf T})^{+}y$</td><td>0.017</td><td>$2.7\times10^{5}$</td><td>$2.7\times10^{6}$</td><td>$8.5\times10^{6}$</td></tr>
-<tr><td>Gaussian-prior MMSE $\mu+CR(R^{\mathsf T}CR+\sigma^2 I)^{-1}(y-R^{\mathsf T}\mu)$</td><td>—</td><td><b>0.049</b></td><td><b>0.088</b></td><td><b>0.139</b></td></tr>
-</tbody>
-</table>
-<p>Direct inversion is useless at any realistic precision; a prior is not optional. The Gaussian-prior row is the <em>linear</em> Bayesian baseline — the floor that any learned method must beat, and a cheap sanity check for the diffusion model (§6).</p>
-
-<h3>1.3 The prior is low-dimensional (measured)</h3>
-<p>PCA of per-image-normalised spectra:</p>
-<table>
-<thead><tr><th>data</th><th>$k$ for 99 % variance</th><th>99.9 %</th><th>99.99 %</th></tr></thead>
-<tbody>
-<tr><td>HFD (31 bands, 120 000 pixels)</td><td><b>8</b></td><td>19</td><td>29</td></tr>
-<tr><td>HASCID (160 bands, 60 000 pixels)</td><td><b>3</b></td><td>7</td><td>61</td></tr>
-<tr><td>sensor image $Y=R^{\mathsf T}X$, HFD, <code>R_Device1</code> (30-dim per pixel)</td><td><b>3</b></td><td>4</td><td>—</td></tr>
-</tbody>
-</table>
-<p>and the measurement sees the part that matters: for <code>R_Device1</code> on HFD, the 11 well-conditioned directions of $R^{\mathsf T}$ contain <b>98.0 %</b> of the spectral variance (17 directions: 99.4 %); on HASCID the 13 well-conditioned directions contain 99.8 %. For <code>PH5</code> the 4 usable directions contain only 61 % — which predicts, before training anything, that PH5 reconstructions will be markedly worse than <code>R_Device1/2</code>.</p>
+<section id="s1">
+  <h2><span class="no">01</span>The inverse problem looks almost square. It is not.</h2>
+  <p class="lead">Per pixel the camera computes $y_p=R^{\mathsf T}x_p$: 30 weighted sums of the 31 bands. On paper only one direction of the spectrum is lost. In practice the 30 measurements are far from independent.</p>
+  <figure>
+    <div class="scroll" data-fig="forward" data-aria="One pixel: a 31-band spectrum is multiplied by the transposed sensor matrix to give 30 sensor values"></div>
+    <figcaption>The forward model (0.1), $Y=R^{\mathsf T}X$, is linear, per pixel and indexed by absolute wavelength. The loader picks 30 of the device's filters uniformly, resamples them to the data wavelengths and min-max normalises each column; the figure shows <code>R_Device1</code> after that processing.</figcaption>
+  </figure>
+  <figure>
+    <p class="charthead">Singular values of $R^{\mathsf T}$, relative to the largest (log scale)</p>
+    <div class="legend"><span><i style="background:var(--accent)"></i>R_Device1</span><span><i style="background:var(--s2)"></i>R_Device2</span><span><i style="background:var(--s3)"></i>PH5</span></div>
+    <div class="scroll" data-chart="sv" data-aria="Normalised singular values of the three sensor matrices on a log scale from 1 down to 1e-10; R_Device1 has 11 directions above 1e-2 and 19 above the fp16 precision 5e-4; PH5 only 4 and 7"></div>
+    <figcaption>Every direction below the dashed lines is formally measured but destroyed by any noise of that relative size: the fp16 line is the precision the network's own autocast works at. <code>R_Device1</code> keeps about 11 to 19 usable directions out of 30; <code>PH5</code> keeps 4 to 7. The rest of the spectrum has to come from a prior.</figcaption>
+  </figure>
+  <div class="kv">
+    <div><small>R_Device1 · condition number</small><b>2.3 × 10⁹</b></div>
+    <div><small>R_Device1 · directions above 1 %</small><b>11 of 30</b></div>
+    <div><small>R_Device2 · directions above 1 %</small><b>9 of 30</b></div>
+    <div><small>PH5 · directions above 1 %</small><b>4 of 30</b></div>
+    <div><small>HASCID, R_Device1 · above 1 %</small><b>13 of 30</b></div>
+  </div>
+  <h3>What a prior buys, measured</h3>
+  <figure>
+    <div class="tbl">
+      <table class="t">
+        <thead><tr><th>estimator, R_Device1, relative error per pixel</th><th>noiseless</th><th>SNR 60 dB</th><th>SNR 40 dB</th><th>SNR 30 dB</th></tr></thead>
+        <tbody>
+          <tr><td>pseudo-inverse $(R^{\mathsf T})^{+}y$</td><td class="num">0.017</td><td class="num"><span class="pill no">2.7 × 10⁵</span></td><td class="num"><span class="pill no">2.7 × 10⁶</span></td><td class="num"><span class="pill no">8.5 × 10⁶</span></td></tr>
+          <tr><td>Gaussian-prior MMSE $\;\mu+CR\,(R^{\mathsf T}CR+\sigma^2I)^{-1}(y-R^{\mathsf T}\mu)$</td><td class="num">—</td><td class="num"><span class="pill ok">0.049</span></td><td class="num"><span class="pill ok">0.088</span></td><td class="num"><span class="pill ok">0.139</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <figcaption>Sampled HFD pixels, errors in relative $\ell_2$. Inverting $R^{\mathsf T}$ directly works only with exact arithmetic. A prior as crude as the second-order statistics $(\mu, C)$ of the spectra brings the error to 5–14 %. That row is the free linear baseline every learned method has to beat.</figcaption>
+  </figure>
+</section>
 
 <!-- ============================================================ -->
-<h2 id="s2">2. Identifiability: on the spectral manifold, $y$ determines $x$</h2>
+<section id="s2">
+  <h2><span class="no">02</span>Identifiability: on the spectral manifold, $y$ determines $x$</h2>
+  <p class="lead">Natural spectra do not fill $\mathbb R^{31}$. Eight principal directions carry 99 % of their variance in HFD100, three in HASCID. The question is not whether 30 numbers determine 31, but whether they determine 8.</p>
+  <figure>
+    <p class="charthead">Variance not yet explained by the first $k$ principal components (log scale)</p>
+    <div class="legend"><span><i style="background:var(--accent)"></i>HFD cube, 31 bands</span><span><i style="background:var(--s2)"></i>HASCID cube, 160 bands</span><span><i style="background:var(--s3)"></i>sensor image $Y$, 30 channels</span></div>
+    <div class="scroll" data-chart="pca" data-aria="Residual variance versus number of principal components for HFD spectra, HASCID spectra and the sensor image; HFD crosses 1 percent at k equals 8, HASCID at 3, the sensor image at 3"></div>
+    <figcaption>Where a curve crosses the 1 % line is $k_{99}$: 8 for HFD, 3 for HASCID, 3 for the sensor image. The sensor image is lower-dimensional than the cube because $R^{\mathsf T}$ compresses the spectra through its three dominant directions; that matters for the sensor-SR stage in §5.</figcaption>
+  </figure>
 
-<p>Let $\mathcal M\subset\mathbb R^{L}$ be the set of spectra that occur (a compact set of intrinsic dimension $k\approx 8$ for HFD, $3$–$7$ for HASCID, by §1.3), and $A=R^{\mathsf T}$.</p>
-
-<div class="thm"><b class="lbl">Proposition 1 (generic injectivity).</b> If $N>2k$, then for Lebesgue-almost-every linear $A:\mathbb R^{L}\to\mathbb R^{N}$ the restriction $A|_{\mathcal M}$ is injective.<br>
-<em>Proof.</em> This is the embedology theorem of Sauer, Yorke &amp; Casdagli (1991), the measure-theoretic form of Whitney's embedding theorem: a compact set of (box-counting) dimension $k$ is injectively mapped by almost every projection to $\mathbb R^{N}$ as soon as $N>2k$. <span class="qed">$\square$</span></div>
-
-<p>Here $N=30>2\cdot 8=16$ (HFD) and $30>2\cdot7=14$ (HASCID). The theorem is about <em>generic</em> $A$; for the <em>actual</em> $A$ the relevant certificate is the <span class="key">restricted conditioning</span> on the principal subspace $V_k$ that carries the manifold,</p>
-$$
-\rho_k \;=\; \frac{\sigma_{\min}(R^{\mathsf T}V_k)}{\sigma_{\max}(R^{\mathsf T}V_k)} ,
-$$
-<p>because $\rho_k>0$ means $A$ is bi-Lipschitz on $\operatorname{span}V_k\supset\mathcal M$ (up to the 1 % of energy outside it), which implies injectivity on $\mathcal M$ with a quantitative inverse-Lipschitz constant $1/\rho_k$:</p>
-<table>
-<thead><tr><th>$k$</th><th><code>R_Device1</code> HFD</th><th><code>R_Device2</code> HFD</th><th><code>PH5</code> HFD</th><th><code>R_Device1</code> HASCID</th></tr></thead>
-<tbody>
-<tr><td>5</td><td>$4.1\times10^{-2}$</td><td>$3.2\times10^{-2}$</td><td>$7.0\times10^{-4}$</td><td>$6.6\times10^{-2}$</td></tr>
-<tr><td>8</td><td>$3.2\times10^{-2}$</td><td>$1.2\times10^{-2}$</td><td>$1.2\times10^{-4}$</td><td>$3.1\times10^{-2}$</td></tr>
-<tr><td>12</td><td>$2.7\times10^{-3}$</td><td>$1.3\times10^{-3}$</td><td>$1.6\times10^{-5}$</td><td>$9.1\times10^{-3}$</td></tr>
-</tbody>
-</table>
-
-<div class="thm"><b class="lbl">Corollary 2.</b> Under a prior supported on $\mathcal M$, the noiseless posterior $p(x\mid y)\propto p(x)\,\delta(y-R^{\mathsf T}x)$ is supported on $\mathcal M\cap(x^\star+\ker R^{\mathsf T})$, which by Proposition 1 is the single point $x^\star$: the posterior is a point mass and $x=g(y)$ for a (nonlinear) inverse $g$ defined on $A(\mathcal M)$. With noise or finite precision, the posterior has spread of order $\sigma/\rho_k$ along the $k$ manifold directions and <em>no</em> spread elsewhere — in contrast to the linear-Gaussian posterior of §1.2, which spreads over all $L-11$ poorly measured directions.</div>
-
-<p>That is the whole reason reconstruction is possible: <span class="key">the 30 channels do not determine the 31 (or 160) numbers, but they determine the 8 (or 7) numbers that the spectra actually have.</span> A method succeeds exactly to the degree that it (i) knows $\mathcal M$ and (ii) can apply the dense, wavelength-specific operator that maps $y$ onto it.</p>
-
-<!-- ============================================================ -->
-<h2 id="s3">3. Why <em>diffusion</em> computes this posterior</h2>
-
-<p>Notation as in <code>model/diffusion_trainer.py</code>: $\bar\alpha_t=\prod_{s\le t}(1-\beta_s)$, $x_t=\sqrt{\bar\alpha_t}\,x_0+\sqrt{1-\bar\alpha_t}\,\varepsilon$, $\varepsilon\sim\mathcal N(0,I)$, $t\sim\mathcal U\{0,\dots,T-1\}$.</p>
-
-<div class="thm"><b class="lbl">Proposition 3 (the trained network is the conditional score).</b> The minimiser of the conditional $\varepsilon$-objective
-$$
-\mathcal L(\theta)=\mathbb E_{t,x_0,y,\varepsilon}\,w(t)\,\big\|\varepsilon-\varepsilon_\theta(x_t,y,t)\big\|_2^2
-$$
-over all measurable functions, for any positive weighting $w(t)$ (uniform, or min-SNR-$\gamma$), is $\varepsilon^\star(x_t,y,t)=\mathbb E[\varepsilon\mid x_t,y]$, and
-$$
-\nabla_{x_t}\log p_t(x_t\mid y)\;=\;-\frac{\varepsilon^\star(x_t,y,t)}{\sqrt{1-\bar\alpha_t}} . \tag{3.1}
-$$
-<em>Proof.</em> The minimiser is pointwise in $(x_t,y,t)$, so a $t$-dependent weight does not change it; the first statement is the $L_2$ projection property of conditional expectation. For (3.1), $p_t(x_t\mid y)=\int\mathcal N(x_t;\sqrt{\bar\alpha_t}x_0,(1-\bar\alpha_t)I)\,p(x_0\mid y)\,dx_0$; differentiating under the integral,
-$\nabla_{x_t}\log p_t(x_t|y)=-\mathbb E\!\left[\frac{x_t-\sqrt{\bar\alpha_t}x_0}{1-\bar\alpha_t}\,\Big|\,x_t,y\right]=-\frac{\mathbb E[\varepsilon|x_t,y]}{\sqrt{1-\bar\alpha_t}}$ (Tweedie / Robbins; Efron 2011). <span class="qed">$\square$</span></div>
-
-<div class="remark"><b>Remark ($v$-prediction).</b> The FSDP runs use $v=\sqrt{\bar\alpha_t}\,\varepsilon-\sqrt{1-\bar\alpha_t}\,x_0$ as target. Since $v$ is an invertible affine function of $(x_0,\varepsilon)$ given $x_t$, $\mathbb E[v\mid x_t,y]$ determines $\mathbb E[\varepsilon\mid x_t,y]$ and hence the same score; $v$-prediction only changes the conditioning of the regression problem at the two ends of the noise schedule (Salimans &amp; Ho 2022), which is why it trains more stably in bf16.</div>
-
-<div class="remark"><b>Remark ($L_1$ loss).</b> The repository minimises $\mathbb E|\varepsilon-\varepsilon_\theta|$ (or $|v-v_\theta|$), whose minimiser is the coordinate-wise conditional <em>median</em>. It coincides with the mean whenever the conditional law is symmetric — in particular at small $t$, where the posterior is unimodal and nearly Gaussian — and is a common robustness choice, but strictly speaking the sampler below assumes the mean. A modelling choice, not a flaw in the argument; §6 lists it as something to ablate.</div>
-
-<div class="thm"><b class="lbl">Proposition 4 (sampling the posterior).</b> Let $s_\theta(x_t,y,t)\approx\nabla\log p_t(x_t|y)$ with $\mathbb E_{t,x_t}\|s_\theta-\nabla\log p_t\|^2\le\varepsilon_{\text{score}}^2$. The reverse-time process with drift built from $s_\theta$ (Anderson 1982; Song et al. 2021), discretised as the DDPM ancestral or DDIM sampler implemented in <code>DiffusionTrainer.sample</code>, produces a distribution $\hat p$ with
-$$
-\mathrm{TV}\big(\hat p,\;p(\cdot\mid y)\big)\;\le\;C\big(\varepsilon_{\text{score}}\sqrt{T}+\text{discretisation}+e^{-T}\big)
-$$
-for <b>any</b> conditional data distribution with finite second moment — no log-concavity, smoothness, or full support is required (Chen, Lee, Lu et al., ICLR 2023; the manifold-supported case is covered by their early-stopping variant).</div>
-
-<div class="thm"><b class="lbl">Theorem 5 (reconstruction).</b> Combining Corollary 2 with Propositions 3–4: a conditional diffusion model trained to small loss on $(x,y=R^{\mathsf T}x)$ pairs and sampled with the DDPM/DDIM reverse process returns samples concentrated at $g(y)=x^\star$, with error controlled by (a) the prior spread allowed by $\rho_k$ and the measurement precision, and (b) the score approximation and discretisation error. In the noiseless, perfectly trained limit the sample <em>is</em> $x^\star$. <span class="qed">$\square$</span></div>
-
-<h3>3.1 What the score must contain (this drives the architecture question)</h3>
-<p>By Bayes,</p>
-$$
-\nabla_{x_t}\log p_t(x_t\mid y)\;=\;\underbrace{\nabla_{x_t}\log p_t(x_t)}_{\text{prior: spatial }\times\text{ spectral}}\;+\;\underbrace{\nabla_{x_t}\log p_t(y\mid x_t)}_{\text{likelihood}} . \tag{3.2}
-$$
-<p>Because (0.1) is pixel-wise, $p(y|x_0)=\prod_p p(y_p|x_{0,p})$ and the likelihood term is <span class="key">per pixel and purely spectral</span>. Under the usual Gaussian approximation of $p(x_0\mid x_t)$ (Song et al. 2023, ΠGDM; Chung et al. 2023, DPS),</p>
-$$
-\nabla_{x_t}\log p_t(y_p\mid x_t)\;\approx\;\sqrt{\bar\alpha_t}\;J_p^{\mathsf T}\,R\,\big(R^{\mathsf T}\Sigma_t R+\sigma^2I\big)^{-1}\big(y_p-R^{\mathsf T}\hat x_{0,p}(x_t)\big), \tag{3.3}
-$$
-<p>a <span class="key">dense $L\times N$ wavelength-indexed linear map</span> applied at every pixel. The conditional network does not need $R$ at test time — it learns (3.3) <em>amortised</em> from data, which is also why it tolerates calibration error in $R$ — but it must be <em>able to represent</em> an arbitrary dense map between the sensor index $j$ and the wavelength index $\lambda$ (and, inside the network, between the feature channels that carry them). Section 4 shows what convolving along that axis does to this ability; Section 5 shows that the 2-D-spatial + channel-spectral network has it in one layer.</p>
-
-<h3>3.2 Why not a plain regressor $y\mapsto x$?</h3>
-<p>A regressor trained with $L_2$ learns $\mathbb E[x\mid y]$. When the posterior is multimodal (folds of $\mathcal M$ seen through $A$, or $d>1$ where unmeasured pixels have genuinely several plausible spectra) the mean lies <em>off</em> $\mathcal M$ — a blurred, physically impossible spectrum. Diffusion samples the posterior and so stays on $\mathcal M$; in the identifiable regime of Theorem 5 both agree, but diffusion additionally regularises the ill-conditioned directions of §1.2 adaptively (through the learned prior score) instead of with a fixed ridge, and repeated samples give a calibrated uncertainty for free.</p>
+  <div class="thm"><span class="lbl">Proposition 1 · generic injectivity</span>
+    Let $\mathcal M\subset\mathbb R^{L}$ be compact with box-counting dimension $k$. If $N>2k$, then for Lebesgue-almost-every linear $A:\mathbb R^{L}\to\mathbb R^{N}$ the restriction $A|_{\mathcal M}$ is injective.
+    <div class="pf"><b>Proof.</b> This is the embedology theorem of Sauer, Yorke and Casdagli (1991), the measure-theoretic form of Whitney's embedding theorem. $\square$</div>
+  </div>
+  <p>Here $N=30>2\cdot8=16$ for HFD and $30>2\cdot7=14$ for HASCID. The theorem covers <em>generic</em> matrices; for the <em>actual</em> $R^{\mathsf T}$ the certificate is the restricted conditioning on the principal subspace $V_k$ that carries the manifold,</p>
+  $$\rho_k=\frac{\sigma_{\min}(R^{\mathsf T}V_k)}{\sigma_{\max}(R^{\mathsf T}V_k)},$$
+  <p>because $\rho_k>0$ makes $R^{\mathsf T}$ bi-Lipschitz on $\operatorname{span}V_k\supset\mathcal M$ with inverse constant $1/\rho_k$, which implies injectivity on $\mathcal M$ itself.</p>
+  <figure>
+    <div class="tbl">
+      <table class="t">
+        <thead><tr><th>$\rho_k$ on the top-$k$ principal subspace</th><th>R_Device1, HFD</th><th>R_Device2, HFD</th><th>PH5, HFD</th><th>R_Device1, HASCID</th></tr></thead>
+        <tbody>
+          <tr><td>$k=5$</td><td class="num">4.1 × 10⁻²</td><td class="num">3.2 × 10⁻²</td><td class="num">7.0 × 10⁻⁴</td><td class="num">6.6 × 10⁻²</td></tr>
+          <tr><td>$k=8$</td><td class="num">3.2 × 10⁻²</td><td class="num">1.2 × 10⁻²</td><td class="num">1.2 × 10⁻⁴</td><td class="num">3.1 × 10⁻²</td></tr>
+          <tr><td>$k=12$</td><td class="num">2.7 × 10⁻³</td><td class="num">1.3 × 10⁻³</td><td class="num">1.6 × 10⁻⁵</td><td class="num">9.1 × 10⁻³</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <figcaption>On the 8 directions that hold 99 % of the HFD spectra, <code>R_Device1</code> is injective with condition number about 30. <code>PH5</code> is about 270 times worse on the same subspace, so the analysis predicts the device ranking Device1 ≳ Device2 ≫ PH5 before any training.</figcaption>
+  </figure>
+  <div class="thm"><span class="lbl">Corollary 2 · the posterior is a point</span>
+    Under a prior supported on $\mathcal M$, the noiseless posterior $p(x\mid y)\propto p(x)\,\delta(y-R^{\mathsf T}x)$ is supported on $\mathcal M\cap(x^\star+\ker R^{\mathsf T})$, which by Proposition 1 is the single point $x^\star$. So $x=g(y)$ for a nonlinear inverse $g$ defined on $R^{\mathsf T}(\mathcal M)$. With measurement noise $\sigma$ the posterior spreads by about $\sigma/\rho_k$ along the $k$ manifold directions and not at all elsewhere, unlike the Gaussian posterior of §1, which spreads over all $L-11$ poorly measured directions.
+  </div>
+  <p>That is the whole reason the task is possible: <b>30 channels do not determine 31 numbers, but they determine the 8 numbers that spectra actually have.</b> A method succeeds to the degree that it knows $\mathcal M$ and can apply the dense, wavelength-specific operator that maps $y$ back onto it.</p>
+</section>
 
 <!-- ============================================================ -->
-<h2 id="s4">4. Why convolving along the spectral or channel axis ("3-D diffusion") is the wrong hypothesis class</h2>
+<section id="s3">
+  <h2><span class="no">03</span>Why diffusion computes exactly this posterior</h2>
+  <p class="lead">Notation follows <code>model/diffusion_trainer.py</code>: $\bar\alpha_t=\prod_{s\le t}(1-\beta_s)$, $x_t=\sqrt{\bar\alpha_t}\,x_0+\sqrt{1-\bar\alpha_t}\,\varepsilon$ with $\varepsilon\sim\mathcal N(0,I)$ and $t$ uniform on $\{0,\dots,999\}$.</p>
+  <div class="thm"><span class="lbl">Proposition 3 · the trained network is the conditional score</span>
+    The minimiser over all measurable functions of
+    $$\mathcal L=\mathbb E_{t,x_0,y,\varepsilon}\;w(t)\,\big\|\varepsilon-\varepsilon_\theta(x_t,y,t)\big\|_2^2,$$
+    for any positive weighting $w(t)$ (uniform, or min-SNR-$\gamma$), is $\varepsilon^\star(x_t,y,t)=\mathbb E[\varepsilon\mid x_t,y]$, and
+    $$\nabla_{x_t}\log p_t(x_t\mid y)=-\frac{\varepsilon^\star(x_t,y,t)}{\sqrt{1-\bar\alpha_t}}.\tag{3.1}$$
+    <div class="pf"><b>Proof.</b> The minimiser is pointwise in $(x_t,y,t)$, so a weight that depends on $t$ alone does not move it, and the pointwise $L_2$ minimiser is the conditional expectation. For (3.1), write $p_t(x_t\mid y)=\int\mathcal N(x_t;\sqrt{\bar\alpha_t}x_0,(1-\bar\alpha_t)I)\,p(x_0\mid y)\,dx_0$ and differentiate under the integral: $\nabla\log p_t=-\mathbb E[(x_t-\sqrt{\bar\alpha_t}x_0)\mid x_t,y]/(1-\bar\alpha_t)$, which is Tweedie's formula (Efron 2011). $\square$</div>
+  </div>
+  <div class="remark"><b>$v$-prediction.</b> The FSDP runs regress $v=\sqrt{\bar\alpha_t}\,\varepsilon-\sqrt{1-\bar\alpha_t}\,x_0$. Given $x_t$, $v$ is an invertible affine function of $\varepsilon$, so $\mathbb E[v\mid x_t,y]$ gives the same score; it only improves the conditioning of the regression at the two ends of the noise schedule (Salimans and Ho 2022), which is why it trains more stably in bf16.</div>
+  <div class="remark"><b>$L_1$ loss.</b> The repository minimises $\mathbb E|\varepsilon-\varepsilon_\theta|$, whose minimiser is the coordinate-wise conditional median. It equals the mean when the conditional law is symmetric, which holds at small $t$ where the posterior is unimodal, and it is a common robustness choice; strictly, the sampler below assumes the mean. Worth an ablation (§7), not a flaw in the argument.</div>
+  <div class="thm"><span class="lbl">Proposition 4 · sampling the posterior</span>
+    Let $s_\theta\approx\nabla\log p_t(x_t\mid y)$ with $\mathbb E\|s_\theta-\nabla\log p_t\|^2\le\varepsilon_{\text{score}}^2$. The reverse-time process driven by $s_\theta$ (Anderson 1982; Song et al. 2021), discretised as the DDPM or DDIM sampler in <code>DiffusionTrainer.sample</code>, returns a distribution $\hat p$ with
+    $$\mathrm{TV}\big(\hat p,\;p(\cdot\mid y)\big)\le C\big(\varepsilon_{\text{score}}\sqrt{T}+\text{discretisation}+e^{-T}\big)$$
+    for <b>any</b> conditional data distribution with finite second moment; no log-concavity, smoothness or full support is needed (Chen, Lee, Lu et al. 2023, with early stopping for manifold-supported data).
+  </div>
+  <div class="thm"><span class="lbl">Theorem 5 · reconstruction</span>
+    Combine Corollary 2 with Propositions 3 and 4: a conditional diffusion model trained to small loss on pairs $(x,\,y=R^{\mathsf T}x)$ and sampled with the reverse process returns samples concentrated at $g(y)=x^\star$. The error has two parts: the posterior spread allowed by $\rho_k$ and the measurement precision, and the score and discretisation error. In the noiseless, perfectly trained limit the sample <em>is</em> $x^\star$. $\square$
+  </div>
 
-<p>Two things are called "3-D" here, and the argument covers both: (a) the textbook idea of treating the cube as a one-channel volume $[1,L,H,W]$ and sliding 3-D kernels over $(\lambda,h,w)$; (b) what this repository implements with <code>--use_channel_3d_conv</code>: inside the U-Net, each $3\times3$ 2-D convolution between $C$ feature channels is replaced by <code>ChannelSpatialConv</code>, which reshapes $[B,C,H,W]\to[B,1,C,H,W]$, applies $K$ parallel <code>Conv3d</code> kernels of size $(k_c,3,3)$ over the $(c,h,w)$ volume and mixes the $K$ outputs back to one with a $1\times1\times1$ convolution.</p>
-
-<h3>4.1 Lemma (a 3-D convolution is a Toeplitz-constrained channel-mixing 2-D convolution)</h3>
-<div class="thm">Let a 3-D convolution with $C_{\text{in}}\to C_{\text{out}}$ volume channels and kernel $w[c',c,\delta_\lambda,\delta_h,\delta_w]$ act on $u[c,\lambda,h,w]$. Reshape $u$ to a 2-D feature map with $C_{\text{in}}L$ channels indexed by $(c,\lambda)$. Then the 3-D convolution equals a 2-D convolution with $C_{\text{in}}L\to C_{\text{out}}L$ channels whose channel-mixing matrix at each spatial offset $(\delta_h,\delta_w)$ is
-$$
-W_{\delta_h\delta_w}\big[(c',\lambda'),(c,\lambda)\big]\;=\;w[c',c,\lambda'-\lambda,\delta_h,\delta_w]\cdot\mathbf 1_{|\lambda'-\lambda|&lt;k_\lambda}, \tag{4.1}
-$$
-i.e. <b>block-Toeplitz and banded along the convolved axis</b>. <em>Proof:</em> write out the sum defining the 3-D convolution and regroup the $\lambda$ index into the channel index. <span class="qed">$\square$</span></div>
-
-<p>Consequently</p>
-$$
-\mathcal F_{\text{3D}}\;\subsetneq\;\mathcal F_{\text{2D, axis as channels}}
-$$
-<p>with identical spatial kernels: everything a 3-D convolution can compute, the 2-D convolution with dense channel mixing can compute, and the latter additionally realises <b>any</b> channel-mixing matrix — in particular $R$, $(R^{\mathsf T})^{+}$, the projector onto $V_k$, and the map (3.3) — in a single $1\times1$ layer. Replacing dense mixing by 3-D convolution never adds expressivity; it removes a degree of freedom. The question is whether the removed freedom was <em>needed</em>, i.e. whether the structure that the constraint presumes — shift-invariance and locality along the convolved axis — is true for this problem.</p>
-
-<h3>4.2 Case (a): a volume over wavelength — the presumed symmetry is false</h3>
-<p>A stack of 3-D convolutions, point-wise nonlinearities and shared-weight pooling/up-sampling along $\lambda$ (with circular or infinite padding) is <span class="key">equivariant to spectral translations</span> $S_\lambda$: $F(S_\lambda u)=S_\lambda F(u)$ (Cohen &amp; Welling 2016; for strided pooling, to translations by multiples of the stride). By (3.1) the target of training is the Bayes denoiser $D^\star(x_t,y,t)=\mathbb E[x_0\mid x_t,y]$. For an equivariant class, the best achievable approximation of $D^\star$ is its Reynolds (shift-)average $\Pi D^\star$, and the <b>irreducible error</b> is $\|D^\star-\Pi D^\star\|$. Three independent facts make it large:</p>
-<ol>
-<li><b>The likelihood is not shift-covariant.</b> For $F$ to be jointly equivariant in $(x,y)$ there must be a shift $S'$ on the sensor index with $R^{\mathsf T}S_\lambda=S'R^{\mathsf T}$, i.e. $R^{\mathsf T}$ must be (block-)Toeplitz. The Reynolds average of a matrix over simultaneous row/column shifts is exactly its projection onto Toeplitz matrices, so the irreducible <em>relative</em> error of the best shift-equivariant linear approximation of the measurement operator is $\|R^{\mathsf T}-\Pi_{\text{Toep}}R^{\mathsf T}\|_F/\|R^{\mathsf T}\|_F$, measured:
-<table>
-<thead><tr><th><code>R_Device1</code> HFD</th><th><code>R_Device2</code> HFD</th><th><code>PH5</code> HFD</th><th><code>R_Device1</code> HASCID</th><th>i.i.d. Gaussian (reference)</th></tr></thead>
-<tbody><tr><td><b>0.59</b></td><td>0.26</td><td>0.49</td><td><b>0.60</b></td><td>0.97</td></tr></tbody>
-</table>
-For the device actually used, a spectrally shift-equivariant model mis-represents the physics by 59 % before any learning happens.</li>
-<li><b>The prior is not stationary along $\lambda$.</b> The spectral covariance of HFD spectra is 0.44 (relative Frobenius) away from the nearest Toeplitz matrix (HASCID: 0.12); the mean spectrum has its steepest slope at 761 nm (the vegetation red edge) and its variance peak at 572 nm. Absolute wavelength carries meaning; a shift-equivariant prior cannot tell 572 nm from 761 nm.</li>
-<li><b>The condition cannot even be placed on the $\lambda$-axis.</b> $y_p\in\mathbb R^{30}$ while $x_p\in\mathbb R^{31}$, $\mathbb R^{64}$ or $\mathbb R^{160}$; the 30 sensor channels are a uniformly thinned list of broadband filters with no metric on their index $j$. Any lifting $y\mapsto$ volume requires a learned dense $N\to L$ map — which <em>is</em> a channel-mixing $1\times1$ operator, i.e. the 2-D ingredient. A purely 3-D conditional model is therefore either ill-defined or already a 2-D-channel model in disguise.</li>
-</ol>
-<p>Together: $\|D^\star-F\|\ge\|D^\star-\Pi D^\star\|>0$ for every spectrally equivariant $F$. The Toeplitz distances above are the exact value of this irreducible error for the <em>linear</em> part of the map ($R^{\mathsf T}$ itself, and the linear-Gaussian denoiser built from $C$ and $R$); for the full nonlinear $D^\star$ they quantify the obstruction rather than bound it tightly. <span class="qed">$\square$</span></p>
-
-<div class="remark"><b>Remark (what a real 3-D net can and cannot do about it).</b> Zero padding leaks absolute position near the boundaries (Islam, Jia &amp; Bruce, ICLR 2020; Kayhan &amp; van Gemert, CVPR 2020), so a deep 3-D network is only <em>approximately</em> equivariant and could in principle infer wavelength identity from distance to the spectral border — through many layers, without guarantee. Adding explicit $\lambda$-positional encodings removes the equivariance and concedes the point: the spectral axis is then being treated as a labelled channel axis at $L$-fold cost. The honest statement is: <em>the inductive bias of 3-D convolution is the negation of the structure that makes the problem solvable (§2–3.1); whatever a 3-D model achieves, it achieves by undoing that bias.</em></div>
-
-<h3>4.3 Case (b): what <code>--use_channel_3d_conv</code> actually does</h3>
-<p>In <code>ConvBlock2D_ChannelAware</code> the convolved axis is not wavelength but the <em>feature-channel</em> axis of the U-Net (the 64 bands have already been mixed densely by the $1\times1$ <code>input_proj</code>). Apply Lemma 4.1 with $C_{\text{in}}=C_{\text{out}}=1$ volume channel: <code>ChannelSpatialConv</code> on a $C$-channel map is <b>exactly</b> a $3\times3$ <code>Conv2d</code>$(C\to C)$ whose weight tensor is</p>
-$$
-W[c',c,\delta_h,\delta_w]\;=\;\sum_{k=1}^{K} m_k\,w_k[c'-c,\delta_h,\delta_w]\cdot\mathbf 1_{|c'-c|\le\lfloor k_c/2\rfloor}, \tag{4.2}
-$$
-<p>a Toeplitz band of width $k_c$ along the channel axis, generated by $K$ kernels. Consequences:</p>
-<ul>
-<li><b>Strict loss of expressivity relative to the block it replaces.</b> The plain <code>ConvBlock2D</code> has $9C^2$ free channel-mixing weights per convolution; <code>ChannelSpatialConv</code> has $9Kk_c+K$. With the configuration that was run ($C=256$ or $512$, $K=4$, $k_c=7$) that is $9\cdot4\cdot7+4=256$ weights in place of $5.9\times10^{5}$ (or $2.4\times10^{6}$) — a reduction by three to four orders of magnitude <em>per conv</em>. The spec's statement that $K>1$ "multiplies the block's expressivity" is true relative to $K=1$, but relative to the dense block that was replaced the variant is a severe restriction. Everything in (3.3) that requires arbitrary channel mixing must now be carried by the surviving dense layers: <code>input_proj</code>/<code>final</code>, the $1\times1$ up/down projections (present only when $C_{\text{in}}\ne C_{\text{out}}$), and the attention/FFN layers.</li>
-<li><b>The convolved axis has no metric.</b> Feature-channel indices of a freshly initialised network are exchangeable: permuting channels (with the matching permutation of the following layer) leaves the function unchanged. Locality along $c$ — "channel $c$ is related to channel $c\pm1$ but not $c\pm10$" — is therefore not a property of the data; the network must <em>create</em> a smooth channel ordering during training for the kernel to be useful. The same holds for the sensor index $j$ of the condition. This is weaker than the false-symmetry argument of §4.2 (nothing is <em>mis</em>represented), but it means the constraint buys no correct prior knowledge in exchange for the capacity it removes.</li>
-<li><b>Prediction.</b> Because $\mathcal F_{\text{3D}}\subsetneq\mathcal F_{\text{2D}}$ at equal width, the 3-D-conv variant cannot out-represent the plain 2-D block; any empirical gain must come from regularisation (fewer parameters in the conv path) and should disappear or reverse once the dense model is trained to convergence with comparable regularisation. The clean experiment is an A/B at equal <em>parameter</em> count, not equal width.</li>
-</ul>
-
-<h3>4.4 Cost (not the mathematical core, but decisive in practice for case (a))</h3>
-<p>Activations of a $\lambda$-volume model are $L$ times those of the 2-D model at equal width: the first stage of <code>U2NetHyperspectral</code> at <code>base_channels=128</code> holds $128\times64\times64$ values per sample; the volume analogue holds $128\times64\times64\times64$ — $64\times$ more. The 2-D model already uses 16 GB at batch 3 on a 20 GB GPU. FLOPs scale by a further $k_\lambda$. Dense 30↔64 spectral mixing, which the 2-D model does in one layer with $30\cdot64$ weights, needs $\lceil (L-1)/(k_\lambda-1)\rceil$ stacked 3-D layers merely to connect the first and last band. (Case (b) does not pay this price — <code>ChannelSpatialConv</code> keeps $[B,C,H,W]$ activations — which is precisely why it is the version that could be trained; it pays in capacity instead, §4.3.)</p>
+  <h3>What the score must contain</h3>
+  <figure>
+    <div class="scroll" data-fig="bayes" data-aria="The conditional score splits into a prior term that couples neighbouring pixels and spectral bands, and a likelihood term that acts per pixel as a dense map between the 30 sensor channels and the spectral bands"></div>
+    <figcaption>By Bayes, $\nabla\log p_t(x_t\mid y)=\nabla\log p_t(x_t)+\nabla\log p_t(y\mid x_t)$ (3.2). Because the forward model is pixel-wise, the likelihood term is per pixel and purely spectral. Under the usual Gaussian approximation (Song et al. 2023; Chung et al. 2023) it is
+    $\sqrt{\bar\alpha_t}\,J_p^{\mathsf T}R\,(R^{\mathsf T}\Sigma_tR+\sigma^2I)^{-1}(y_p-R^{\mathsf T}\hat x_{0,p})$ (3.3): a dense $L\times30$, wavelength-indexed linear map applied at every pixel. The conditional network never sees $R$; it learns this map from data, which is also why it tolerates calibration error. But it must be <em>able</em> to represent an arbitrary dense map between sensor index and wavelength. That is the architecture question.</figcaption>
+  </figure>
+  <div class="remark"><b>Why not a plain regressor $y\mapsto x$?</b> An $L_2$ regressor learns $\mathbb E[x\mid y]$. Where the posterior is multimodal (folds of $\mathcal M$ seen through $R^{\mathsf T}$, or unmeasured pixels when $d>1$) that mean lies off $\mathcal M$: a blurred, physically impossible spectrum. Diffusion samples the posterior and stays on $\mathcal M$; in the identifiable regime both agree, but diffusion regularises the ill-conditioned directions of §1 adaptively instead of with a fixed ridge, and repeated samples give uncertainty for free.</div>
+</section>
 
 <!-- ============================================================ -->
-<h2 id="s5">5. Why the 2-D (spatial) + 1-D (spectral) factorisation and the two-stage pipeline work</h2>
+<section id="s4">
+  <h2><span class="no">04</span>Why convolving along the spectral or channel axis is the wrong hypothesis class</h2>
+  <p class="lead">Two things are called "3-D" here. (a) The textbook idea: treat the cube as a one-channel volume $[1,L,H,W]$ and slide 3-D kernels over $(\lambda,h,w)$. (b) What this repository runs with <code>--use_channel_3d_conv</code>: inside the U-Net, every $3\times3$ convolution between $C$ feature channels is replaced by <code>ChannelSpatialConv</code>, which slides $K$ kernels of size $(k_c,3,3)$ over the $(c,h,w)$ volume and mixes the $K$ outputs with a $1\times1\times1$ convolution. One lemma covers both.</p>
+  <figure>
+    <div class="scroll" data-fig="lemma" data-aria="Left: a 3-D kernel of width 7 sliding along the channel axis of a feature stack. Right: the equivalent channel-mixing matrix, which is non-zero only on a band of width 7 around the diagonal with repeated values along each diagonal, compared with the dense matrix of a plain 2-D convolution"></div>
+    <figcaption><b>Lemma 4.1.</b> Reshape the volume $u[c,\lambda,h,w]$ to a 2-D feature map with $C\!\cdot\!L$ channels indexed by $(c,\lambda)$. A 3-D convolution with kernel $w[c',c,\delta_\lambda,\delta_h,\delta_w]$ is then exactly a 2-D convolution whose channel-mixing matrix at each spatial offset is
+    $W[(c',\lambda'),(c,\lambda)]=w[c',c,\lambda'-\lambda,\delta_h,\delta_w]\cdot\mathbf 1_{|\lambda'-\lambda|&lt;k_\lambda}$ (4.1): block-Toeplitz and banded along the convolved axis. Proof: write out the convolution sum and regroup the $\lambda$ index into the channel index. Hence $\mathcal F_{\text{3D}}\subsetneq\mathcal F_{\text{2D, axis as channels}}$ at equal spatial kernels: the dense model can do everything the 3-D model can, and additionally realise any channel-mixing matrix, including $R$, $(R^{\mathsf T})^{+}$, the projector onto $V_k$ and the map (3.3), in a single $1\times1$ layer. Replacing dense mixing by 3-D convolution never adds expressivity; it removes a degree of freedom. The only question is whether the structure the constraint presumes is true.</figcaption>
+  </figure>
 
-<p>The two axes of the cube have <span class="key">opposite symmetry properties with respect to the measurement operator</span>, and the factorised architecture assigns to each the inductive bias that is actually true:</p>
-<table>
-<thead><tr><th>axis</th><th>does $R^{\mathsf T}$ commute with translation?</th><th>is the prior stationary?</th><th>right operator</th><th>used in this repo</th></tr></thead>
-<tbody>
-<tr><td>spatial $(h,w)$</td><td><b>yes, exactly</b>: $R^{\mathsf T}(XS_{h})=(R^{\mathsf T}X)S_{h}$ because (0.1) is pixel-wise</td><td>approximately (lag-1 autocorrelation 0.966, lag-2 0.921)</td><td>shared-weight 2-D convolution + attention</td><td>spatial U-Net</td></tr>
-<tr><td>spectral $\lambda$ / sensor $j$</td><td><b>no</b> (59 % off Toeplitz)</td><td>no (44 % off Toeplitz)</td><td>dense, position-aware mixing</td><td>bands as channels; $1\times1$ convs, attention; 1-D model per pixel</td></tr>
-</tbody>
-</table>
+  <h3>Case (a): a volume over wavelength. The presumed symmetry is false.</h3>
+  <p class="lead">A stack of 3-D convolutions, point-wise nonlinearities and shared-weight pooling along $\lambda$ is equivariant to spectral shifts $S_\lambda$ (Cohen and Welling 2016). The best such network can do is the shift-average $\Pi D^\star$ of the Bayes denoiser $D^\star=\mathbb E[x_0\mid x_t,y]$; the error $\|D^\star-\Pi D^\star\|$ is irreducible. Three facts make it large.</p>
+  <figure>
+    <p class="charthead">Relative distance to the nearest Toeplitz matrix, $\|M-\Pi_{\text{Toep}}M\|_F/\|M\|_F$</p>
+    <div class="scroll" data-chart="toep" data-aria="Horizontal bars: R_Device1 transposed 0.59, R_Device2 0.26, PH5 0.49, R_Device1 on HASCID 0.60, HFD spectral covariance 0.44, HASCID spectral covariance 0.12, i.i.d. Gaussian reference 0.97"></div>
+    <figcaption>Averaging a matrix along its diagonals is exactly the Reynolds average over simultaneous row and column shifts, so this number is the irreducible relative error of the best shift-equivariant <em>linear</em> approximation. For the measurement operator that was actually used it is 59 %: a spectrally equivariant model misrepresents the physics by that much before learning anything. The prior is not stationary either: the HFD spectral covariance is 44 % off Toeplitz, the mean spectrum has its steepest slope at 761 nm (the vegetation red edge) and its variance peak at 572 nm. Absolute wavelength carries meaning that a shift-equivariant network cannot see.</figcaption>
+  </figure>
+  <p>The third fact is that the condition cannot even be placed on the $\lambda$ axis: $y_p\in\mathbb R^{30}$ while $x_p\in\mathbb R^{31}$, $\mathbb R^{64}$ or $\mathbb R^{160}$, and the 30 sensor channels are a uniformly thinned list of broadband filters with no metric on their index. Any lifting of $y$ into the volume needs a learned dense $30\to L$ map, which <em>is</em> a $1\times1$ channel-mixing operator, the 2-D ingredient. A purely 3-D conditional model is either ill-defined or a 2-D-channel model in disguise.</p>
+  <div class="remark"><b>What a real 3-D network can do about it.</b> Zero padding leaks absolute position near the borders (Islam, Jia and Bruce 2020; Kayhan and van Gemert 2020), so a deep 3-D network is only approximately equivariant and could in principle infer wavelength from its distance to the spectral edge, through many layers and without guarantee. Adding $\lambda$-positional encodings removes the equivariance and concedes the point: the spectral axis is then treated as a labelled channel axis at $L$-fold cost. The honest statement is that the inductive bias of 3-D convolution is the negation of the structure that makes the problem solvable; whatever such a model achieves, it achieves by undoing that bias.</div>
 
-<h3>5.1 The 1-D (per-pixel) model is already a consistent estimator</h3>
-<p>Since the likelihood factorises over pixels, the posterior with the <em>marginal</em> spectral prior, $p(x_p\mid y_p)\propto p(x_p)\,\delta(y_p-R^{\mathsf T}x_p)$, is well defined and — by Corollary 2 — a point mass at the true spectrum when $d=1$. The 1-D model (<code>main_1d.py</code>, <code>U2Net1D</code>, condition injected by cross-attention) learns exactly this posterior, and it does so from every pixel as an independent sample: $40{,}811\times4{,}096\approx1.7\times10^{8}$ spectra in 31 dimensions, instead of $4\times10^{4}$ cubes in $1.3\times10^{5}$ dimensions. Nonparametric density-estimation rates scale with the intrinsic dimension, $n^{-O(1/k)}$, so this is the statistically cheapest route to learning $\mathcal M$. It ignores the spatial prior, which costs it only the residual spread of §2 — and it cannot help at all when $d>1$.</p>
-
-<h3>5.2 The 2-D model adds the spatial prior where it is needed</h3>
-<p>With <code>--ds 2</code>, three quarters of the pixels have <b>no</b> measurement; per-pixel identifiability fails for them and the spatial prior term of (3.2) must supply their spectra from their neighbours. The spatial prior is rich: bilinear interpolation of a stride-2 cube is already within <b>6.4 %</b> relative error of the original, and the model's cross-attention to the bilinearly resized context (<code>create_context_for_resolution</code>) is precisely a learned, spectrum-aware version of that fill-in. Meanwhile the spectral axis remains a dense channel operator, so every pixel that <em>is</em> measured still gets the exact operator (3.3). The 2-D model is thus the minimal architecture that is correct for both $d=1$ and $d>1$.</p>
-
-<h3>5.3 Summary of the options</h3>
-<table>
-<thead><tr><th></th><th>3-D conv over $(\lambda,h,w)$</th><th><code>ChannelSpatialConv</code> (3-D over feature channels)</th><th>1-D per pixel</th><th>2-D spatial + dense channels</th></tr></thead>
-<tbody>
-<tr><td>can represent the dense spectral operator (3.3)?</td><td>no (Lemma 4.1)</td><td>only through the surviving $1\times1$/attention layers</td><td>yes</td><td>yes, one layer</td></tr>
-<tr><td>imposes a false or unmotivated structure?</td><td>false symmetry along $\lambda$</td><td>locality on an axis with no metric</td><td>no</td><td>no</td></tr>
-<tr><td>uses the true spatial symmetry?</td><td>yes</td><td>yes</td><td>no</td><td>yes</td></tr>
-<tr><td>handles $d>1$?</td><td>—</td><td>yes</td><td>no</td><td>yes</td></tr>
-<tr><td>activation memory</td><td>$\times L$</td><td>baseline</td><td>tiny</td><td>baseline</td></tr>
-</tbody>
-</table>
-
-<h3>5.4 The two-stage pipeline $Y_d\to Y\to X$ is exact posterior sampling</h3>
-<p>The sensor-SR model samples $Y\sim p(Y\mid Y_d)$; the HSI model then samples $X\sim p(X\mid Y)$. Because $Y_d=\mathcal D_d(Y)$ is a deterministic function of $Y$, $X$ is conditionally independent of $Y_d$ given $Y$, hence</p>
-$$
-p(X\mid Y_d)\;=\;\int p(X\mid Y)\,p(Y\mid Y_d)\,dY , \tag{5.1}
-$$
-<p>and sampling the two stages in sequence is <em>ancestral sampling</em> from the joint posterior $p(X,Y\mid Y_d)$ — nothing is lost by the factorisation. With approximate stages the errors add: by the triangle inequality and the data-processing inequality for total variation,</p>
-$$
-\mathrm{TV}\big(\hat p(X\mid Y_d),\,p(X\mid Y_d)\big)\;\le\;\mathrm{TV}\big(\hat p(Y\mid Y_d),\,p(Y\mid Y_d)\big)\;+\;\mathbb E_{Y\mid Y_d}\,\mathrm{TV}\big(\hat p(X\mid Y),\,p(X\mid Y)\big), \tag{5.2}
-$$
-<p>each term controlled by Proposition 4. Two structural facts make the first stage well posed:</p>
-<ul>
-<li><b>The sensor image is spectrally even lower-dimensional than the cube.</b> Each pixel $y_p=R^{\mathsf T}x_p$ lies on $R^{\mathsf T}(\mathcal M)$, and because $R^{\mathsf T}$ compresses the manifold through its three dominant singular directions, <b>3 principal components carry 99 %</b> of the per-pixel variance of $Y$ (4 for 99.9 %). Sensor-domain SR is therefore a spatial-SR problem on a 30-channel image with a 3–4-dimensional per-pixel manifold — the regime in which conditional diffusion SR (Saharia et al. 2022, SR3) is known to work.</li>
-<li><b>The spatial prior quantifies what each rate must recover.</b> Trivial baseline (area down-sampling, bilinear up-sampling) on full-resolution sensor images, <code>R_Device1</code>:
-<table>
-<thead><tr><th>$d$</th><th>2</th><th>3</th><th>4</th><th>6</th><th>8</th></tr></thead>
-<tbody>
-<tr><td>low-res grid</td><td>32×32</td><td>21×21</td><td>16×16</td><td>11×11</td><td>8×8</td></tr>
-<tr><td>fraction of pixels kept</td><td>0.25</td><td>0.11</td><td>0.06</td><td>0.03</td><td>0.016</td></tr>
-<tr><td>bilinear relative error</td><td><b>0.044</b></td><td>0.088</td><td>0.099</td><td>0.146</td><td><b>0.179</b></td></tr>
-</tbody>
-</table>
-A learned SR model is justified exactly where it beats this row; at $d=2$ the headroom is 4.4 %, at $d=8$ it is 18 %.</li>
-</ul>
-<p>Why split at all, rather than condition the HSI model directly on $Y_d$? Both are valid (Theorem 5 applies to either conditioning); the split moves the spatial fill-in into a model whose target has 30 channels and a 3-dimensional per-pixel manifold instead of 64 channels and an 8-dimensional one, and lets the HSI stage be trained once, at $d=1$, where per-pixel identifiability holds (§5.1). Note the price in (5.2): the HSI stage sees <em>sampled</em> $Y$, so it must be robust to the SR stage's residual — which argues for training it with mild noise/augmentation on $Y$, or fine-tuning it on SR outputs.</p>
+  <h3>Case (b): what <code>--use_channel_3d_conv</code> actually does</h3>
+  <p class="lead">In <code>ConvBlock2D_ChannelAware</code> the convolved axis is not wavelength but the feature-channel axis of the U-Net; the 64 bands were already mixed densely by the $1\times1$ <code>input_proj</code>. Apply Lemma 4.1 with one volume channel: <code>ChannelSpatialConv</code> on a $C$-channel map is exactly a $3\times3$ <code>Conv2d</code>$(C\to C)$ whose weights are</p>
+  $$W[c',c,\delta_h,\delta_w]=\sum_{k=1}^{K}m_k\,w_k[c'-c,\delta_h,\delta_w]\cdot\mathbf 1_{|c'-c|\le\lfloor k_c/2\rfloor},\tag{4.2}$$
+  <p>a Toeplitz band of width $k_c$ generated by $K$ kernels.</p>
+  <div class="kv">
+    <div><small>mixing weights · plain block, C = 256</small><b>589 824</b></div>
+    <div><small>mixing weights · plain block, C = 512</small><b>2 359 296</b></div>
+    <div><small>mixing weights · ChannelSpatialConv, K = 4, k<sub>c</sub> = 7</small><b>256</b></div>
+    <div><small>reduction per convolution</small><b>2 300× – 9 200×</b></div>
+  </div>
+  <ul class="concl">
+    <li><b>It is a strict restriction of the block it replaces.</b> Three to four orders of magnitude fewer channel-mixing weights per convolution. The design spec's statement that $K>1$ "multiplies the block's expressivity" is true relative to $K=1$; relative to the dense block it replaced, the variant is a severe cut. Everything in (3.3) that needs arbitrary channel mixing now has to be carried by the surviving dense layers: <code>input_proj</code> and <code>final</code>, the $1\times1$ up/down projections (present only when $C_{\text{in}}\neq C_{\text{out}}$), and the attention and feed-forward layers.</li>
+    <li><b>The convolved axis has no metric.</b> Feature-channel indices of a freshly initialised network are exchangeable: permuting them, with the matching permutation in the next layer, leaves the function unchanged. "Channel $c$ is related to $c\pm1$ but not to $c\pm10$" is not a property of the data; the network must create a smooth channel ordering during training before the kernel is useful. The same holds for the sensor index $j$. This is weaker than the false-symmetry argument of case (a), since nothing is misrepresented, but the constraint buys no true prior knowledge in exchange for the capacity it removes.</li>
+    <li><b>Prediction.</b> Because $\mathcal F_{\text{3D}}\subsetneq\mathcal F_{\text{2D}}$ at equal width, the variant cannot out-represent the plain block. Any empirical gain is regularisation and should vanish or reverse once the dense block is trained to convergence with comparable regularisation. The clean experiment is an A/B at equal parameter count, not equal width.</li>
+  </ul>
+  <div class="remark"><b>Cost, for case (a).</b> Activations of a $\lambda$-volume model are $L$ times those of the 2-D model at equal width: the first stage of <code>U2NetHyperspectral</code> at <code>base_channels=128</code> holds $128\times64\times64$ values per sample; the volume version holds $64\times$ more. The 2-D model already uses 16 GB at batch 3 on a 20 GB GPU. Case (b) keeps $[B,C,H,W]$ activations, which is why it was the variant that could be trained; it pays in capacity instead.</div>
+</section>
 
 <!-- ============================================================ -->
-<h2 id="s6">6. Current results (as of 2026-10-04)</h2>
+<section id="s5">
+  <h2><span class="no">05</span>Why 2-D spatial + 1-D spectral is right, and why the two-stage pipeline loses nothing</h2>
+  <p class="lead">The two axes of the cube have opposite symmetry with respect to the measurement. The factorised design gives each axis the bias that is actually true for it.</p>
+  <figure>
+    <div class="scroll" data-fig="axes" data-aria="Two panels. Spatial axis: shifting the cube by one pixel and then measuring equals measuring and then shifting, so convolution with shared weights is correct. Spectral axis: shifting bands and then measuring is not the same as any shift of the sensor channels, so the spectral axis needs dense, position-aware mixing"></div>
+    <figcaption>Left: $R^{\mathsf T}(XS_h)=(R^{\mathsf T}X)S_h$ holds exactly because the measurement is pixel-wise, and the spatial prior is close to stationary (lag-1 autocorrelation 0.966, lag-2 0.921). Shared-weight 2-D convolution is the right operator. Right: no shift $S'$ of the sensor index satisfies $R^{\mathsf T}S_\lambda=S'R^{\mathsf T}$ (59 % off Toeplitz), and the prior is not stationary along $\lambda$. The spectral axis needs dense mixing: bands as channels, $1\times1$ convolutions, attention, or a per-pixel 1-D model.</figcaption>
+  </figure>
 
-<h3>6.1 Legacy single-GPU runs (<code>main_2d.py</code>, $\varepsilon$-prediction, logs on this machine)</h3>
-<p>HFD, <code>R_Device1</code>, 64 interpolated bands, <code>base_channels 128</code>, batch 3, AdamW lr $10^{-4}$ cosine to $10^{-5}$, fp16 AMP, $L_1$ on $\varepsilon$, $T=1000$. The metric is the training $\varepsilon$-$L_1$ averaged over uniformly random $t$; the trivial predictor $\varepsilon_\theta\equiv0$ scores $\mathbb E|\varepsilon|=\sqrt{2/\pi}=0.798$, and the first-epoch average of 0.69–0.71 in the from-scratch logs is consistent with that start.</p>
-<table>
-<thead><tr><th>run (log)</th><th>data</th><th>sensor grid</th><th>epochs in log</th><th>$\varepsilon$-$L_1$ start → end</th><th>notes</th></tr></thead>
-<tbody>
-<tr><td><code>log.txt</code></td><td>full 36 730 cubes, lr $5\cdot10^{-5}$</td><td>$d=1$</td><td>87</td><td>0.689 → 0.255</td><td>crashed (CUBLAS error)</td></tr>
-<tr><td><code>log1.txt</code></td><td>full 36 730 cubes</td><td>$d=1$</td><td>208</td><td>0.297 → 0.153</td><td>warm start from the above</td></tr>
-<tr><td><code>log2.txt</code></td><td>9 000-cube subset</td><td>$d=1$</td><td>910</td><td>0.153 → <b>0.151</b> (val 0.151 at launch)</td><td>plateau from epoch 1; ended on a failed checkpoint write</td></tr>
-<tr><td><code>log_down2.txt</code></td><td>9 000-cube subset</td><td>$d=2$</td><td>804</td><td>0.708 → 0.170</td><td>crashed (CUBLAS error)</td></tr>
-<tr><td><code>log_down2_1.txt</code></td><td>9 000-cube subset</td><td>$d=2$</td><td>793</td><td>0.171 → <b>0.162</b></td><td>warm start from the above</td></tr>
-<tr><td>1-D, HASCID, <code>PH5</code></td><td>per pixel, 160 bands</td><td>$d=1$</td><td>—</td><td>0.031 → <b>0.026</b></td><td><code>results/1d_hsi_diffusion/HASCID/PH5/</code></td></tr>
-<tr><td>VAE, HASCID (160→12 latent)</td><td>—</td><td>—</td><td>—</td><td>best val loss 0.041</td><td><code>results/vae_hyperspectral/base_128_latent_12/</code></td></tr>
-</tbody>
-</table>
-<p><b>Reading these through §2–3.</b> For a perfectly identifiable problem the $\varepsilon$-loss can in principle reach zero at <em>every</em> $t$: once $x_0=g(y)$ is known, $\varepsilon=(x_t-\sqrt{\bar\alpha_t}\,g(y))/\sqrt{1-\bar\alpha_t}$ is exactly computable. A floor of 0.151 therefore reflects the sum of (a) posterior spread that the measurement precision and $\rho_k$ leave, (b) the 1 % of spectral energy outside the well-measured subspace, and (c) model capacity/optimisation. The $d=2$ floor is higher (0.162 vs 0.151), as §5.2 predicts. The $d=1$ model made no progress over 900 epochs on the 9 000-cube subset — a capacity/optimisation plateau, not a data-limited one. The 1-D HASCID floor (0.026) is far lower, consistent with a $k\approx3$–7 manifold seen by 13 well-conditioned channels and $10^{8}$ training spectra. Both surviving $L_1$ checkpoints of these runs are unusable (<code>checkpoint_epoch_911.pth</code> truncated by a failed save, <code>checkpoint_epoch_811.pth</code> empty), so no PSNR/SAM exists for them.</p>
+  <h3>5.1 The 1-D per-pixel model is already a consistent estimator</h3>
+  <p>The likelihood factorises over pixels, so the posterior with the <em>marginal</em> spectral prior, $p(x_p\mid y_p)\propto p(x_p)\,\delta(y_p-R^{\mathsf T}x_p)$, is well defined and by Corollary 2 is a point mass at the true spectrum when $d=1$. The 1-D model (<code>main_1d.py</code>, <code>U2Net1D</code>, condition injected by cross-attention) learns exactly this posterior, and every pixel is an independent training sample: $40{,}811\times4{,}096\approx1.7\times10^{8}$ spectra in 31 dimensions instead of $4\times10^{4}$ cubes in $1.3\times10^{5}$. Density-estimation rates scale with the intrinsic dimension, $n^{-O(1/k)}$, so this is the statistically cheapest way to learn $\mathcal M$. It ignores the spatial prior, which costs only the residual spread of §2, and it cannot help at all when $d>1$.</p>
 
-<h3>6.2 Cluster runs (<code>main_2d_fsdp.py</code>, <code>main_2d_sensor_sr_fsdp.py</code>; Feb–May 2026, SLURM, 2×GPU FSDP, bf16)</h3>
-<p>Configuration: $v$-prediction with min-SNR-$\gamma=5$ weighting, $L_1$, FiLM time conditioning in the conv blocks, lr $3$–$5\times10^{-5}$ cosine to $\approx10^{-6}$, <code>--ds_warmup_epochs 20</code> (first 20 epochs at $d=1$, then $d=2$), <code>base_channels</code> 256–512, <code>--use_channel_3d_conv --channel_num_filters 4 --channel_kernel 7</code>.</p>
-<table>
-<thead><tr><th>model</th><th>status recorded in the repository</th><th>where the artefacts live</th></tr></thead>
-<tbody>
-<tr><td>HSI model, $d=2$, 3-D-conv variant, <code>base_channels 512</code></td><td>design spec of 2026-04-19 reports a plateau at <b>0.35–0.36</b> ($L_1$ on $v$, min-SNR weighted; not comparable with the $\varepsilon$-$L_1$ numbers above) after ~20 epochs of a 100-epoch schedule — the motivation for the sensor-SR pipeline</td><td>cluster: <code>results/2d_hsi_diffusion/down_sample_2/HFD/R_1/l1_loss/vpred_cf4_fsdp_3dconv/</code></td></tr>
-<tr><td>Sensor-SR, $d_{sr}=8$, strided</td><td>"one in-progress training run" as of 2026-05-09</td><td>cluster</td></tr>
-<tr><td>Sensor-SR sweep $d_{sr}\in\{2,3,4,6\}$, area resize, 3-D-conv variant, <code>base_channels 256</code> (337 M parameters), 200 epochs</td><td>launched 2026-05-10 (job 427919); the log in the repo shows only the first step ($v$-$L_1$ 0.175 at step 0 for $d_{sr}=2$)</td><td>cluster: <code>results/2d_sensor_sr/ds{2,3,4,6}_area/HFD/R_1/l1_loss/3dconv/</code></td></tr>
-</tbody>
-</table>
-<p>None of the cluster checkpoints or logs are on this machine, so <b>no reconstruction metric (PSNR, SAM, relative RMSE on held-out cubes) exists anywhere in the repository yet</b>; the only quantitative evidence is the loss tables above.</p>
+  <h3>5.2 The 2-D model adds the spatial prior where it is needed</h3>
+  <p>With <code>--ds 2</code> three quarters of the pixels have no measurement. Per-pixel identifiability fails for them and the prior term of (3.2) must fill them from their neighbours. The spatial prior is rich: bilinear interpolation of a stride-2 cube is already within 6.4 % of the original, and the model's cross-attention to the bilinearly resized context (<code>create_context_for_resolution</code>) is a learned, spectrum-aware version of that fill-in. The spectral axis stays a dense channel operator, so every measured pixel still gets the exact operator (3.3). The 2-D model is the smallest architecture that is correct for both $d=1$ and $d>1$.</p>
 
-<h3>6.3 What this note implies should be measured next</h3>
-<ol>
-<li><b>Evaluate against the free baselines.</b> HSI stage: relative RMSE / SAM on the test split versus the Gaussian-prior MMSE of §1.2 (5–14 % depending on assumed SNR). Sensor-SR stage: versus the bilinear row of §5.4 (4.4 % at $d_{sr}=2$ … 17.9 % at $d_{sr}=8$). A diffusion model that does not beat these has learned nothing beyond the second-order statistics.</li>
-<li><b>A/B the 3-D-conv variant against the dense block at equal parameter count</b> (§4.3). Lemma 4.1 predicts the dense block wins or ties once both converge; if the 3-D variant wins, the gain is regularisation and should be reproducible with weight decay/dropout on the dense block.</li>
-<li><b>Device ordering.</b> §1–2 predict <code>R_Device1</code> ≳ <code>R_Device2</code> ≫ <code>PH5</code> at equal training; a cheap confirmation of the identifiability analysis.</li>
-<li><b>Reconstruct 31 bands and interpolate to 64 afterwards.</b> The 31→64 map (<code>expand_wavelens</code>) has rank 31, so the 64-band target lives on a 31-dimensional subspace the network currently has to learn.</li>
-<li><b>Two-stage robustness</b> (5.2): train or fine-tune the HSI stage on sampled $Y$ from the SR stage, or with noise on $Y$ matched to the SR residual.</li>
-<li><b>HASCID.</b> 10.7 % of the measurement energy comes from bands 161–204 that are not part of the 160-band target; either reconstruct all 204 bands or compute $y$ from the first 160 only, otherwise those bands act as structured noise in $y$.</li>
-<li><b>Housekeeping.</b> Atomic checkpoint saves (write to a temporary name, then <code>os.replace</code>) — the legacy runs lost both final checkpoints to interrupted writes. In the legacy fp16 path (<code>train_eval/train_2d.py</code>) gradient clipping is applied to <em>scaled</em> gradients (<code>clip_grad_norm_</code> without <code>scaler.unscale_</code>); the FSDP path (bf16, <code>model.clip_grad_norm_</code>) is correct. The sampler's <code>n_steps</code> semantics were fixed upstream (it now strides from $T-1$). Ablate $L_1$ vs $L_2$ (Remark after Proposition 3).</li>
-</ol>
+  <h3>5.3 The two-stage pipeline $Y_d\to Y\to X$ is exact posterior sampling</h3>
+  <p>The sensor-SR model samples $Y\sim p(Y\mid Y_d)$; the HSI model then samples $X\sim p(X\mid Y)$. Because $Y_d=\mathcal D_d(Y)$ is a deterministic function of $Y$, $X$ is conditionally independent of $Y_d$ given $Y$, so</p>
+  $$p(X\mid Y_d)=\int p(X\mid Y)\,p(Y\mid Y_d)\,dY,\tag{5.1}$$
+  <p>and running the two stages in sequence is ancestral sampling from the joint posterior $p(X,Y\mid Y_d)$: the factorisation itself loses nothing. With approximate stages the errors add, by the triangle and data-processing inequalities for total variation:</p>
+  $$\mathrm{TV}\big(\hat p(X\mid Y_d),\,p(X\mid Y_d)\big)\le\mathrm{TV}\big(\hat p(Y\mid Y_d),\,p(Y\mid Y_d)\big)+\mathbb E_{Y\mid Y_d}\,\mathrm{TV}\big(\hat p(X\mid Y),\,p(X\mid Y)\big),\tag{5.2}$$
+  <p>each term controlled by Proposition 4. The first stage is well posed for two reasons: each pixel of $Y$ lies on $R^{\mathsf T}(\mathcal M)$, a 3-dimensional set (§2), so sensor-domain SR is spatial super-resolution of a 30-channel image with a 3-dimensional per-pixel manifold, the regime where conditional diffusion SR is known to work (Saharia et al. 2022); and the spatial prior is strong enough that even a trivial fill-in is close:</p>
+  <figure>
+    <p class="charthead">Sensor-SR trivial baseline: area down-sample by $d$, bilinear up-sample, relative error on $Y$</p>
+    <div class="scroll" data-chart="sr" data-aria="Columns for d equals 2, 3, 4, 6, 8: relative error 4.4, 8.8, 9.9, 14.6 and 17.9 percent, keeping 25, 11, 6, 3 and 1.6 percent of the pixels"></div>
+    <figcaption>A learned SR model earns its place exactly where it beats these columns: 4.4 % of headroom at $d=2$, 18 % at $d=8$. Each column also names the fraction of pixels the low-resolution sensor keeps.</figcaption>
+  </figure>
+  <p>Why split at all instead of conditioning the HSI model on $Y_d$ directly? Both are valid: Theorem 5 applies to either conditioning. The split moves the spatial fill-in into a model whose target has 30 channels and a 3-dimensional per-pixel manifold instead of 64 channels and an 8-dimensional one, and lets the HSI stage be trained once, at $d=1$, where per-pixel identifiability holds. The price is the second term of (5.2): the HSI stage sees <em>sampled</em> $Y$, so it should be trained or fine-tuned with noise on $Y$ matched to the SR residual.</p>
+  <figure>
+    <div class="tbl">
+      <table class="t">
+        <thead><tr><th></th><th>3-D conv over $(\lambda,h,w)$</th><th>ChannelSpatialConv</th><th>1-D per pixel</th><th>2-D spatial + dense channels</th></tr></thead>
+        <tbody>
+          <tr><td>represents the dense spectral operator (3.3)</td><td><span class="pill no">no</span> Lemma 4.1</td><td><span class="pill wn">partly</span> via surviving 1×1 and attention</td><td><span class="pill ok">yes</span></td><td><span class="pill ok">yes</span> one layer</td></tr>
+          <tr><td>imposes false or unmotivated structure</td><td><span class="pill no">false symmetry along λ</span></td><td><span class="pill wn">locality on an axis with no metric</span></td><td><span class="pill ok">no</span></td><td><span class="pill ok">no</span></td></tr>
+          <tr><td>uses the true spatial symmetry</td><td><span class="pill ok">yes</span></td><td><span class="pill ok">yes</span></td><td><span class="pill no">no</span></td><td><span class="pill ok">yes</span></td></tr>
+          <tr><td>handles $d>1$</td><td>—</td><td><span class="pill ok">yes</span></td><td><span class="pill no">no</span></td><td><span class="pill ok">yes</span></td></tr>
+          <tr><td>activation memory</td><td class="num">× L</td><td class="num">baseline</td><td class="num">tiny</td><td class="num">baseline</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <figcaption>Summary of the four options against the requirements derived in §2–3.</figcaption>
+  </figure>
+</section>
 
 <!-- ============================================================ -->
-<h2 id="s7">7. References</h2>
-<ul>
-<li>Anderson, B. D. O. (1982). Reverse-time diffusion equation models. <em>Stoch. Proc. Appl.</em></li>
-<li>Chen, S., Chewi, S., Li, J., Li, Y., Salim, A., Zhang, A. (2023). Sampling is as easy as learning the score: theory for diffusion models with minimal data assumptions. <em>ICLR</em>.</li>
-<li>Chung, H., Kim, J., Mccann, M. T., Klasky, M. L., Ye, J. C. (2023). Diffusion posterior sampling for general noisy inverse problems. <em>ICLR</em>.</li>
-<li>Cohen, T., Welling, M. (2016). Group equivariant convolutional networks. <em>ICML</em>.</li>
-<li>Efron, B. (2011). Tweedie's formula and selection bias. <em>JASA</em>.</li>
-<li>Hang, T., Gu, S., Li, C., Bao, J., Chen, D., Hu, H., Geng, X., Guo, B. (2023). Efficient diffusion training via min-SNR weighting strategy. <em>ICCV</em>.</li>
-<li>Ho, J., Jain, A., Abbeel, P. (2020). Denoising diffusion probabilistic models. <em>NeurIPS</em>.</li>
-<li>Islam, M. A., Jia, S., Bruce, N. D. B. (2020). How much position information do convolutional neural networks encode? <em>ICLR</em>.</li>
-<li>Kayhan, O. S., van Gemert, J. C. (2020). On translation invariance in CNNs: convolutional layers can exploit absolute spatial location. <em>CVPR</em>.</li>
-<li>Saharia, C., Ho, J., Chan, W., Salimans, T., Fleet, D. J., Norouzi, M. (2022). Image super-resolution via iterative refinement (SR3). <em>IEEE TPAMI</em>.</li>
-<li>Salimans, T., Ho, J. (2022). Progressive distillation for fast sampling of diffusion models ($v$-parameterisation). <em>ICLR</em>.</li>
-<li>Sauer, T., Yorke, J. A., Casdagli, M. (1991). Embedology. <em>J. Stat. Phys.</em></li>
-<li>Song, J., Vahdat, A., Mardani, M., Kautz, J. (2023). Pseudoinverse-guided diffusion models for inverse problems. <em>ICLR</em>.</li>
-<li>Song, Y., Sohl-Dickstein, J., Kingma, D. P., Kumar, A., Ermon, S., Poole, B. (2021). Score-based generative modeling through stochastic differential equations. <em>ICLR</em>.</li>
-<li>Zheng, Y., Zhang, T., Fu, Y. (2022). A large-scale hyperspectral dataset for flower classification. <em>Knowledge-Based Systems</em>.</li>
-</ul>
+<section id="s6">
+  <h2><span class="no">06</span>Results so far</h2>
+  <p class="lead">Two generations of runs exist. The single-GPU runs on this machine are fully logged; the FSDP runs on the SLURM cluster are known only through what the repository records about them.</p>
 
-<footer>Reproduce every number: <code>python docs/analysis/sensor_identifiability.py</code> from the repository root (needs <code>dataset/HFD100 Mat dataset</code> and <code>dataset/HASCID-Dataset</code>). Math is rendered client-side with KaTeX from jsDelivr; open the file in any browser with network access.</footer>
+  <h3>6.1 Single-GPU runs, $\varepsilon$-prediction, $L_1$</h3>
+  <p>HFD100, <code>R_Device1</code>, 64 interpolated bands, <code>base_channels 128</code>, batch 3, AdamW $10^{-4}$ cosine to $10^{-5}$, fp16 AMP. The metric is the training $L_1$ between true and predicted noise, averaged over uniformly random $t$. Predicting zero scores $\mathbb E|\varepsilon|=\sqrt{2/\pi}=0.798$; the from-scratch launches start near that.</p>
+  <figure>
+    <div class="legend"><span><i style="background:var(--accent)"></i>launch 1</span><span><i style="background:var(--s2)"></i>launch 2 (warm start)</span><span><i style="background:var(--s3)"></i>launch 3 (warm start)</span></div>
+    <div class="scroll" data-chart="loss" data-aria="Two panels of training curves. Full sensor grid: launch 1 on 36730 cubes goes from 0.69 to 0.25 in 87 epochs, launch 2 from 0.30 to 0.15 in 208 epochs, launch 3 on a 9000-cube subset stays flat at 0.15 for 910 epochs. Stride-2 sensor grid: launch 1 goes from 0.71 to 0.17 in 804 epochs, launch 2 from 0.17 to 0.16 in 793 epochs"></div>
+    <figcaption>Each launch is its own curve because a resume restores weights only; epoch numbers and the learning-rate schedule restart. Full grid: launch 1 (<code>log.txt</code>, 36 730 cubes, lr $5\times10^{-5}$) crashed at epoch 87; launch 2 (<code>log1.txt</code>, 36 730 cubes) reached 0.153; launch 3 (<code>log2.txt</code>, 9 000-cube subset) sat at 0.151 for 910 epochs. Stride-2 grid: launch 1 (<code>log_down2.txt</code>) 0.708 → 0.170, crashed; launch 2 (<code>log_down2_1.txt</code>) 0.171 → 0.162.</figcaption>
+  </figure>
+  <div class="kv">
+    <div><small>trivial predictor ε = 0</small><b>0.798</b></div>
+    <div><small>full grid, floor</small><b>0.151</b></div>
+    <div><small>stride-2 grid, floor</small><b>0.162</b></div>
+    <div><small>1-D per pixel, HASCID, PH5</small><b>0.026</b></div>
+    <div><small>VAE 160→12, HASCID, best val</small><b>0.041</b></div>
+  </div>
+  <p>Read through §2–3: for a perfectly identifiable problem the $\varepsilon$-loss can reach zero at every $t$, since $\varepsilon=(x_t-\sqrt{\bar\alpha_t}\,g(y))/\sqrt{1-\bar\alpha_t}$ once $g(y)$ is known. A floor of 0.151 is therefore the sum of the posterior spread that precision and $\rho_k$ leave, the 1 % of spectral energy outside the well-measured subspace, and model capacity. The stride-2 floor is higher, as §5.2 predicts. The flat 910 epochs on the subset are a capacity or optimisation plateau, not a data limit. The 1-D HASCID floor of 0.026 fits a 3–7-dimensional manifold seen by 13 well-conditioned channels with $10^{8}$ training spectra. Both surviving checkpoints of the 2-D runs are unusable (<code>checkpoint_epoch_911.pth</code> truncated by a failed save, <code>checkpoint_epoch_811.pth</code> empty), so no PSNR or SAM exists for them.</p>
+
+  <h3>6.2 Cluster runs, $v$-prediction, FSDP (February–May 2026)</h3>
+  <p>Two GPUs, bf16, min-SNR-$\gamma=5$ weighting, $L_1$, FiLM time conditioning in the conv blocks, lr $3$–$5\times10^{-5}$ cosine to about $10^{-6}$, <code>--ds_warmup_epochs 20</code> (20 epochs at $d=1$, then $d=2$), <code>base_channels</code> 256–512, <code>--use_channel_3d_conv --channel_num_filters 4 --channel_kernel 7</code>.</p>
+  <figure>
+    <div class="tbl">
+      <table class="t">
+        <thead><tr><th>model</th><th>status recorded in the repository</th><th>artefacts</th></tr></thead>
+        <tbody>
+          <tr><td>HSI model, $d=2$, ChannelSpatialConv, <code>base_channels 512</code></td><td>design spec of 2026-04-19: plateau at <b>0.35–0.36</b> ($L_1$ on $v$, min-SNR weighted; not comparable with the $\varepsilon$ numbers above) after about 20 of 100 epochs. This motivated the sensor-SR pipeline.</td><td>cluster: <code>results/…/vpred_cf4_fsdp_3dconv/</code></td></tr>
+          <tr><td>Sensor-SR, $d_{sr}=8$, strided</td><td>"one in-progress training run", 2026-05-09</td><td>cluster</td></tr>
+          <tr><td>Sensor-SR sweep $d_{sr}\in\{2,3,4,6\}$, area resize, ChannelSpatialConv, <code>base_channels 256</code>, 337 M parameters, 200 epochs</td><td>launched 2026-05-10 as job 427919; the committed log shows only step 0 ($v$-$L_1$ 0.175 at $d_{sr}=2$)</td><td>cluster: <code>results/2d_sensor_sr/ds{2,3,4,6}_area/…/3dconv/</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <figcaption>None of the cluster checkpoints or logs are on this machine. No reconstruction metric (PSNR, SAM, relative RMSE on held-out cubes) exists anywhere in the repository yet; the loss curves above are the only quantitative evidence.</figcaption>
+  </figure>
+</section>
+
+<!-- ============================================================ -->
+<section id="s7">
+  <h2><span class="no">07</span>Conclusions and what to measure next</h2>
+  <ul class="concl">
+    <li><b>Reconstruction is possible because spectra are 8-dimensional, not 31-dimensional.</b> The 30 channels of <code>R_Device1</code> carry about 11 well-conditioned directions, and those hold 98 % of the spectral variance. On the 8-dimensional principal subspace the measurement is injective with condition number about 30 (§1–2).</li>
+    <li><b>Conditional diffusion is the right estimator.</b> The $\varepsilon$ or $v$ regression learns the conditional score exactly, the reverse process samples the posterior with a bound that needs no smoothness, and that posterior is a point when the problem is identifiable (§3). A regressor would blur multimodal cases; a linear prior is 5–14 % off.</li>
+    <li><b>Convolving along the spectral or channel axis removes capacity the problem needs.</b> A 3-D convolution is a Toeplitz-banded channel mixer; over wavelength it imposes a symmetry that is 59 % false for this device, over feature channels it cuts the mixing weights by three to four orders of magnitude on an axis with no metric (§4).</li>
+    <li><b>The 2-D + 1-D factorisation and the two-stage pipeline are exact in the right sense.</b> Spatial shifts commute with the measurement and spectral shifts do not, so shared weights belong in $(h,w)$ and dense mixing in $\lambda$. Sampling $Y$ then $X$ is ancestral sampling from the joint posterior (§5).</li>
+    <li><b>What is still missing is a reconstruction metric.</b> The single-GPU runs plateaued at $\varepsilon$-$L_1$ 0.151 ($d=1$) and 0.162 ($d=2$) with no usable checkpoint; the cluster runs have no committed results (§6).</li>
+  </ul>
+  <h3>Next steps that follow from this note</h3>
+  <ol class="steps">
+    <li><b>Evaluate against the free baselines.</b> HSI stage: relative RMSE and SAM on the test split versus the Gaussian-prior MMSE of §1 (5–14 %). Sensor-SR stage: versus the bilinear columns of §5 (4.4 % at $d_{sr}=2$ to 17.9 % at $d_{sr}=8$). A model that does not beat these has learned nothing beyond second-order statistics.</li>
+    <li><b>A/B the ChannelSpatialConv variant against the dense block at equal parameter count.</b> Lemma 4.1 predicts the dense block wins or ties at convergence; if the variant wins, the gain is regularisation and should be reproducible with weight decay on the dense block.</li>
+    <li><b>Confirm the device ordering</b> Device1 ≳ Device2 ≫ PH5 at equal training; a cheap test of the identifiability analysis.</li>
+    <li><b>Reconstruct 31 bands and interpolate to 64 afterwards.</b> The 31→64 map (<code>expand_wavelens</code>) has rank 31, so the 64-band target lives on a 31-dimensional subspace the network currently has to learn.</li>
+    <li><b>Two-stage robustness</b>, equation (5.2): train or fine-tune the HSI stage on sampled $Y$ from the SR stage, or with matched noise on $Y$.</li>
+    <li><b>HASCID:</b> 10.7 % of the measurement energy comes from bands 161–204 that are not part of the 160-band target. Reconstruct all 204 bands or compute $y$ from the first 160 only; otherwise those bands act as structured noise.</li>
+    <li><b>Housekeeping.</b> Atomic checkpoint saves (write to a temporary name, then <code>os.replace</code>); the legacy runs lost both final checkpoints to interrupted writes. In the legacy fp16 path gradient clipping is applied to scaled gradients (<code>clip_grad_norm_</code> without <code>scaler.unscale_</code>); the FSDP path is correct. Ablate $L_1$ against $L_2$.</li>
+  </ol>
+  <footer>Every number on this page is produced by <code>docs/analysis/sensor_identifiability.py</code> in the <code>Chaoyi-He1/Diffu_HSI</code> repository (branch <code>worktree-docs-diffusion-proof</code>), using the exact preprocessing of the data loaders. References: Anderson 1982; Chen, Chewi, Li, Li, Salim, Zhang, ICLR 2023; Chung et al., ICLR 2023; Cohen and Welling, ICML 2016; Efron, JASA 2011; Hang et al., ICCV 2023 (min-SNR); Islam, Jia, Bruce, ICLR 2020; Kayhan and van Gemert, CVPR 2020; Saharia et al., TPAMI 2022 (SR3); Salimans and Ho, ICLR 2022; Sauer, Yorke, Casdagli, J. Stat. Phys. 1991; Song, Vahdat, Mardani, Kautz, ICLR 2023 (ΠGDM); Song et al., ICLR 2021; Zheng, Zhang, Fu, KBS 2022 (HFD100).</footer>
+</section>
 </main>
-</body>
-</html>
+
+<script>
+(function(){
+const NS='http://www.w3.org/2000/svg';
+function el(tag,attrs,parent){const e=document.createElementNS(NS,tag);if(attrs)for(const k in attrs)e.setAttribute(k,attrs[k]);if(parent)parent.appendChild(e);return e;}
+function tx(p,x,y,s,cls,anchor){const t=el('text',{x:x,y:y},p);if(cls)t.setAttribute('class',cls);if(anchor)t.setAttribute('text-anchor',anchor);t.textContent=s;return t;}
+function box(p,x,y,w,h,lines,cls,mono){el('rect',{x:x,y:y,width:w,height:h,rx:7,class:cls||'box'},p);const n=lines.length;lines.forEach(function(s,i){tx(p,x+w/2,y+h/2+(i-(n-1)/2)*17+4.5,s,(i===0?'bt':'bs')+(mono&&i===0?' mono':''),'middle');});}
+function arr(p,pts,cls){const k=cls||'';const m=k.indexOf('acc')>=0?'mA':(k.indexOf('s2')>=0?'mS':'mI');return el('path',{d:'M'+pts.map(function(q){return q[0]+' '+q[1];}).join(' L'),class:'ar '+k,'marker-end':'url(#'+m+')'},p);}
+function line(p,x1,y1,x2,y2,cls){return el('line',{x1:x1,y1:y1,x2:x2,y2:y2,class:cls||'wire'},p);}
+function mk(host,W,H,minW){const s=el('svg',{viewBox:'0 0 '+W+' '+H,role:'img','aria-label':host.dataset.aria||''});s.style.minWidth=(minW||Math.min(W,640))+'px';host.appendChild(s);return s;}
+function fmtNum(v){return v>=0.01?v.toFixed(3):v.toExponential(1);}
+
+/* tooltip */
+const tip=document.getElementById('tip');
+function showTip(e,html){tip.innerHTML=html;tip.hidden=false;const r=tip.getBoundingClientRect();let x=e.clientX+14,y=e.clientY+14;if(x+r.width>innerWidth-8)x=e.clientX-r.width-14;if(y+r.height>innerHeight-8)y=e.clientY-r.height-14;tip.style.left=Math.max(4,x)+'px';tip.style.top=Math.max(4,y)+'px';}
+function hideTip(){tip.hidden=true;}
+function svgPt(svg,e){const p=svg.createSVGPoint();p.x=e.clientX;p.y=e.clientY;return p.matrixTransform(svg.getScreenCTM().inverse());}
+function dataTable(host,head,rows){const d=document.createElement('details');d.className='data';const sm=document.createElement('summary');sm.textContent='Show the data';d.appendChild(sm);const w=document.createElement('div');w.className='tbl';const t=document.createElement('table');t.className='dt';let h='<tr>'+head.map(function(x){return '<th>'+x+'</th>';}).join('')+'</tr>';rows.forEach(function(r){h+='<tr>'+r.map(function(x){return '<td>'+x+'</td>';}).join('')+'</tr>';});t.innerHTML=h;w.appendChild(t);d.appendChild(w);host.parentNode.insertBefore(d,host.nextSibling);}
+
+/* ---------- line chart (linear or log y) ---------- */
+function lineChart(host,o){
+  const W=o.w||720,H=o.h||300,m={l:o.ml||54,r:(o.mr==null?110:o.mr),t:26,b:44};
+  const svg=mk(host,W,H,o.minW||520);
+  const pw=W-m.l-m.r,ph=H-m.t-m.b;
+  const fy=o.logY?Math.log10:function(v){return v;};
+  const X=function(v){return m.l+(v-o.x[0])/(o.x[1]-o.x[0])*pw;},Y=function(v){return m.t+ph-(fy(v)-fy(o.y[0]))/(fy(o.y[1])-fy(o.y[0]))*ph;};
+  o.yTicks.forEach(function(t){line(svg,m.l,Y(t),m.l+pw,Y(t),'grid');tx(svg,m.l-8,Y(t)+4,(o.yFmt||String)(t),'tick','end');});
+  line(svg,m.l,m.t+ph,m.l+pw,m.t+ph,'axis');
+  o.xTicks.forEach(function(t){tx(svg,X(t),m.t+ph+18,(o.xFmt||String)(t),'tick','middle');});
+  if(o.yTitle)tx(svg,4,14,o.yTitle,'axt','start');
+  if(o.xTitle)tx(svg,m.l+pw,m.t+ph+38,o.xTitle,'axt','end');
+  (o.refs||[]).forEach(function(r){line(svg,m.l,Y(r.y),m.l+pw,Y(r.y),'ref');tx(svg,r.left?m.l+8:m.l+pw+8,Y(r.y)+(r.dy==null?4:r.dy),r.label,'reflbl','start');});
+  o.series.forEach(function(s){
+    const d=s.data.map(function(p,i){return (i?'L':'M')+X(p[0]).toFixed(1)+' '+Y(Math.max(p[1],o.y[0])).toFixed(1);}).join(' ');
+    el('path',{d:d,class:'ln',style:'stroke:var('+s.c+')'},svg);
+    const L=s.data[s.data.length-1];
+    el('circle',{cx:X(L[0]),cy:Y(Math.max(L[1],o.y[0])),r:4.5,class:'dot',style:'fill:var('+s.c+')'},svg);
+    if(s.label)tx(svg,X(L[0])+(s.ldx==null?10:s.ldx),Y(Math.max(L[1],o.y[0]))+(s.ldy==null?4:s.ldy),s.label,'endlbl',s.lanchor||'start');
+  });
+  const cross=el('line',{y1:m.t,y2:m.t+ph,class:'cross',visibility:'hidden'},svg);
+  const hd=o.series.map(function(s){return el('circle',{r:5,class:'dot',style:'fill:var('+s.c+')',visibility:'hidden'},svg);});
+  const hit=el('rect',{x:m.l,y:m.t,width:pw,height:ph,class:'hit'},svg);
+  function off(){cross.setAttribute('visibility','hidden');hd.forEach(function(c){c.setAttribute('visibility','hidden');});hideTip();}
+  hit.addEventListener('pointermove',function(e){
+    const p=svgPt(svg,e);const xv=o.x[0]+(p.x-m.l)/pw*(o.x[1]-o.x[0]);const tol=(o.x[1]-o.x[0])*0.03;const rows=[];
+    o.series.forEach(function(s,i){
+      const f=s.data[0][0],l=s.data[s.data.length-1][0];
+      if(xv<f-tol||xv>l+tol){hd[i].setAttribute('visibility','hidden');return;}
+      let bi=0;s.data.forEach(function(q,j){if(Math.abs(q[0]-xv)<Math.abs(s.data[bi][0]-xv))bi=j;});
+      const b=s.data[bi];hd[i].setAttribute('cx',X(b[0]));hd[i].setAttribute('cy',Y(Math.max(b[1],o.y[0])));hd[i].setAttribute('visibility','visible');
+      rows.push('<div class="tr"><i style="background:var('+s.c+')"></i>'+s.name+'<b>'+(o.tipY||fmtNum)(b[1])+'</b></div><div class="sub">'+(o.tipX||String)(b[0])+'</div>');
+    });
+    if(!rows.length){off();return;}
+    cross.setAttribute('x1',p.x);cross.setAttribute('x2',p.x);cross.setAttribute('visibility','visible');
+    showTip(e,rows.join(''));
+  });
+  hit.addEventListener('pointerleave',off);
+  if(o.table)dataTable(host,o.table.head,o.table.rows);
+}
+
+/* ---------- horizontal bars ---------- */
+function rrect(x,y,w,h,r){if(w<=r)return 'M'+x+' '+y+'h'+w+'v'+h+'h'+(-w)+'z';return 'M'+x+' '+y+'h'+(w-r)+'a'+r+' '+r+' 0 0 1 '+r+' '+r+'v'+(h-2*r)+'a'+r+' '+r+' 0 0 1 '+(-r)+' '+r+'h'+(-(w-r))+'z';}
+function hbar(host,o){
+  const W=o.w||720,rowH=o.rowH||38,m={l:o.ml||250,r:o.mr||70,t:10,b:34};
+  const H=m.t+m.b+rowH*o.rows.length;const svg=mk(host,W,H,o.minW||560);
+  const pw=W-m.l-m.r;const X=function(v){return m.l+v/o.max*pw;};
+  o.ticks.forEach(function(t){line(svg,X(t),m.t,X(t),H-m.b,'grid');tx(svg,X(t),H-m.b+18,(o.tickFmt||String)(t),'tick','middle');});
+  line(svg,m.l,m.t,m.l,H-m.b,'axis');
+  if(o.xTitle)tx(svg,m.l+pw,H-2,o.xTitle,'axt','end');
+  o.rows.forEach(function(r,i){
+    const yc=m.t+rowH*i+rowH/2;const bh=18;
+    tx(svg,m.l-12,yc+4,r.label,'bs','end');
+    el('path',{d:rrect(X(0),yc-bh/2,Math.max(1,X(r.v)-X(0)),bh,4),style:'fill:var('+(r.c||'--accent')+')'},svg);
+    tx(svg,X(r.v)+8,yc+4,(o.fmt||String)(r.v),'vlbl','start');
+    const h=el('rect',{x:m.l,y:yc-rowH/2,width:pw,height:rowH,fill:'transparent',class:'barhit'},svg);
+    h.addEventListener('pointermove',function(e){showTip(e,'<div><b style="margin:0;padding:0">'+r.label+'</b></div><div class="sub">'+(r.tip||(o.fmt||String)(r.v))+'</div>');});
+    h.addEventListener('pointerleave',hideTip);
+  });
+  if(o.table)dataTable(host,o.table.head,o.table.rows);
+}
+
+/* ---------- columns ---------- */
+function cpath(x,base,w,h,r){if(h<=r)return 'M'+x+' '+base+'v'+(-h)+'h'+w+'v'+h+'z';return 'M'+x+' '+base+'v'+(-(h-r))+'a'+r+' '+r+' 0 0 1 '+r+' '+(-r)+'h'+(w-2*r)+'a'+r+' '+r+' 0 0 1 '+r+' '+r+'v'+(h-r)+'z';}
+function columns(host,o){
+  const W=o.w||720,H=o.h||300,m={l:54,r:12,t:24,b:56};const svg=mk(host,W,H,520);
+  const pw=W-m.l-m.r,ph=H-m.t-m.b;const Y=function(v){return m.t+ph-v/o.max*ph;};const band=pw/o.cats.length;
+  o.ticks.forEach(function(t){line(svg,m.l,Y(t),m.l+pw,Y(t),'grid');tx(svg,m.l-8,Y(t)+4,(o.tickFmt||String)(t),'tick','end');});
+  line(svg,m.l,Y(0),m.l+pw,Y(0),'axis');
+  if(o.yTitle)tx(svg,4,14,o.yTitle,'axt','start');
+  const bw=Math.min(44,band*0.5);
+  o.cats.forEach(function(c,i){
+    const cx=m.l+band*i+band/2;tx(svg,cx,Y(0)+20,c.label,'bs','middle');if(c.sub)tx(svg,cx,Y(0)+36,c.sub,'sm','middle');
+    el('path',{d:cpath(cx-bw/2,Y(0),bw,Y(0)-Y(c.v),4),class:'bar'},svg);
+    tx(svg,cx,Y(c.v)-7,(o.fmt||String)(c.v),'vlbl','middle');
+    const h=el('rect',{x:cx-band/2,y:m.t,width:band,height:ph,fill:'transparent',class:'barhit'},svg);
+    h.addEventListener('pointermove',function(e){showTip(e,'<div><b style="margin:0;padding:0">'+c.label+'</b></div><div class="sub">'+(c.tip||(o.fmt||String)(c.v))+'</div>');});
+    h.addEventListener('pointerleave',hideTip);
+  });
+  if(o.table)dataTable(host,o.table.head,o.table.rows);
+}
+
+/* ---------- data ---------- */
+const SV={d1:[1.0,0.517,0.248,0.175,0.126,0.0768,0.0542,0.0416,0.0342,0.0239,0.0141,0.00916,0.00864,0.00767,0.0049,0.00123,0.00102,0.000598,0.000523,0.000393,0.000277,0.000171,9.79e-05,4.92e-05,6.22e-06,3.11e-06,3.91e-07,2.58e-07,8.58e-08,4.36e-10],
+d2:[1.0,0.402,0.184,0.0838,0.0622,0.0408,0.0226,0.0166,0.011,0.00813,0.00589,0.00518,0.0047,0.00253,0.0016,0.00109,0.000722,0.000507,0.000369,0.000244,0.00017,6.47e-05,5.5e-05,3.42e-05,1.01e-05,5.36e-06,1.08e-06,3.74e-07,3.89e-08,1.96e-08],
+ph5:[1.0,0.104,0.0237,0.0171,0.0053,0.00177,0.000787,0.000433,0.000367,0.000239,0.000163,0.000116,2.18e-05,9.3e-06,6.97e-06,6.07e-08,2.76e-17,2.29e-17,9.74e-18,8.24e-18,4.6e-18,3.36e-18,2.2e-18,1.65e-18,4.74e-19,1.53e-19,7.77e-20,5.03e-20,3.63e-20,3.41e-20]};
+const PCA={hfd:[48.15,75.9,85.87,94.65,97.09,98.12,98.78,99.16,99.37,99.54,99.65,99.74,99.79,99.82,99.85,99.86,99.88,99.9,99.91,99.93,99.94,99.95,99.95,99.96,99.97,99.98,99.98,99.99,99.99,100.0],
+sensor:[87.1,98.51,99.57,99.95,99.98,99.99,100.0,100.0,100.0,100.0,100.0,100.0,100.0,100.0,100.0,100.0,100.0,100.0,100.0,100.0,100.0,100.0,100.0,100.0,100.0,100.0,100.0,100.0,100.0,100.0],
+hascid:[89.14,97.7,99.31,99.72,99.82,99.88,99.91,99.92,99.93,99.94,99.95,99.95,99.95,99.96,99.96,99.96,99.96,99.96,99.96,99.96,99.97,99.97,99.97,99.97,99.97,99.97,99.97,99.97,99.97,99.97]};
+const LOSS={a:[[1,0.6895],[4,0.4929],[7,0.406],[10,0.3697],[13,0.353],[16,0.3452],[19,0.3379],[22,0.3323],[25,0.3264],[28,0.3192],[31,0.3119],[34,0.3088],[37,0.3072],[40,0.3005],[43,0.298],[46,0.2937],[49,0.2926],[52,0.292],[55,0.2915],[58,0.2908],[61,0.2842],[64,0.281],[67,0.2787],[70,0.2777],[73,0.272],[76,0.266],[79,0.2658],[82,0.264],[85,0.2593],[87,0.2545]],
+b:[[1,0.2971],[6,0.2873],[11,0.2747],[16,0.2674],[21,0.2572],[26,0.253],[31,0.2423],[36,0.2323],[41,0.2288],[46,0.2281],[51,0.2172],[56,0.2177],[61,0.2095],[66,0.204],[71,0.1974],[76,0.1913],[81,0.1912],[86,0.1905],[91,0.1908],[96,0.1799],[101,0.1787],[106,0.1789],[111,0.1783],[116,0.1757],[121,0.1673],[126,0.1661],[131,0.1661],[136,0.1664],[141,0.1653],[146,0.1656],[151,0.1659],[156,0.1653],[161,0.1649],[166,0.1653],[171,0.1646],[176,0.1628],[181,0.1527],[186,0.1528],[191,0.1529],[196,0.1541],[201,0.1529],[206,0.1536],[208,0.1529]],
+c:[[1,0.1529],[31,0.1522],[61,0.1512],[91,0.1515],[121,0.1517],[151,0.1512],[181,0.1514],[211,0.1509],[241,0.1516],[271,0.1517],[301,0.1514],[331,0.1514],[361,0.1517],[391,0.1521],[421,0.1512],[451,0.1507],[481,0.1513],[511,0.1522],[541,0.1512],[571,0.1511],[601,0.1512],[631,0.1513],[661,0.1509],[691,0.1509],[721,0.1508],[751,0.1507],[781,0.1501],[811,0.1503],[841,0.1511],[871,0.1509],[901,0.1509],[910,0.1507]],
+d:[[1,0.708],[11,0.4237],[21,0.3663],[31,0.342],[41,0.3285],[51,0.325],[61,0.3159],[71,0.3116],[81,0.3059],[91,0.2999],[101,0.2929],[111,0.2859],[121,0.2818],[131,0.2814],[141,0.2777],[151,0.2713],[161,0.2658],[171,0.2587],[181,0.2542],[191,0.2468],[201,0.2414],[211,0.2403],[221,0.2387],[231,0.2299],[241,0.2282],[251,0.2281],[261,0.2284],[271,0.2279],[281,0.2285],[291,0.2241],[301,0.2164],[311,0.216],[321,0.2147],[331,0.2152],[341,0.2154],[351,0.2153],[361,0.2144],[371,0.2096],[381,0.2039],[391,0.204],[401,0.2024],[411,0.2039],[421,0.2016],[431,0.2032],[441,0.2013],[451,0.1954],[461,0.1948],[471,0.191],[481,0.1913],[491,0.19],[501,0.1899],[511,0.1906],[521,0.1866],[531,0.1807],[541,0.1795],[551,0.1779],[561,0.1774],[571,0.1771],[581,0.1771],[591,0.1774],[601,0.1767],[611,0.1759],[621,0.1763],[631,0.177],[641,0.1764],[651,0.176],[661,0.1764],[671,0.1764],[681,0.1763],[691,0.1761],[701,0.1767],[711,0.1758],[721,0.1754],[731,0.1756],[741,0.175],[751,0.1751],[761,0.1765],[771,0.1743],[781,0.1727],[791,0.1729],[801,0.1704],[804,0.1701]],
+e:[[1,0.1713],[31,0.1658],[61,0.1641],[91,0.1646],[121,0.1646],[151,0.1635],[181,0.164],[211,0.1631],[241,0.1638],[271,0.1636],[301,0.1634],[331,0.1634],[361,0.1635],[391,0.1639],[421,0.1631],[451,0.1624],[481,0.1628],[511,0.1639],[541,0.1631],[571,0.1627],[601,0.1627],[631,0.1627],[661,0.1623],[691,0.1623],[721,0.1622],[751,0.162],[781,0.1614],[793,0.1624]]};
+
+const FWD={"x":[0.105,0.135,0.163,0.17,0.186,0.207,0.227,0.256,0.279,0.294,0.314,0.349,0.428,0.463,0.518,0.553,0.541,0.541,0.5,0.463,0.498,0.412,0.475,0.573,0.483,0.445,0.435,0.363,0.291,0.197,0.201],"y":[0.714,0.651,0.663,0.693,0.719,0.77,0.669,0.482,0.523,0.813,1.0,0.275,0.082,0.101,0.145,0.17,0.188,0.238,0.408,0.38,0.372,0.412,0.463,0.398,0.458,0.68,0.652,0.641,0.648,0.68],"Rt":[[0.88,0.88,0.91,0.94,0.94,0.94,0.97,1.0,1.0,0.98,0.96,0.94,0.89,0.81,0.75,0.87,0.97,0.74,0.32,0.07,0.0,0.03,0.18,0.35,0.45,0.53,0.64,0.73,0.68,0.51,0.42],[0.93,0.93,0.97,1.0,1.0,0.99,0.99,0.98,0.98,0.99,0.99,1.0,1.0,0.98,0.96,0.98,0.97,0.76,0.45,0.22,0.08,0.01,0.0,0.04,0.13,0.22,0.24,0.22,0.19,0.17,0.2],[0.96,0.96,0.98,1.0,1.0,1.0,0.99,0.98,0.97,0.98,0.99,0.99,1.0,0.98,0.97,0.98,0.95,0.78,0.53,0.31,0.13,0.02,0.0,0.02,0.09,0.17,0.2,0.21,0.24,0.29,0.35],[1.0,1.0,0.99,0.99,0.99,1.0,0.99,0.98,0.98,0.99,0.98,0.97,0.95,0.93,0.9,0.93,0.93,0.82,0.63,0.4,0.15,0.0,0.02,0.07,0.08,0.12,0.22,0.35,0.51,0.66,0.76],[1.0,1.0,0.98,0.98,0.99,0.99,0.99,0.97,0.97,0.98,0.98,0.95,0.91,0.86,0.82,0.87,0.92,0.83,0.65,0.41,0.15,0.0,0.02,0.1,0.17,0.27,0.4,0.55,0.68,0.81,0.88],[1.0,1.0,0.99,0.99,0.99,0.99,0.98,0.96,0.96,0.98,0.97,0.92,0.85,0.73,0.66,0.78,0.93,0.85,0.64,0.39,0.16,0.01,0.0,0.11,0.38,0.68,0.85,0.93,0.96,0.95,0.94],[0.92,0.93,0.98,1.0,0.93,0.86,0.84,0.84,0.83,0.8,0.76,0.7,0.63,0.52,0.48,0.65,0.84,0.79,0.58,0.35,0.15,0.02,0.0,0.08,0.32,0.6,0.78,0.89,0.93,0.89,0.87],[0.87,0.89,0.99,1.0,0.8,0.59,0.57,0.61,0.55,0.43,0.32,0.25,0.19,0.14,0.17,0.45,0.75,0.73,0.51,0.31,0.14,0.03,0.0,0.04,0.16,0.34,0.57,0.79,0.87,0.84,0.82],[1.0,0.84,0.4,0.05,0.02,0.07,0.1,0.12,0.08,0.01,0.0,0.09,0.16,0.16,0.22,0.47,0.74,0.78,0.66,0.57,0.52,0.5,0.52,0.56,0.58,0.62,0.7,0.81,0.84,0.83,0.82],[0.7,0.53,0.2,0.0,0.16,0.39,0.43,0.39,0.38,0.37,0.41,0.5,0.56,0.57,0.6,0.76,0.92,0.95,0.89,0.84,0.8,0.79,0.81,0.85,0.88,0.9,0.94,0.99,1.0,0.99,0.99],[0.1,0.0,0.1,0.3,0.61,0.9,0.93,0.85,0.85,0.92,0.96,0.96,0.96,0.95,0.94,0.95,0.95,0.95,0.95,0.92,0.88,0.85,0.85,0.87,0.92,0.97,0.99,1.0,1.0,0.99,0.99],[0.79,0.81,0.94,1.0,0.9,0.72,0.5,0.27,0.11,0.02,0.0,0.05,0.15,0.29,0.39,0.25,0.08,0.1,0.25,0.34,0.37,0.35,0.25,0.15,0.1,0.08,0.05,0.02,0.04,0.1,0.13],[1.0,0.71,0.39,0.15,0.03,0.0,0.08,0.07,0.04,0.03,0.02,0.03,0.04,0.07,0.08,0.06,0.03,0.04,0.06,0.08,0.08,0.08,0.06,0.05,0.04,0.03,0.03,0.03,0.03,0.04,0.04],[1.0,0.86,0.66,0.42,0.21,0.05,0.04,0.05,0.05,0.08,0.14,0.16,0.16,0.15,0.13,0.11,0.08,0.05,0.02,0.0,0.0,0.0,0.0,0.01,0.02,0.02,0.02,0.01,0.01,0.0,0.0],[1.0,0.86,0.66,0.44,0.26,0.14,0.09,0.11,0.17,0.23,0.27,0.29,0.28,0.25,0.21,0.17,0.12,0.07,0.03,0.01,0.0,0.0,0.0,0.01,0.01,0.02,0.02,0.01,0.01,0.01,0.0],[1.0,0.86,0.67,0.46,0.28,0.17,0.14,0.17,0.23,0.3,0.35,0.36,0.35,0.31,0.26,0.2,0.13,0.08,0.03,0.0,0.01,0.01,0.0,0.0,0.01,0.02,0.02,0.02,0.02,0.01,0.01],[1.0,0.87,0.68,0.47,0.29,0.19,0.17,0.2,0.27,0.34,0.39,0.41,0.39,0.35,0.29,0.22,0.15,0.09,0.03,0.01,0.01,0.01,0.01,0.0,0.01,0.02,0.02,0.02,0.01,0.01,0.0],[1.0,0.88,0.7,0.51,0.35,0.26,0.26,0.32,0.41,0.49,0.54,0.55,0.52,0.46,0.38,0.28,0.19,0.11,0.03,0.01,0.02,0.02,0.01,0.0,0.02,0.02,0.02,0.02,0.01,0.01,0.0],[0.93,0.87,0.76,0.65,0.57,0.56,0.63,0.74,0.86,0.95,1.0,0.98,0.91,0.79,0.65,0.5,0.34,0.2,0.08,0.01,0.01,0.02,0.01,0.0,0.02,0.04,0.04,0.04,0.04,0.03,0.02],[0.22,0.29,0.35,0.44,0.53,0.64,0.75,0.86,0.95,1.0,1.0,0.95,0.86,0.74,0.61,0.46,0.32,0.19,0.08,0.02,0.01,0.02,0.01,0.02,0.03,0.04,0.03,0.03,0.02,0.01,0.0],[0.0,0.0,0.06,0.15,0.26,0.4,0.55,0.72,0.86,0.96,1.0,0.98,0.9,0.78,0.64,0.49,0.33,0.19,0.07,0.01,0.01,0.02,0.0,0.0,0.03,0.11,0.15,0.16,0.17,0.17,0.16],[0.08,0.07,0.08,0.11,0.18,0.3,0.46,0.63,0.8,0.93,1.0,1.0,0.93,0.83,0.69,0.54,0.38,0.23,0.12,0.03,0.0,0.01,0.02,0.05,0.09,0.21,0.27,0.3,0.32,0.33,0.32],[0.01,0.0,0.01,0.05,0.1,0.17,0.25,0.33,0.41,0.47,0.5,0.51,0.49,0.45,0.4,0.35,0.29,0.25,0.22,0.21,0.23,0.27,0.33,0.41,0.51,0.61,0.73,0.83,0.92,0.98,1.0],[0.01,0.0,0.0,0.02,0.04,0.04,0.04,0.03,0.02,0.01,0.02,0.04,0.07,0.11,0.16,0.21,0.26,0.31,0.35,0.39,0.43,0.46,0.5,0.55,0.61,0.69,0.79,0.87,0.95,0.99,1.0],[0.0,0.0,0.0,0.01,0.01,0.01,0.01,0.01,0.02,0.04,0.06,0.09,0.13,0.17,0.22,0.27,0.32,0.37,0.42,0.46,0.51,0.55,0.59,0.64,0.71,0.78,0.85,0.92,0.97,1.0,0.99],[0.02,0.01,0.0,0.01,0.02,0.01,0.01,0.02,0.02,0.01,0.03,0.11,0.2,0.32,0.44,0.57,0.69,0.79,0.88,0.95,0.98,1.0,1.0,0.98,0.96,0.94,0.91,0.89,0.86,0.83,0.81],[0.01,0.01,0.0,0.01,0.01,0.0,0.02,0.03,0.03,0.01,0.04,0.13,0.24,0.37,0.5,0.63,0.75,0.86,0.94,0.99,1.0,0.99,0.95,0.9,0.84,0.78,0.73,0.68,0.63,0.6,0.58],[0.02,0.0,0.0,0.02,0.02,0.01,0.0,0.01,0.02,0.01,0.04,0.13,0.24,0.38,0.52,0.66,0.78,0.89,0.97,1.0,0.99,0.96,0.9,0.84,0.77,0.72,0.67,0.64,0.61,0.59,0.57],[0.0,0.0,0.01,0.01,0.01,0.0,0.01,0.02,0.01,0.01,0.06,0.16,0.27,0.4,0.53,0.67,0.79,0.89,0.96,1.0,1.0,0.97,0.92,0.85,0.79,0.73,0.68,0.63,0.59,0.56,0.55],[0.19,0.17,0.17,0.22,0.24,0.21,0.14,0.17,0.27,0.14,0.0,0.1,0.2,0.34,0.49,0.64,0.78,0.9,0.98,1.0,0.98,0.92,0.85,0.78,0.73,0.72,0.73,0.75,0.78,0.79,0.78]]};
+
+/* ---------- figures ---------- */
+const F={};
+F.pipeline=function(h){
+  const s=mk(h,960,250,760);
+  tx(s,10,22,'WHAT THE CAMERA DOES','tag');
+  box(s,10,34,250,66,['Hyperspectral cube X','64 × 64 px × 31 bands · 8 dims / px'],'box box-acc');
+  arr(s,[[264,67],[338,67]]);tx(s,301,58,'Y = Rᵀ X','vl','middle');
+  box(s,342,34,250,66,['Sensor image Y','64 × 64 px × 30 channels · 3 dims / px'],'box');
+  arr(s,[[596,67],[670,67]]);tx(s,633,58,'keep 1 in d²','vl','middle');
+  box(s,674,34,276,66,['Low-res sensor image Y_d','(64/d) × (64/d) px × 30 channels'],'box box-s2');
+  tx(s,10,150,'WHAT THE MODELS UNDO','tag');
+  box(s,674,162,276,66,['Sensor-SR diffusion','U2NetSensorSR · samples p(Y | Y_d)'],'box');
+  arr(s,[[670,195],[596,195]],'ar-acc');
+  box(s,342,162,250,66,['HSI diffusion','U2NetHyperspectral · samples p(X | Y)'],'box');
+  arr(s,[[338,195],[264,195]],'ar-acc');
+  box(s,10,162,250,66,['Reconstructed cube X̂','concentrated at the true X (§2–3)'],'box box-acc');
+  arr(s,[[812,104],[812,158]],'ar-s2');
+  tx(s,822,136,'d > 1','vl');
+  arr(s,[[467,104],[467,158]],'ar-s2');
+  tx(s,477,136,'d = 1: measured directly','vl');
+};
+F.forward=function(h){
+  const s=mk(h,900,306,700);
+  const c=9,base=214,sc=150;
+  // mean HFD spectrum, mapped from [-1,1] to [0,1]
+  tx(s,16,24,'x_p: mean HFD spectrum','bt');tx(s,16,42,'31 bands, 451–855 nm','bs');
+  FWD.x.forEach(function(v,i){const hh=v/0.6*sc;el('rect',{x:16+i*c,y:base-hh,width:c-2,height:hh,class:'bar'},s);});
+  line(s,16,base+1,16+31*c,base+1,'axis');tx(s,16,base+17,'451 nm','sm');tx(s,16+31*c-2,base+17,'855 nm','sm','end');
+  arr(s,[[16+31*c+10,140],[16+31*c+48,140]]);
+  // the real R_Device1 after the loader's processing, 30 x 31
+  const gx=16+31*c+56,gy=54,cc=6;
+  tx(s,gx,24,'Rᵀ: R_Device1','bt');tx(s,gx,42,'30 filters × 31 wavelengths','bs');
+  FWD.Rt.forEach(function(row,i){row.forEach(function(v,j){el('rect',{x:gx+j*cc,y:gy+i*cc,width:cc-1,height:cc-1,class:'cell','fill-opacity':(0.06+0.9*v).toFixed(2)},s);});});
+  tx(s,gx,gy+30*cc+16,'row j = filter j across λ','sm');
+  arr(s,[[gx+31*cc+10,140],[gx+31*cc+48,140]]);
+  // y_p = R^T x_p
+  const yx=gx+31*cc+56;
+  tx(s,yx,24,'y_p = Rᵀ x_p','bt');tx(s,yx,42,'30 sensor values, scaled to max 1','bs');
+  FWD.y.forEach(function(v,i){const hh=v*sc;el('rect',{x:yx+i*c,y:base-hh,width:c-2,height:hh,class:'bar-s2'},s);});
+  line(s,yx,base+1,yx+30*c,base+1,'axis');tx(s,yx,base+17,'j = 1','sm');tx(s,yx+30*c-2,base+17,'j = 30','sm','end');
+  tx(s,16,272,'Nominal: one direction of x_p is lost (31 − 30). Effective: σ₁/σ₃₀ = 2.3 × 10⁹, so about 11 directions survive realistic noise.','bs');
+  tx(s,16,292,'The filters are broad and overlapping (neighbouring filters are 80 % correlated), which is why so few directions are independent.','bs');
+};
+F.bayes=function(h){
+  const s=mk(h,900,250,700);
+  box(s,10,30,230,60,['∇ log p_t(x_t | y)','posterior score, learned'],'box box-acc');
+  el('circle',{cx:300,cy:60,r:12,class:'box'},s);tx(s,300,65,'=','bt','middle');
+  box(s,350,30,230,60,['∇ log p_t(x_t)','prior score'],'box');
+  el('circle',{cx:620,cy:60,r:12,class:'box'},s);tx(s,620,65,'+','bt','middle');
+  box(s,660,30,230,60,['∇ log p_t(y | x_t)','likelihood score'],'box box-s2');
+  tx(s,465,120,'couples neighbouring pixels (spatial prior)','bs','middle');
+  tx(s,465,138,'and bands within a pixel (spectral manifold 𝓜)','bs','middle');
+  tx(s,465,156,'needs shared spatial weights + dense spectral mixing','bs','middle');
+  tx(s,775,120,'per pixel, purely spectral','bs','middle');
+  tx(s,775,138,'≈ Jᵀ R (RᵀΣR + σ²I)⁻¹ (y_p − Rᵀ x̂₀)','bs','middle');
+  tx(s,775,156,'a dense 31 × 30 map indexed by wavelength','bs','middle');
+  tx(s,775,174,'the network must be able to represent it','bs','middle');
+  tx(s,125,120,'what the ε- or v-network outputs','bs','middle');
+  tx(s,125,138,'(Proposition 3)','bs','middle');
+  el('rect',{x:10,y:200,width:880,height:36,rx:7,class:'pane'},s);
+  tx(s,450,223,'Whatever the architecture, it has to carry two things at once: a stationary spatial operator and a non-stationary, dense spectral one.','bs','middle');
+};
+F.lemma=function(h){
+  const s=mk(h,940,396,760);
+  function pane(x0,t1,t2){el('rect',{x:x0,y:6,width:300,height:332,rx:10,class:'pane'},s);tx(s,x0+16,30,t1,'bt');tx(s,x0+16,48,t2,'bs');}
+  const C=28,cc=8,gy=66;
+  // left: feature stack with a 3-D kernel window
+  pane(10,'ChannelSpatialConv','one 3-D kernel, k_c = 7, slides over channels');
+  const sx=26;
+  for(let i=0;i<24;i++){const on=i>=8&&i<15;el('rect',{x:sx+i*3,y:gy+i*8,width:150,height:5,rx:1,class:on?'cell-s2':'cell-de','fill-opacity':on?0.9:0.5},s);}
+  el('rect',{x:sx+8*3-4,y:gy+8*8-3,width:150+6*3+8,height:6*8+11,rx:4,fill:'none',stroke:'var(--s2)','stroke-width':1.6},s);
+  tx(s,sx+156,gy+5,'c = 1','sm');tx(s,sx+23*3+156,gy+23*8+5,'c = C','sm');
+  tx(s,26,gy+C*cc+18,'window: 7 channels × 3 × 3 pixels','vl');
+  tx(s,26,gy+C*cc+36,'same weights at every channel position','bs');
+  // middle: the banded Toeplitz mixing matrix
+  const gx=336;
+  pane(320,'= a 3 × 3 Conv2d with this','channel-mixing matrix W[c′, c]');
+  for(let i=0;i<C;i++)for(let j=0;j<C;j++){const d=Math.abs(i-j);el('rect',{x:gx+j*cc,y:gy+i*cc,width:cc-1,height:cc-1,class:d<=3?'cell-s2':'cell-de','fill-opacity':d<=3?(0.95-0.2*d).toFixed(2):0.12},s);}
+  tx(s,gx,gy+C*cc+18,'banded, constant along each diagonal','bs');
+  tx(s,gx,gy+C*cc+36,'9·K·k_c + K = 256 weights (K = 4)','vl');
+  // right: the dense block it replaced
+  const dx=646;
+  pane(630,'The plain 3 × 3 Conv2d','it replaced: every entry free');
+  for(let i=0;i<C;i++)for(let j=0;j<C;j++){const v=0.5+0.5*Math.sin(0.9*i+0.4*j)*Math.cos(0.3*i*j);el('rect',{x:dx+j*cc,y:gy+i*cc,width:cc-1,height:cc-1,class:'cell','fill-opacity':(0.15+0.8*Math.max(0,Math.min(1,v))).toFixed(2)},s);}
+  tx(s,dx,gy+C*cc+18,'any channel can feed any channel','bs');
+  tx(s,dx,gy+C*cc+36,'9·C² = 589 824 weights (C = 256)','vl');
+  el('rect',{x:10,y:350,width:920,height:36,rx:7,class:'box'},s);
+  tx(s,470,373,'The banded matrix is a special case of the dense one: the 3-D block can only lose capacity relative to the block it replaces.','bs','middle');
+};
+F.axes=function(h){
+  const s=mk(h,900,300,720);
+  function pane(x0,title,ok){el('rect',{x:x0,y:6,width:430,height:288,rx:10,class:'pane'},s);tx(s,x0+16,30,title,'bt');return x0;}
+  let x0=pane(10,'Spatial axis (h, w): measurement commutes with shifts');
+  box(s,x0+16,50,120,40,['X'],'box box-acc');arr(s,[[x0+140,70],[x0+190,70]]);tx(s,x0+165,62,'shift S_h','sm','middle');
+  box(s,x0+194,50,120,40,['X S_h'],'box box-acc');arr(s,[[x0+254,94],[x0+254,134]]);tx(s,x0+264,118,'Rᵀ','vl');
+  box(s,x0+194,138,120,40,['Rᵀ X S_h'],'box box-s2');
+  arr(s,[[x0+76,94],[x0+76,134]]);tx(s,x0+86,118,'Rᵀ','vl');
+  box(s,x0+16,138,120,40,['Rᵀ X'],'box box-s2');arr(s,[[x0+140,158],[x0+190,158]]);tx(s,x0+165,150,'shift S_h','sm','middle');
+  tx(s,x0+340,98,'✓','okt','middle');tx(s,x0+340,120,'both paths agree','bs','middle');
+  tx(s,x0+16,210,'The measurement is pixel-wise, so it does not care where a pixel is.','bs');
+  tx(s,x0+16,230,'Spatial prior ≈ stationary: lag-1 autocorrelation 0.966, lag-2 0.921.','bs');
+  tx(s,x0+16,254,'→ shared-weight 2-D convolution is right here.','bt');
+  x0=pane(460,'Spectral axis λ: no shift of the sensor index matches');
+  box(s,x0+16,50,120,40,['x_p'],'box box-acc');arr(s,[[x0+140,70],[x0+190,70]]);tx(s,x0+165,62,'shift S_λ','sm','middle');
+  box(s,x0+194,50,120,40,['S_λ x_p'],'box box-acc');arr(s,[[x0+254,94],[x0+254,134]]);tx(s,x0+264,118,'Rᵀ','vl');
+  box(s,x0+194,138,120,40,['Rᵀ S_λ x_p'],'box box-s2');
+  arr(s,[[x0+76,94],[x0+76,134]]);tx(s,x0+86,118,'Rᵀ','vl');
+  box(s,x0+16,138,120,40,['Rᵀ x_p'],'box box-s2');arr(s,[[x0+140,158],[x0+190,158]]);tx(s,x0+165,150,'S′ = ?','sm','middle');
+  tx(s,x0+340,98,'✗','badt','middle');tx(s,x0+340,120,'needs Rᵀ Toeplitz;','bs','middle');tx(s,x0+340,136,'it is 59 % off','bs','middle');
+  tx(s,x0+16,210,'Filter responses depend on absolute wavelength (red edge at 761 nm).','bs');
+  tx(s,x0+16,230,'The 30 sensor channels have no order that a kernel could slide along.','bs');
+  tx(s,x0+16,254,'→ bands as channels, dense 1 × 1 mixing and attention.','bt');
+};
+
+/* ---------- charts ---------- */
+const CH={};
+CH.sv=function(h){
+  const mkS=function(arr,c,name,label){return {name:name,label:label,c:c,data:arr.map(function(v,i){return [i+1,Math.max(v,1e-10)];})};};
+  lineChart(h,{x:[1,30],y:[1e-10,1],logY:true,yTicks:[1,1e-2,1e-4,1e-6,1e-8,1e-10],yFmt:function(v){return v===1?'1':'1e'+Math.round(Math.log10(v));},xTicks:[1,5,10,15,20,25,30],xTitle:'singular value index i',yTitle:'σ_i / σ_1',mr:130,
+    refs:[{y:1e-2,label:'1 % of σ₁',dy:-6},{y:5e-4,label:'fp16 ε, 5e-4',dy:14}],
+    series:[mkS(SV.d1,'--accent','R_Device1','R_Device1'),mkS(SV.d2,'--s2','R_Device2','R_Device2'),mkS(SV.ph5,'--s3','PH5','PH5 (rank 16)')],
+    tipY:function(v){return v<1e-9?'< 1e-9':v.toExponential(2);},tipX:function(i){return 'index '+i;},
+    table:{head:['i','R_Device1','R_Device2','PH5'],rows:SV.d1.map(function(v,i){return [i+1,v.toExponential(2),SV.d2[i].toExponential(2),SV.ph5[i].toExponential(2)];})}});
+};
+CH.pca=function(h){
+  // stop a curve once its residual reaches the 0.01 % resolution of the data
+  const mkS=function(arr,c,name,label,ldy){const d=[];for(let i=0;i<arr.length;i++){const r=Math.max(100-arr[i],0.01);d.push([i+1,r]);if(r<=0.01)break;}return {name:name,label:label,c:c,data:d,ldy:ldy};};
+  lineChart(h,{x:[1,30],y:[0.01,100],logY:true,yTicks:[100,10,1,0.1,0.01],yFmt:function(v){return v+' %';},xTicks:[1,3,5,8,10,15,20,25,30],xTitle:'number of principal components k',yTitle:'variance not explained',mr:150,
+    refs:[{y:1,label:'1 % line',dy:-6},{y:0.1,label:'0.1 % line',dy:-6}],
+    series:[mkS(PCA.hfd,'--accent','HFD cube','HFD cube: k₉₉ = 8',4),mkS(PCA.hascid,'--s2','HASCID cube','HASCID: k₉₉ = 3',-4),mkS(PCA.sensor,'--s3','sensor image Y','sensor image: k₉₉ = 3',-8)],
+    tipY:function(v){return v<=0.01?'≤ 0.01 %':v.toFixed(2)+' %';},tipX:function(i){return 'k = '+i;},
+    table:{head:['k','HFD cumulative %','HASCID cumulative %','sensor image cumulative %'],rows:PCA.hfd.map(function(v,i){return [i+1,v.toFixed(2),PCA.hascid[i].toFixed(2),PCA.sensor[i].toFixed(2)];})}});
+};
+CH.toep=function(h){
+  hbar(h,{max:1,ticks:[0,0.25,0.5,0.75,1],tickFmt:function(v){return v.toFixed(2);},fmt:function(v){return v.toFixed(2);},ml:300,rowH:36,
+    rows:[{label:'Rᵀ · R_Device1, HFD (30 × 31)',v:0.593,c:'--accent',tip:'the device used in all runs'},
+          {label:'Rᵀ · R_Device2, HFD (30 × 31)',v:0.264,c:'--accent'},
+          {label:'Rᵀ · PH5, HFD (30 × 31)',v:0.486,c:'--accent'},
+          {label:'Rᵀ · R_Device1, HASCID (30 × 160)',v:0.597,c:'--accent'},
+          {label:'spectral covariance C · HFD (31 × 31)',v:0.438,c:'--s2',tip:'a stationary prior along λ would give 0'},
+          {label:'spectral covariance C · HASCID (160 × 160)',v:0.118,c:'--s2'},
+          {label:'i.i.d. Gaussian 30 × 31 (reference)',v:0.967,c:'--de',tip:'what a structureless matrix scores'}],
+    xTitle:'0 = exactly Toeplitz (a convolution)'});
+};
+CH.sr=function(h){
+  columns(h,{max:20,ticks:[0,5,10,15,20],tickFmt:function(v){return v+' %';},fmt:function(v){return v.toFixed(1)+' %';},yTitle:'relative error on the sensor image',h:290,
+    cats:[{label:'d = 2',sub:'32 × 32 · 25 %',v:4.43,tip:'low-res 32 × 32, keeps 25 % of pixels'},
+          {label:'d = 3',sub:'21 × 21 · 11 %',v:8.84,tip:'low-res 21 × 21, keeps 10.8 % of pixels'},
+          {label:'d = 4',sub:'16 × 16 · 6 %',v:9.93,tip:'low-res 16 × 16, keeps 6.2 % of pixels'},
+          {label:'d = 6',sub:'11 × 11 · 3 %',v:14.55,tip:'low-res 11 × 11, keeps 3.0 % of pixels'},
+          {label:'d = 8',sub:'8 × 8 · 1.6 %',v:17.93,tip:'low-res 8 × 8, keeps 1.6 % of pixels'}],
+    table:{head:['d','low-res grid','pixels kept','bilinear rel. error'],rows:[['2','32 × 32','25.0 %','4.43 %'],['3','21 × 21','10.8 %','8.84 %'],['4','16 × 16','6.2 %','9.93 %'],['6','11 × 11','3.0 %','14.55 %'],['8','8 × 8','1.6 %','17.93 %']]}});
+};
+CH.loss=function(h){
+  const wrap=document.createElement('div');wrap.style.display='grid';wrap.style.gridTemplateColumns='repeat(auto-fit,minmax(300px,1fr))';wrap.style.gap='12px';h.appendChild(wrap);
+  function panel(title,series,xmax,xTicks){
+    const d=document.createElement('div');d.style.minWidth='0';const t=document.createElement('p');t.className='charthead';t.textContent=title;d.appendChild(t);const host=document.createElement('div');host.className='scroll';d.appendChild(host);wrap.appendChild(d);
+    lineChart(host,{w:440,h:280,minW:300,x:[0,xmax],y:[0.1,0.75],yTicks:[0.1,0.2,0.3,0.4,0.5,0.6,0.7],yFmt:function(v){return v.toFixed(1);},xTicks:xTicks,xTitle:'epoch within the launch',yTitle:'ε-L1 (train)',mr:70,ml:44,
+      refs:[{y:0.15,label:''}],series:series,tipY:function(v){return v.toFixed(4);},tipX:function(e){return 'epoch '+e;}});
+  }
+  panel('Full sensor grid, d = 1',[{name:'launch 1 · 36 730 cubes',label:'0.255',c:'--accent',data:LOSS.a},{name:'launch 2 · 36 730 cubes',label:'0.153',c:'--s2',data:LOSS.b,ldy:-10},{name:'launch 3 · 9 000 cubes',label:'0.151',c:'--s3',data:LOSS.c}],920,[0,200,400,600,800]);
+  panel('Stride-2 sensor grid, d = 2',[{name:'launch 1 · 9 000 cubes',label:'0.170',c:'--accent',data:LOSS.d,ldy:-6},{name:'launch 2 · 9 000 cubes',label:'0.162',c:'--s2',data:LOSS.e,ldy:12}],820,[0,200,400,600,800]);
+  dataTable(wrap,['launch','grid','cubes','epochs','start','end','source'],[['1','d = 1','36 730','87','0.689','0.255','log.txt'],['2','d = 1','36 730','208','0.297','0.153','log1.txt'],['3','d = 1','9 000','910','0.153','0.151','log2.txt'],['1','d = 2','9 000','804','0.708','0.170','log_down2.txt'],['2','d = 2','9 000','793','0.171','0.162','log_down2_1.txt']]);
+};
+
+document.querySelectorAll('[data-fig]').forEach(function(h){const f=F[h.dataset.fig];if(f)f(h);});
+document.querySelectorAll('[data-chart]').forEach(function(h){const f=CH[h.dataset.chart];if(f)f(h);});
+})();
+</script>
