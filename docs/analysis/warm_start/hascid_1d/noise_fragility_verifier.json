@@ -1,0 +1,47 @@
+{
+ "rms_y": 2.8620455758476933,
+ "rows": [
+  {
+   "rel_noise": 0,
+   "snr_db": null,
+   "best_s": 1.7782794100389227e-07,
+   "oracle_lin_rmse_pct": 0.33844902795493703
+  },
+  {
+   "rel_noise": 1e-07,
+   "snr_db": 140.0,
+   "best_s": 5.62341325190349e-07,
+   "oracle_lin_rmse_pct": 0.34645562972307586
+  },
+  {
+   "rel_noise": 1e-06,
+   "snr_db": 120.0,
+   "best_s": 5.623413251903491e-06,
+   "oracle_lin_rmse_pct": 0.3914890460420665
+  },
+  {
+   "rel_noise": 1e-05,
+   "snr_db": 100.0,
+   "best_s": 5.623413251903491e-05,
+   "oracle_lin_rmse_pct": 0.442164733741341
+  },
+  {
+   "rel_noise": 0.0001,
+   "snr_db": 80.0,
+   "best_s": 0.0005623413251903491,
+   "oracle_lin_rmse_pct": 0.6578180366187361
+  },
+  {
+   "rel_noise": 0.001,
+   "snr_db": 60.0,
+   "best_s": 0.0031622776601683794,
+   "oracle_lin_rmse_pct": 2.2780628095596183
+  },
+  {
+   "rel_noise": 0.01,
+   "snr_db": 40.0,
+   "best_s": 0.05623413251903491,
+   "oracle_lin_rmse_pct": 3.9863502881934076
+  }
+ ]
+}

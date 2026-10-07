@@ -1,0 +1,580 @@
+<title>Warm-Start Sampling</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600;700&display=swap">
+<script>
+window.MathJax={tex:{inlineMath:[['$','$']],displayMath:[['$$','$$']],tags:'none'},svg:{fontCache:'global'},options:{skipHtmlTags:['script','noscript','style','textarea','pre','code','svg']}};
+</script>
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-svg.js"></script>
+<style>
+/* Layout: one 900px reading column; each section is built around a panel-card figure with a caption. */
+:root{
+  --bg:#f3f5f8; --panel:#ffffff; --panel-2:#eaeef4; --ink:#141a24; --ink-2:#475164; --muted:#5f6b7e;
+  --rule:#dbe1ea; --rule-strong:#a9b3c2;
+  --accent:#2a78d6; --accent-bg:#e2edfb; --s2:#eb6834; --s2-bg:#fde8df; --s3:#1baf7a; --s3-bg:#dcf3ea; --de:#a2aab7;
+  --good:#16733f; --good-bg:#dff2e6; --bad:#c43d3d; --bad-bg:#fbe4e4; --warn:#9a6700; --warn-bg:#fff1cc;
+  --sans:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    color-scheme:dark;
+    --bg:#0e1218; --panel:#161b23; --panel-2:#1c222c; --ink:#e8ecf2; --ink-2:#b3bccb; --muted:#8893a4;
+    --rule:#29303b; --rule-strong:#4a5565;
+    --accent:#3987e5; --accent-bg:#162840; --s2:#d95926; --s2-bg:#3a2118; --s3:#199e70; --s3-bg:#12302a; --de:#5e6778;
+    --good:#46b676; --good-bg:#15301f; --bad:#e66767; --bad-bg:#3b1b1b; --warn:#e2b84a; --warn-bg:#3a2f12;
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --bg:#0e1218; --panel:#161b23; --panel-2:#1c222c; --ink:#e8ecf2; --ink-2:#b3bccb; --muted:#8893a4;
+  --rule:#29303b; --rule-strong:#4a5565;
+  --accent:#3987e5; --accent-bg:#162840; --s2:#d95926; --s2-bg:#3a2118; --s3:#199e70; --s3-bg:#12302a; --de:#5e6778;
+  --good:#46b676; --good-bg:#15301f; --bad:#e66767; --bad-bg:#3b1b1b; --warn:#e2b84a; --warn-bg:#3a2f12;
+}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:16px;line-height:1.7;padding-inline:20px;padding-block:0 72px;margin:0}
+main{max-width:900px;margin:0 auto}
+a{color:var(--accent)}
+a:focus-visible,summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
+header{padding-block:52px 12px}
+.eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.08em;color:var(--muted)}
+h1{font-size:clamp(32px,5.2vw,46px);font-weight:700;line-height:1.15;letter-spacing:-.015em;margin:.25em 0 .35em;text-wrap:balance}
+.lede{font-size:17px;color:var(--ink-2);max-width:42em;margin:0}
+nav.toc{display:flex;flex-wrap:wrap;gap:8px;margin:22px 0 4px}
+nav.toc a{font-size:13px;color:var(--ink-2);text-decoration:none;border:1px solid var(--rule-strong);border-radius:999px;padding:3px 12px;background:var(--panel)}
+nav.toc a:hover{border-color:var(--accent);color:var(--accent)}
+nav.toc b{font-family:var(--mono);font-weight:600;color:var(--accent);margin-right:6px}
+section{padding-block:36px 4px;border-top:1px solid var(--rule);margin-top:28px}
+h2{font-size:27px;font-weight:700;line-height:1.25;margin:0 0 8px;text-wrap:balance;display:flex;align-items:baseline;gap:12px}
+h2 .no{font-family:var(--mono);font-size:15px;font-weight:700;color:var(--accent);letter-spacing:.04em}
+h3{font-size:19px;font-weight:600;margin:30px 0 4px;text-wrap:balance}
+p{margin:6px 0}
+.lead{color:var(--ink-2);max-width:42em}
+figure{margin:18px 0 26px;background:var(--panel);border:1px solid var(--rule);border-radius:12px;padding:18px 18px 14px;min-width:0}
+figcaption{font-size:14px;color:var(--ink-2);margin-top:10px;max-width:48em;line-height:1.65}
+.charthead{font-size:15px;font-weight:600;margin:0 0 8px}
+.scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+.scroll>svg{display:block;width:100%;height:auto}
+.legend{display:flex;flex-wrap:wrap;gap:6px 18px;font-size:13px;color:var(--ink-2);margin:0 0 8px}
+.legend span{display:inline-flex;align-items:center;gap:7px}
+.legend i{display:inline-block;width:16px;height:3px;border-radius:2px}
+.legend i.sq{width:11px;height:11px;border-radius:3px}
+.kv{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:16px 0 4px}
+.kv div{background:var(--panel);border:1px solid var(--rule);border-radius:10px;padding:10px 14px;min-width:0;display:flex;flex-direction:column;justify-content:space-between;gap:4px}
+.kv small{display:block;font-size:12px;color:var(--muted)}
+.kv b{font-family:var(--mono);font-size:15px;font-weight:600}
+.tbl{overflow-x:auto}
+table.t{border-collapse:collapse;width:100%;font-size:14px;min-width:560px}
+table.t th{font-size:12.5px;font-weight:500;color:var(--muted);text-align:left;padding:6px 10px;border-bottom:1px solid var(--rule-strong)}
+table.t td{padding:9px 10px;border-bottom:1px solid var(--rule);vertical-align:top}
+table.t td.num{font-family:var(--mono);font-variant-numeric:tabular-nums;white-space:nowrap}
+table.t tr:last-child td{border-bottom:0}
+.pill{display:inline-flex;align-items:center;gap:4px;padding:1px 10px;border-radius:999px;font-size:12.5px;font-weight:700;white-space:nowrap}
+.pill.ok{background:var(--good-bg);color:var(--good)}
+.pill.no{background:var(--bad-bg);color:var(--bad)}
+.pill.wn{background:var(--warn-bg);color:var(--warn)}
+.pill.nt{background:var(--panel-2);color:var(--ink-2);font-weight:600}
+.legend i.dash{height:0;border-top:2px dashed var(--s2);border-radius:0;background:none}
+.legend i.band{height:10px;border-radius:2px}
+.classgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-top:4px}
+.ccard{border:1px solid var(--rule);border-radius:10px;padding:10px 10px 4px;background:var(--bg);min-width:0}
+.ccard .hd{display:flex;gap:10px;align-items:center}
+.ccard img{width:56px;height:56px;border-radius:6px;flex:none;display:block}
+.ccard .id{font-family:var(--mono);font-weight:700;font-size:14px;line-height:1.3}
+.ccard .meta{font-size:12px;color:var(--ink-2);line-height:1.45}
+.ccard .meta b{font-family:var(--mono);font-weight:600;color:var(--ink-2)}
+.ccard svg{display:block;width:100%;max-width:280px;height:auto;margin:4px auto 0}
+.ccard svg .tick{fill:var(--ink-2);font-size:13px}
+.nw{white-space:nowrap}
+.eq{overflow-x:auto;overflow-y:hidden;max-width:100%}
+@media (max-width:520px){.eq mjx-container{font-size:86%!important}.thm{padding:12px}}
+.seg{display:inline-flex;flex-wrap:wrap;gap:6px;margin:0 0 10px}
+.seg button{font:inherit;font-size:13px;color:var(--ink-2);background:var(--panel);border:1px solid var(--rule-strong);border-radius:999px;padding:3px 12px;cursor:pointer}
+.seg button[aria-pressed="true"]{background:var(--accent-bg);border-color:var(--accent);color:var(--ink)}
+.seg button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.thm{background:var(--panel);border:1px solid var(--rule);border-left:4px solid var(--accent);border-radius:0 12px 12px 0;padding:12px 18px;margin:18px 0}
+.thm .lbl{font-family:var(--mono);font-size:12.5px;font-weight:700;letter-spacing:.04em;color:var(--accent);display:block;margin-bottom:2px}
+.thm .pf{color:var(--ink-2);font-size:15px;margin-top:6px}
+.thm .pf b{color:var(--ink)}
+.remark{border-left:3px solid var(--rule-strong);padding:2px 16px;margin:14px 0;color:var(--ink-2);font-size:15px}
+.remark b{color:var(--ink)}
+.gloss{display:grid;grid-template-columns:repeat(auto-fit,minmax(270px,1fr));gap:6px 22px;margin:22px 0 4px;padding:16px 18px;background:var(--panel);border:1px solid var(--rule);border-radius:12px}
+.gloss h3{grid-column:1/-1;margin:0 0 4px;font-size:16px}
+.gloss div{font-size:14px;color:var(--ink-2);line-height:1.6;min-width:0}
+.gloss b{color:var(--ink);margin-right:8px;font-weight:600}
+ul.concl{padding-left:0;list-style:none;display:grid;gap:12px;margin:14px 0}
+ul.concl li{background:var(--panel);border:1px solid var(--rule);border-radius:12px;padding:12px 16px;min-width:0}
+ul.concl b{display:block;margin-bottom:2px}
+ol.steps{padding-left:1.3em;margin:10px 0}
+ol.steps li{margin:6px 0}
+code{font-family:var(--mono);font-size:.86em;background:var(--panel-2);padding:1px 5px;border-radius:4px}
+footer{margin-top:40px;padding-top:18px;border-top:1px solid var(--rule);font-size:13px;color:var(--muted)}
+footer code{font-size:12.5px}
+details.data{margin-top:8px;font-size:13px}
+details.data summary{cursor:pointer;color:var(--muted)}
+table.dt{border-collapse:collapse;margin-top:6px;font-size:12.5px}
+table.dt th,table.dt td{padding:3px 12px 3px 0;border-bottom:1px solid var(--rule);text-align:right;font-family:var(--mono);font-variant-numeric:tabular-nums;font-weight:400}
+table.dt th{color:var(--muted);font-family:var(--sans)}
+table.dt td:first-child,table.dt th:first-child{text-align:left;font-family:var(--sans)}
+mjx-container[display="true"]{overflow-x:auto;overflow-y:hidden;padding:4px 0;margin:10px 0!important}
+#tip{position:fixed;z-index:20;left:0;top:0;background:var(--panel);color:var(--ink);border:1px solid var(--rule-strong);border-radius:8px;padding:7px 10px;font-size:12.5px;line-height:1.55;box-shadow:0 8px 24px rgb(0 0 0 / .14);pointer-events:none;max-width:300px}
+#tip .tr{display:flex;align-items:center;gap:7px}
+#tip i{width:12px;height:3px;border-radius:2px;flex:none}
+#tip b{margin-left:auto;padding-left:12px;font-family:var(--mono);font-weight:600;white-space:nowrap}
+#tip .sub{color:var(--muted);font-size:12px}
+/* SVG */
+svg text{font-family:var(--sans);font-size:12.5px;fill:var(--ink)}
+svg .bt{font-weight:600;font-size:13px}
+svg .bs{font-size:11.5px;fill:var(--ink-2)}
+svg .sm{font-size:11px;fill:var(--muted)}
+svg .mono{font-family:var(--mono)}
+svg .tag{font-family:var(--mono);font-size:11px;fill:var(--muted);letter-spacing:.06em}
+svg .big{font-family:var(--mono);font-weight:700;font-size:22px}
+svg .vl{font-family:var(--mono);font-size:11.5px;fill:var(--ink-2)}
+svg .box{fill:var(--bg);stroke:var(--rule-strong);stroke-width:1.2}
+svg .box-acc{fill:var(--accent-bg);stroke:var(--accent)}
+svg .box-s2{fill:var(--s2-bg);stroke:var(--s2)}
+svg .box-s3{fill:var(--s3-bg);stroke:var(--s3)}
+svg .pane{fill:none;stroke:var(--rule);stroke-width:1}
+svg .frame{fill:none;stroke:var(--rule-strong);stroke-width:1}
+svg .ar{fill:none;stroke:var(--ink-2);stroke-width:1.4;stroke-linejoin:round}
+svg .ar-acc{stroke:var(--accent)}
+svg .ar-s2{stroke:var(--s2)}
+svg .thin{stroke-width:1;opacity:.75}
+svg .mk{fill:var(--ink-2)}
+svg .mk-acc{fill:var(--accent)}
+svg .mk-s2{fill:var(--s2)}
+svg .cell{fill:var(--accent)}
+svg .cell-de{fill:var(--de)}
+svg .cell-s2{fill:var(--s2)}
+svg .bar{fill:var(--accent)}
+svg .bar-s2{fill:var(--s2)}
+svg .grid{stroke:var(--rule);stroke-width:1}
+svg .axis{stroke:var(--rule-strong);stroke-width:1}
+svg .tick{font-family:var(--mono);font-size:11px;fill:var(--muted)}
+svg .axt{font-size:11.5px;fill:var(--muted)}
+svg .ln{fill:none;stroke-width:2;stroke-linejoin:round;stroke-linecap:round}
+svg .dot{stroke:var(--panel);stroke-width:2}
+svg .cross{stroke:var(--rule-strong);stroke-width:1}
+svg .hit{fill:transparent;cursor:crosshair}
+svg .ref{stroke:var(--muted);stroke-width:1;stroke-dasharray:4 4}
+svg .reflbl{font-size:11.5px;fill:var(--muted)}
+svg .endlbl{font-family:var(--mono);font-size:12px;fill:var(--ink-2);font-weight:600}
+svg .vlbl{font-family:var(--mono);font-size:11.5px;fill:var(--ink-2)}
+svg .barhit{cursor:default}
+svg .wire{fill:none;stroke:var(--ink-2);stroke-width:1.4}
+svg .okt{fill:var(--good);font-weight:700}
+svg .badt{fill:var(--bad);font-weight:700}
+@media (max-width:520px){ body{font-size:15px} h2{font-size:23px} figure{padding:14px 12px 12px} }
+@media (prefers-reduced-motion: reduce){ *{scroll-behavior:auto} }
+</style>
+<style>
+:root{--s4:#4a3aa7}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--s4:#8048c8}}
+:root[data-theme="dark"]{--s4:#8048c8}
+pre.code{background:var(--panel);border:1px solid var(--rule);border-radius:10px;padding:12px 14px;margin:10px 0 6px;overflow-x:auto;font-family:var(--mono);font-size:12.5px;line-height:1.6;color:var(--ink)}
+pre.code code{background:none;padding:0;font-size:inherit}
+p code,li code,td code,footer code{overflow-wrap:anywhere}
+</style>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <defs>
+    <marker id="mI" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="mk"/></marker>
+    <marker id="mA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="mk-acc"/></marker>
+    <marker id="mS" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="mk-s2"/></marker>
+  </defs>
+</svg>
+<div id="tip" hidden></div>
+
+<main>
+<header>
+  <div class="eyebrow">Diffu_HSI · investigation · October 2026</div>
+  <h1>Can a sensor-based estimate skip most of the diffusion steps?</h1>
+  <p class="lede">Yes, and it is well founded. Estimate the cube from the 30 sensor values, add exactly the noise that step t₀ calls for, and run only the last t₀ reverse steps. On the fully trained per-pixel model, a start of about the model's own quality plus 10 DDIM steps from t₀ = 200 reached the same mean error as full 1 000-step sampling. On that checkpoint plain 5-step DDIM from noise does too, so a speed gain over few-step DDIM is not shown here; the warm start pays off when the estimate is better than the model. The experiments also exposed two problems that matter more than speed: with the repo's noise-free simulated sensor values a closed-form linear inverse already beats every diffusion output, and the 2-D checkpoint tested here ignores which sensor values it is given.</p>
+  <figure>
+    <div class="scroll" data-fig="pipeline" data-aria="Warm-start pipeline: the sensor values give a rough estimate of the cube in closed form, noise for step t0 is added analytically, and only t0 reverse steps (or 10 DDIM steps) are run; the standard sampler instead starts from pure noise at step 999 and runs 1000 steps"></div>
+    <figcaption>The only learned part is the reverse process. The starting estimate here is the linear Gaussian-prior inverse from the report (one 30 → 31 matrix product per pixel), and the noise is added in closed form. Nothing has to be trained to "generate" x at step t₀.</figcaption>
+  </figure>
+  <nav class="toc" aria-label="Contents">
+    <a href="#s1"><b>1</b>The idea</a><a href="#s2"><b>2</b>Why it is sound</a><a href="#s3"><b>3</b>Per-pixel model</a><a href="#s4"><b>4</b>2-D checkpoint</a><a href="#s5"><b>5</b>Linear baseline</a><a href="#s6"><b>6</b>Choosing t₀</a><a href="#s7"><b>7</b>What to do</a>
+  </nav>
+  <div class="gloss">
+    <h3>Terms used below</h3>
+    <div><b>x₀</b>the hyperspectral cube being reconstructed. "Clean" only means free of the noise the diffusion process adds; it is the unknown output at inference</div>
+    <div><b>x̂₀(y)</b>a rough estimate of x₀ computed from the sensor values y alone</div>
+    <div><b>t₀</b>the step the reverse process starts from; the standard sampler uses t₀ = 999</div>
+    <div><b>$\bar\alpha_t$</b>how much of x₀ survives at step t: $x_t=\sqrt{\bar\alpha_t}\,x_0+\sqrt{1-\bar\alpha_t}\,\varepsilon$</div>
+    <div><b>σ(t₀)</b>$\sqrt{(1-\bar\alpha)/\bar\alpha}$: the noise level at t₀ in units of the cube; a start error far below σ is invisible to the network</div>
+    <div><b>NFE</b>network function evaluations, the cost of sampling</div>
+    <div><b>DDPM / DDIM</b>the repo's stochastic sampler (one step per t) / the deterministic sampler that can skip steps</div>
+    <div><b>RMSE %</b>per-element error on the $[0,1]$ display scale, in percent: of each patch's intensity range for HFD (per-cube min–max), of reflectance for HASCID</div>
+  </div>
+</header>
+
+<!-- ============================================================ -->
+<section id="s1">
+  <h2><span class="no">01</span>The idea: you only need an estimate of x₀</h2>
+  <p class="lead">During training the network only ever sees $x_t=\sqrt{\bar\alpha_t}\,x_0+\sqrt{1-\bar\alpha_t}\,\varepsilon$. To start at an intermediate step you need an $x_{t_0}$ that looks like that. The noise part is known; only x₀ is missing, and a rough estimate from the sensor is enough because at t₀ it is mixed with a lot of noise.</p>
+  <div class="eq">$$x_{t_0}=\sqrt{\bar\alpha_{t_0}}\;\hat x_0(y)+\sqrt{1-\bar\alpha_{t_0}}\;\varepsilon,\qquad \varepsilon\sim\mathcal N(0,I).$$</div>
+  <p>The difference from a "true" $x_{t_0}$ is $\sqrt{\bar\alpha_{t_0}}\,(\hat x_0-x_0)$, sitting under noise of size $\sqrt{1-\bar\alpha_{t_0}}$. Their ratio, $e/\sigma(t_0)$ with $e$ the estimate's per-element RMS error, tells you how visible the shortcut is:</p>
+  <figure>
+    <div class="tbl">
+      <table class="t">
+        <thead><tr><th>t₀</th><th>√ᾱ</th><th>√(1−ᾱ)</th><th>σ(t₀)</th><th>e/σ, estimate at 40 dB quality (e = 0.046)</th><th>e/σ, noise-free linear estimate (e = 0.0061)</th></tr></thead>
+        <tbody>
+          <tr><td class="num">999</td><td class="num">0.006</td><td class="num">1.000</td><td class="num">157</td><td class="num">0.0003</td><td class="num">0.0000</td></tr>
+          <tr><td class="num">600</td><td class="num">0.160</td><td class="num">0.987</td><td class="num">6.17</td><td class="num">0.0075</td><td class="num">0.0010</td></tr>
+          <tr><td class="num">400</td><td class="num">0.440</td><td class="num">0.898</td><td class="num">2.04</td><td class="num">0.023</td><td class="num">0.0030</td></tr>
+          <tr><td class="num">200</td><td class="num">0.810</td><td class="num">0.586</td><td class="num">0.72</td><td class="num">0.064</td><td class="num">0.0084</td></tr>
+          <tr><td class="num">100</td><td class="num">0.946</td><td class="num">0.324</td><td class="num">0.34</td><td class="num">0.134</td><td class="num">0.018</td></tr>
+          <tr><td class="num">50</td><td class="num">0.985</td><td class="num">0.173</td><td class="num">0.18</td><td class="num">0.261</td><td class="num">0.035</td></tr>
+          <tr><td class="num">20</td><td class="num">0.997</td><td class="num">0.079</td><td class="num">0.079</td><td class="num">0.579</td><td class="num">0.077</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <figcaption>The repo's schedule (linear β from 10⁻⁴ to 0.02, T = 1 000), loader scale [−1, 1]. e = 0.0061 is the measured error of the linear estimate on held-out HFD cubes with the noise-free R_Device1 sensor; 0.046 is roughly what the same estimator achieves with 40 dB sensor noise.</figcaption>
+  </figure>
+  <div class="thm"><span class="lbl">Why not train a model that outputs x at step t₀ directly?</span>
+    A network trained with MSE to output $x_{t_0}$ from $y$ learns $\mathbb E[x_{t_0}\mid y]=\sqrt{\bar\alpha_{t_0}}\,\mathbb E[x_0\mid y]$: the noise averages out, so its output has zero spread and is not a valid starting point (its covariance falls short by $\bar\alpha\,\mathrm{Cov}(x_0\mid y)+(1-\bar\alpha)I$). Adding the known noise to that output turns it back into exactly the warm start above. So the "other model" should predict x₀, and the noise is never learned. Truncated diffusion models that do learn a generator for $x_{t_0}$ (TDPM, Zheng et al., ICLR 2023) need an adversarially trained prior because they have no informative estimate of x₀ to start from: unconditional generation, or a weak condition such as a text prompt in their text-to-image variant.
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section id="s2">
+  <h2><span class="no">02</span>Why it is sound, and what the theory does not promise</h2>
+  <div class="thm"><span class="lbl">Proposition · the start error can only shrink</span>
+    Let $\nu$ be the law of the warm start for a given $y$ and $q_{t_0}(\cdot\mid y)$ the true noised posterior. Applying the same Markov kernel to both can increase neither their KL divergence nor their total variation (data processing). The exact reverse kernel $K$ maps $q_{t_0}(\cdot\mid y)$ to $p(x_0\mid y)$, so
+    <div class="eq">$$\mathrm{KL}\big(\nu K\,\big\|\,p(x_0\mid y)\big)\le\mathrm{KL}\big(\nu\,\big\|\,q_{t_0}(\cdot\mid y)\big)\le\frac{\mathrm{SNR}(t_0)}{2}\,\mathbb E\big[\|\hat x_0(y)-x_0\|^2\mid y\big],\qquad \mathrm{SNR}=\frac{\bar\alpha}{1-\bar\alpha},$$</div>
+    with $x_0\sim p(x_0\mid y)$; averaged over $y$ the right side is $\mathrm{SNR}\cdot d\,e^2/2$, and it is non-increasing in $t_0$. A learned kernel $\hat K$ still does not amplify the start error, $\mathrm{TV}(\nu\hat K,q_{t_0}\hat K)\le\mathrm{TV}(\nu,q_{t_0})$, but $q_{t_0}\hat K\neq p(x_0\mid y)$, so the network's own error adds a second term. For DDPM-type samplers Chen et al. (ICLR 2023) bound it by a term that grows with the reverse horizon, so a smaller t₀ also means less accumulated network error; their theorem does not cover DDIM, and its constants are not measured here.
+  </div>
+  <ul class="concl">
+    <li><b>The guarantee is weak in high dimension.</b> The bound sums over every element. For a whole 64 × 64 × 64 cube (d = 262 144) a useful guarantee (KL ≤ 0.1 nat, so TV ≤ 0.22) needs t₀ ≳ 620 even for the 0.29 % linear estimate; for a per-pixel model of a 64-band spectrum (d = 64) it holds from t₀ ≈ 30 with the same estimate. In practice the per-element ratio of section 1 is the more useful guide, because it measures how far each input element is from what the network saw in training, but it is a heuristic, not a theorem; the 2-D network attends across the whole patch, so locality does not rescue the whole-cube bound.</li>
+    <li><b>DDIM remembers the start more than DDPM.</b> For a Gaussian posterior with variance $v$ and an exact score, a start offset $\delta$ survives as $\tfrac{r}{1+r}\delta$ under the exact ancestral reverse kernel and as $\sqrt{\tfrac{r}{1+r}}\,\delta$ under the probability-flow ODE that DDIM discretises, with $r=\mathrm{SNR}(t_0)\,v$. The repo's stride-1 samplers follow these within about 15 %; few-step samplers do not, so for 10-step DDIM the factors are qualitative. A bad estimate therefore needs a larger t₀ with DDIM than with DDPM, as the prior-mean start in section 3 shows.</li>
+    <li><b>CCDF's contraction theorem is the closest formal result.</b> Chung, Sim and Ye (CVPR 2022) initialise from a cheap estimate, forward-diffuse to t₀, and show that the error contracts geometrically through the reverse steps. Its proof assumes an oracle score of a point mass at the true image. It applies formally here (with the identity as data-consistency step) but gives no usable numbers, so it supports the idea qualitatively only.</li>
+  </ul>
+  <figure>
+    <div class="tbl">
+      <table class="t">
+        <thead><tr><th>method</th><th>start of the reverse process</th><th>reported</th><th>needs retraining?</th></tr></thead>
+        <tbody>
+          <tr><td>SDEdit (Meng et al., ICLR 2022)</td><td>guide image noised to t₀</td><td>faithfulness–realism trade-off; t₀ ∈ [0.3, 0.6] of the horizon works for reasonable guides</td><td>no</td></tr>
+          <tr><td>CCDF (Chung et al., CVPR 2022)</td><td>feed-forward estimate noised to t₀, plus data consistency</td><td>contraction theorem; MRI with t₀ as small as 0.02 of the horizon, about 50× acceleration</td><td>no</td></tr>
+          <tr><td>ES-DDPM (Lyu et al., arXiv 2022)</td><td>VAE/GAN samples noised to T′</td><td>acceleration and quality gains (abstract only checked)</td><td>no</td></tr>
+          <tr><td>TDiffDe (He et al., arXiv 2023)</td><td>the noisy hyperspectral image, used as x at step T_cut</td><td>HSI denoising, best at T_cut = 35, same β schedule as this repo</td><td>no</td></tr>
+          <tr><td>TDPM (Zheng et al., ICLR 2023)</td><td>GAN-learned prior at T_trunc</td><td>CIFAR-10 FID 3.10 with T_trunc = 99 vs 3.21 for 1 000-step DDPM</td><td>yes</td></tr>
+          <tr><td>ResShift (Yue et al., NeurIPS 2023)</td><td>noised low-resolution image</td><td>×4 super-resolution in 15–20 steps</td><td>yes, own schedule</td></tr>
+          <tr><td>I²SB (Liu et al., ICML 2023)</td><td>the degraded image (Schrödinger bridge)</td><td>2–10 NFE on some tasks, with a small quality loss, vs ≥ 100 for Palette</td><td>yes</td></tr>
+          <tr><td>InDI (Delbracio &amp; Milanfar, TMLR 2023)</td><td>the degraded image, direct iteration</td><td>one step gives the MMSE estimate; more steps trade PSNR for perceptual quality</td><td>yes</td></tr>
+          <tr><td>Consistency models, progressive distillation</td><td>noise, 1–4 steps</td><td>one-step CIFAR-10 FID 3.55; 4-step distilled samplers</td><td>yes; combinable with a warm start</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <figcaption>Citations and the reported numbers were checked against the papers' full text or abstracts, except where marked. The warm start needs no retraining; the bridge methods (ResShift, I²SB, InDI) build the shortcut into training and go further.</figcaption>
+  </figure>
+</section>
+
+<!-- ============================================================ -->
+<section id="s3">
+  <h2><span class="no">03</span>On a well-trained per-pixel model: 10 evaluations instead of 1 000</h2>
+  <p class="lead">The 1-D HASCID model (<code>U2Net1D</code>, 132.5 M parameters, PH5 sensor, 160 bands, trained 1 000 epochs) uses its sensor input: shuffling y between pixels raises its one-step error at t = 100 from 1.2 % to 12 %. It is the right model to test the idea on. Its own error is about 3.4 % (0.07 in cube units). Four starting estimates, each re-noised to t₀ and finished with DDPM, all fed the loader's noise-free y:</p>
+  <figure>
+    <div class="legend"><span><i style="background:var(--accent)"></i>linear estimate, noise-free (0.40 % alone)</span><span><i style="background:var(--s2)"></i>linear estimate, 40 dB-design regulariser (3.30 % alone)</span><span><i style="background:var(--s3)"></i>model's own 5-step DDIM (3.48 % alone)</span><span><i class="dash" style="border-top-color:var(--s4)"></i>prior mean, no sensor information (14.6 % alone)</span></div>
+    <div class="scroll" data-chart="oned" data-aria="Error after warm-started DDPM versus start step t0 for four starting estimates on the per-pixel model; the comparable estimates stay near full sampling's 3.4 percent at every t0, the prior-mean start needs t0 of about 400, and the noise-free linear start is clearly better than full sampling up to t0 of 300, level at 400, slightly worse at 600, and best at the smallest t0"></div>
+    <figcaption>RMSE in % reflectance. 32 test pixels from 24 unseen HASCID scenes × 2 noise seeds (paired standard errors 0.3–0.9 points). Dashed: full DDPM from pure noise (1 000 NFE, 3.41 % over the 58 runs that did not diverge) and full DDIM-50 (3.30 %). All starts share the same re-noising and sampler noise, so at t₀ ≥ 400 the curves are almost one draw. An independent re-run on 16 new pixels with new seeds reproduced the noise-free-linear, prior-mean and 5-step-DDIM results; the 40 dB-design start was not re-run.</figcaption>
+  </figure>
+  <figure>
+    <div class="tbl">
+      <table class="t">
+        <thead><tr><th>sampler</th><th>NFE</th><th>RMSE</th><th>SAM</th><th></th></tr></thead>
+        <tbody>
+          <tr><td>full DDPM from noise</td><td class="num">1 000</td><td class="num">3.41 %</td><td class="num">9.4°</td><td>6 of 64 runs diverged to NaN; mean of the other 58 (on those 58: DDIM-50 3.45 %, the 40 dB-design start 3.44 %)</td></tr>
+          <tr><td>full DDIM from noise</td><td class="num">50</td><td class="num">3.30 %</td><td class="num">9.9°</td><td>heavy-tailed: one of 64 runs at 36 % (median 2.0 %)</td></tr>
+          <tr><td>40 dB-design linear estimate → DDIM-10 from t₀ = 200</td><td class="num">10</td><td class="num">3.28 %</td><td class="num">10.0°</td><td><span class="pill ok">same mean RMSE as full DDPM (paired +0.15 ± 0.41)</span></td></tr>
+          <tr><td>model's 5-step DDIM estimate alone</td><td class="num">5</td><td class="num">3.48 %</td><td class="num">9.3°</td><td>as good and cheaper: few-step DDIM from noise already works on this checkpoint</td></tr>
+          <tr><td>prior mean → DDPM from t₀ = 400</td><td class="num">401</td><td class="num">3.68 %</td><td class="num">10.0°</td><td>a useless start needs a large t₀</td></tr>
+          <tr><td>prior mean → DDPM from t₀ = 200</td><td class="num">201</td><td class="num">5.72 %</td><td class="num">15.3°</td><td><span class="pill no">t₀ too small for this start</span></td></tr>
+          <tr><td>noise-free linear estimate → DDIM-10 from t₀ = 200</td><td class="num">10</td><td class="num">1.82 %</td><td class="num">6.2°</td><td>better than full sampling</td></tr>
+          <tr><td>noise-free linear estimate alone</td><td class="num">0</td><td class="num">0.40 %</td><td class="num">1.4°</td><td><span class="pill wn">beats every diffusion output</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <figcaption>RMSE in % reflectance on the 160-band target; SAM per pixel. Rows with "→" re-noise that estimate to t₀. The 40 dB-design linear estimate uses a regulariser chosen for 40 dB sensor noise but is applied to the same noise-free y the model receives; it stands in for a start of about the model's own quality in mean RMSE (3.30 % vs 3.41 %), though its median (3.32 % vs 2.19 %) and SAM (11.5° vs 9.4°) are worse. No run here used noisy sensor values.</figcaption>
+  </figure>
+  <ul class="concl">
+    <li><b>The start's quality sets t₀.</b> A start about as good as the model is forgotten by t₀ ≈ 200 (median 2.21 % after DDPM from t₀ = 200 vs 2.19 % for full DDPM), so the last 200 steps, or 10 DDIM steps over them, reproduce full sampling. The prior mean needs t₀ ≈ 400 and clearly fails at 200 and below.</li>
+    <li><b>For starts at least as good as the model, truncated DDIM is as good as or better than truncated DDPM at 20–40× fewer NFE</b> (10 DDIM steps from t₀ = 200: 3.28 % vs 3.60 % for 201 DDPM steps from the 40 dB-design start). For the prior-mean start it is worse (4.52 % vs 3.68 % at t₀ = 400), as the retention formula of section 2 predicts. Plain 5-step DDIM from noise is as cheap and as good on this checkpoint, so here the speed-ups do not compound.</li>
+    <li><b>Warm starts are also more stable.</b> Full DDPM from pure noise diverged to NaN in 6 of 64 runs, on dark pixels, around t ≈ 700; no warm-started run with t₀ ≤ 600 diverged. Clamping the x₀ prediction to [−1, 1] inside each step also fixes it; the current <code>DiffusionTrainer.sample</code> does this by default.</li>
+    <li><b>When the estimate beats the model, diffusion only adds error.</b> From the noise-free linear estimate (0.40 %) the error rises steadily with t₀: 1.16 % at t₀ = 50, 1.64 % at 100, 2.71 % at 200, 3.73 % at 600. Section 5 explains why that estimate is so good.</li>
+  </ul>
+</section>
+
+<!-- ============================================================ -->
+<section id="s4">
+  <h2><span class="no">04</span>On the 2-D HFD checkpoint: the network ignores which sensor values it gets</h2>
+  <p class="lead">The only readable 2-D HFD model on this machine is <code>results/2d_hsi_diffusion/HFD/R_1/l2_loss/checkpoint_epoch_101.pth</code>: 64 bands, R_Device1, <code>base_channels 128</code>, 194 M parameters, ε-prediction with MSE 0.036 after 100 epochs, trained before the 10 000-file cap on classes P001–P089. (The <code>args.json</code> beside it is stale.) Test set: 16 patches from the unseen classes P090–P100 × 2 seeds.</p>
+  <figure>
+    <div class="legend"><span><i style="background:var(--accent)"></i>noise-free linear estimate → DDPM from t₀</span><span><i class="dash" style="border-top-color:var(--s4)"></i>prior mean → DDPM from t₀</span></div>
+    <div class="scroll" data-chart="twod" data-aria="Error of warm-started sampling on the 2-D checkpoint versus t0 on a log scale; the linear start rises from about 1 percent at t0 equal 10 to 39 percent at 600, the prior-mean start stays near 20 percent and then rises, and full sampling from noise is at 57 percent, far worse than both"></div>
+    <figcaption>Full DDPM from noise gives 57.0 % (PSNR 4.9 dB), worse than ignoring the sensor and outputting the prior mean (20.1 %). Every warm start beats it, but every one is worse than the 0.29 % linear estimate it started from. The verifier reproduced full sampling with <code>DiffusionTrainer.sample</code> from the training-time code, which does not clamp x̂₀ (56.8 %; the current sampler clamps by default, which gives about 41 %), and the linear-start rows within 0.1 points on 8 new patches (prior-mean start at t₀ = 200: 21.2 % vs 22.2 %).</figcaption>
+  </figure>
+  <figure>
+    <p class="charthead">The y-swap test: one-step x₀ error from the correctly noised true cube</p>
+    <div class="tbl">
+      <table class="t">
+        <thead><tr><th>t</th><th>with the true y</th><th>with another cube's y</th><th>with y = 0</th></tr></thead>
+        <tbody>
+          <tr><td class="num">999</td><td class="num">56.17 %</td><td class="num">56.17 %</td><td class="num">56.13 %</td></tr>
+          <tr><td class="num">600</td><td class="num">34.05 %</td><td class="num">34.05 %</td><td class="num">34.35 %</td></tr>
+          <tr><td class="num">300</td><td class="num">10.50 %</td><td class="num">10.50 %</td><td class="num">10.61 %</td></tr>
+          <tr><td class="num">100</td><td class="num">3.23 %</td><td class="num">3.23 %</td><td class="num">3.30 %</td></tr>
+          <tr><td class="num">50</td><td class="num">1.85 %</td><td class="num">1.85 %</td><td class="num">1.93 %</td></tr>
+          <tr><td class="num">20</td><td class="num">1.09 %</td><td class="num">1.09 %</td><td class="num">1.14 %</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <figcaption>Giving the network another cube's sensor values changes its one-step error by at most 0.01 points at any t. Setting y = 0 changes it by up to 0.3 points, so the network reacts to the presence of y but not to which cube it came from. The sensor enters only through cross-attention, and at epoch 100 the network has not learned to use it. Its noise-prediction error is also flat at about 0.032 for every t from 999 down to 300, where a working model approaches zero at t = 999; samples started from pure noise drift to values of ±150.</figcaption>
+  </figure>
+  <p>A warm start cannot rescue a model that ignores y: each reverse step replaces information that came from the sensor with the network's unconditional guess, so the error grows with t₀ (1.06 % at t₀ = 10, 8.80 % at 200, 39.0 % at 600). This is an early checkpoint, so the result does not say the architecture cannot work. It is, however, consistent with the flat ε-L1 plateau of 0.151 in the later single-GPU full-grid runs: for roughly Gaussian residuals an L1 of 0.151 is an MSE of about (0.151/0.798)² ≈ 0.036, the loss of this checkpoint. A loss plateau alone cannot tell a model that ignores y from one limited by capacity (the reading in the companion report); only the y-swap test can. Those checkpoints are corrupt or on the cluster, so they could not be tested here. The y-swap test (section 7) takes a minute to run on any checkpoint.</p>
+</section>
+
+<!-- ============================================================ -->
+<section id="s5">
+  <h2><span class="no">05</span>The linear baseline: with noise-free sensor values it wins outright</h2>
+  <p class="lead">The repo computes the sensor values exactly, <code>y = x @ R</code>, with no measurement noise. For HFD with R_Device1 (30 filters, 31 bands) only one direction of each spectrum is unmeasured in exact arithmetic, and the training prior fills it in. The closed-form estimate $\hat x_0=\mu+K(y-R^{\mathsf T}\mu)$ then reconstructs held-out cubes almost perfectly:</p>
+  <div class="kv">
+    <div><small>HFD, R_Device1, linear estimate</small><b>0.29 % RMSE</b></div>
+    <div><small>same, PSNR / SAM</small><b>51 dB / 0.44°</b></div>
+    <div><small>HFD, PH5 sensor, linear estimate</small><b>0.73 %</b></div>
+    <div><small>cost per 64 × 64 cube</small><b>4 ms, 0 NFE</b></div>
+  </div>
+  <p>The ill-conditioning of the sensor matrix (§1 of the report) matters mainly once there is noise; without noise it still makes the result depend on the solver (0.29 % with a direct solve, 0.37 % with an explicit inverse at the same regulariser), so use a whitened or SVD solve. With noise the regulariser has to grow and the estimate degrades quickly. It reaches the per-pixel diffusion model's error between 60 and 40 dB, around 50 dB; the model itself was only evaluated on noise-free y, so the true crossover lies at that SNR or lower:</p>
+  <figure>
+    <div class="legend"><span><i style="background:var(--accent)"></i>linear estimate, regulariser tuned per noise level</span><span><i class="dash" style="border-top-color:var(--muted)"></i>per-pixel diffusion model, full sampling, noise-free y (3.1–3.4 %)</span></div>
+    <div class="scroll" data-chart="noise" data-aria="Error of the linear estimate versus sensor signal-to-noise ratio for the HASCID PH5 setting: 0.35 percent at 140 dB, 0.44 at 100, 0.66 at 80, 2.28 at 60 and 3.99 at 40 dB, crossing the diffusion model's 3.1 to 3.4 percent between 60 and 40 dB, around 50 dB"></div>
+    <figcaption>HASCID, PH5 sensor, 160 bands, RMSE in % reflectance; Gaussian noise added to y at the stated SNR, the regulariser chosen per level on the test pixels (an optimistic oracle). Noise-free, the estimate is 0.34 % on these 2 048 pixels with a stable SVD solve (0.40 % on the 32 pixels of section 3). The dashed lines are the diffusion model's full DDPM error with noise-free y on two independent test sets; the model was not run on noisy y.</figcaption>
+  </figure>
+  <p>Two consequences. First, in the current setup both tested diffusion models lose to a 4 ms linear solve by a factor of 8 or more. A sampler can beat it only if the network extracts more than the per-pixel linear posterior, through spatial context or a non-Gaussian prior; until a model does, its training loss and metrics say little about the method. Real cameras have measurement noise, and the benchmark should too. Second, with enough noise (below about 50 dB here) the linear estimate is no better than the model, but it is still a good, free starting estimate. That is the regime the 40 dB-design start of section 3 imitates: with noise-free y it reached full-sampling mean error in 10 NFE. Whether this holds with genuinely noisy y, and for a model trained on noisy y, is untested.</p>
+</section>
+
+<!-- ============================================================ -->
+<section id="s6">
+  <h2><span class="no">06</span>Choosing t₀</h2>
+  <p class="lead">The measurements give a simple rule: a start is forgotten once the noise level $\sigma(t_0)$ is several times larger than both the start's error and the model's own error (for the per-pixel model about 0.07 in cube units, 3.4 % RMSE). Which of the two is larger decides what to do.</p>
+  <figure>
+    <div class="tbl">
+      <table class="t">
+        <thead><tr><th>situation</th><th>what to do</th><th>evidence</th></tr></thead>
+        <tbody>
+          <tr><td>estimate better than the model</td><td>smallest t₀, or skip diffusion; use diffusion only if it adds something the metric does not see</td><td>noise-free linear start: error rises with t₀ in both experiments</td></tr>
+          <tr><td>estimate about as good as the model</td><td>t₀ ≈ 200 with 10 DDIM steps, or plain few-step DDIM from noise if the model is stable</td><td>40 dB-design start: median 2.21 % after DDPM from t₀ = 200 vs 2.19 % for full DDPM (start forgotten); DDIM-10 from t₀ = 200: 3.28 %, paired +0.15 ± 0.41 points vs full DDPM</td></tr>
+          <tr><td>estimate worse than the model</td><td>t₀ where σ(t₀) is about 5–7 × the estimate's RMS error; larger with DDIM</td><td>prior mean (RMS error ≈ 0.35 in cube units): t₀ ≈ 400 works, 300 is borderline, 200 fails</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <figcaption>σ(t₀) = 0.18, 0.34, 0.72, 1.24, 2.04 and 6.2 at t₀ = 50, 100, 200, 300, 400 and 600. Errors in cube units are RMS errors on the loader's [−1, 1] scale. The rule is empirical, from one model and 32 pixels; treat the boundaries as ± one grid step.</figcaption>
+  </figure>
+  <p><b>Sensor super-resolution stage.</b> The same idea applies with bilinear up-sampling of the low-resolution sensor image as the start, as ResShift and I²SB do for image super-resolution. Measured start errors on that model's normalised [−1, 1] scale are 0.010, 0.020, 0.023, 0.033 and 0.041 for d = 2, 3, 4, 6 and 8 (area down-sampling), so even at d = 8 the start is buried under noise from t₀ ≈ 60 on (σ = 0.2). How small t₀ can go depends on the SR model's own error, which needs measuring on a cluster checkpoint.</p>
+  <p><b>Matching the posterior covariance did not help, but was not really tested.</b> In the 2-D experiment the fitted posterior covariance was almost zero (trace 2.3 × 10⁻³ against 4.79 for the prior), so the sampled start was effectively the mean; with a larger covariance fitted by the verifier it was slightly worse (9.04 % vs 8.77 % at t₀ = 200). In the 1-D experiment the stored covariance was numerically corrupted. The covariance is fragile with this ill-conditioned sensor matrix; use the point estimate.</p>
+</section>
+
+<!-- ============================================================ -->
+<section id="s7">
+  <h2><span class="no">07</span>What to do</h2>
+  <ol class="steps">
+    <li><b>Run the y-swap test on every checkpoint, starting with the cluster ones.</b> If the prediction does not change when y is swapped between cubes, the conditioning is broken and no sampler fixes it.
+<pre class="code"><code>trainer = DiffusionTrainer(prediction_type=pred_type)   # 'eps' for the l2_loss checkpoint, 'v' for the cluster FSDP runs
+model.eval(); dev = trainer.device
+x0, y = next(iter(val_loader))                          # [B,64,H,W], [B,30,h,w]; needs B >= 2
+x0, y = x0.to(dev), y.to(dev)
+t = torch.full((x0.shape[0],), 100, device=dev, dtype=torch.long)
+xt, _ = trainer.q_sample(x0, t)
+with torch.no_grad():
+    for name, yy in [('true', y), ('swapped', y.roll(1, 0)), ('zero', 0 * y)]:
+        x0_hat, _ = trainer._model_to_x0_eps(model(xt, yy, t), xt, t)
+        print(name, (x0_hat - x0).pow(2).mean().sqrt().item())   # 'true' must be clearly lowest</code></pre></li>
+    <li><b>Add realistic measurement noise to y</b> in training and evaluation, at the SNR of the real camera (and keep <code>--ds</code> for the low-resolution case). Without it, at full sensor resolution, a linear solve wins and the diffusion results are not informative.</li>
+    <li><b>Report the linear baseline</b> (0 NFE) next to every diffusion metric, with its regulariser matched to the noise level and computed by a stable whitened or SVD solve.</li>
+    <li><b>Use the warm-start sampler</b> once the model beats or matches the linear estimate, and compare it with plain few-step DDIM from noise:
+<pre class="code"><code>x0_hat = clamp(mu + (y - mu @ R) @ K.T, -1, 1)          # per pixel, 31 bands; then interpolate to 64
+steps = min(steps, t0)                                   # avoid repeated timesteps when t0 < steps
+ts = torch.linspace(t0, 0, steps + 1).round().long()     # t0 = 200, steps = 10: 200, 180, ..., 20, 0
+x = sqrt(ab[t0]) * x0_hat + sqrt(1 - ab[t0]) * randn_like(x0_hat)
+for t, t_next in zip(ts[:-1], ts[1:]):
+    x0p, _ = trainer._model_to_x0_eps(model(x, y, t.repeat(x.shape[0])), x, t)
+    x0p = x0p.clamp(-1, 1)                               # clamp: also stops NaN blow-ups
+    if t_next == 0: break                                # output = x0 prediction at the last t
+    eps = (x - sqrt(ab[t]) * x0p) / sqrt(1 - ab[t])
+    x = sqrt(ab[t_next]) * x0p + sqrt(1 - ab[t_next]) * eps   # DDIM, eta = 0
+return x0p</code></pre>
+    Choose t₀ with the rule of section 6, and check it on a few held-out cubes against full sampling.</li>
+    <li><b>Apply the same start to the sensor-SR stage</b> with bilinear up-sampling as x̂₀, then measure the SR model's own error to set t₀.</li>
+  </ol>
+  <footer>Experiments: 2-D HFD checkpoint on GPU 0 under a 2.4 GiB cap, 1-D HASCID checkpoint on CPU, each re-run independently by a verifier with new items and seeds; theory and citations checked against the papers. Scripts are in <code>docs/analysis/warm_start/</code> of the <code>Chaoyi-He1/Diffu_HSI</code> repository (branch <code>worktree-docs-diffusion-proof</code>). References: Chen, Chewi, Li, Li, Salim, Zhang, ICLR 2023; Chung, Sim, Ye, CVPR 2022 (CCDF); Delbracio and Milanfar, TMLR 2023 (InDI); He, Li, Li, Yuan, arXiv:2311.13622 (TDiffDe); Liu et al., ICML 2023 (I²SB); Lyu et al., arXiv:2205.12524 (ES-DDPM); Meng et al., ICLR 2022 (SDEdit); Salimans and Ho, ICLR 2022; Song et al., ICML 2023 (consistency models); Yue, Wang, Loy, NeurIPS 2023 (ResShift); Zheng et al., ICLR 2023 (TDPM). Companion report: <a href="https://claude.ai/artifact/1nCg5dZ7zUxDvxFzrrJG3x">Why diffusion recovers the spectrum</a>.</footer>
+</section>
+</main>
+
+
+<script>
+(function(){
+const NS='http://www.w3.org/2000/svg';
+function el(tag,attrs,parent){const e=document.createElementNS(NS,tag);if(attrs)for(const k in attrs)e.setAttribute(k,attrs[k]);if(parent)parent.appendChild(e);return e;}
+function tx(p,x,y,s,cls,anchor){const t=el('text',{x:x,y:y},p);if(cls)t.setAttribute('class',cls);if(anchor)t.setAttribute('text-anchor',anchor);t.textContent=s;return t;}
+function box(p,x,y,w,h,lines,cls,mono){el('rect',{x:x,y:y,width:w,height:h,rx:7,class:cls||'box'},p);const n=lines.length;lines.forEach(function(s,i){tx(p,x+w/2,y+h/2+(i-(n-1)/2)*17+4.5,s,(i===0?'bt':'bs')+(mono&&i===0?' mono':''),'middle');});}
+function arr(p,pts,cls){const k=cls||'';const m=k.indexOf('acc')>=0?'mA':(k.indexOf('s2')>=0?'mS':'mI');return el('path',{d:'M'+pts.map(function(q){return q[0]+' '+q[1];}).join(' L'),class:'ar '+k,'marker-end':'url(#'+m+')'},p);}
+function line(p,x1,y1,x2,y2,cls){return el('line',{x1:x1,y1:y1,x2:x2,y2:y2,class:cls||'wire'},p);}
+function mk(host,W,H,minW){const s=el('svg',{viewBox:'0 0 '+W+' '+H,role:'img','aria-label':host.dataset.aria||''});s.style.minWidth=(minW||Math.min(W,640))+'px';host.appendChild(s);return s;}
+function fmtNum(v){return v>=0.01?v.toFixed(3):v.toExponential(1);}
+
+/* tooltip */
+const tip=document.getElementById('tip');
+function showTip(e,html){tip.innerHTML=html;tip.hidden=false;const r=tip.getBoundingClientRect();let x=e.clientX+14,y=e.clientY+14;if(x+r.width>innerWidth-8)x=e.clientX-r.width-14;if(y+r.height>innerHeight-8)y=e.clientY-r.height-14;tip.style.left=Math.max(4,x)+'px';tip.style.top=Math.max(4,y)+'px';}
+function hideTip(){tip.hidden=true;}
+function svgPt(svg,e){const p=svg.createSVGPoint();p.x=e.clientX;p.y=e.clientY;return p.matrixTransform(svg.getScreenCTM().inverse());}
+function dataTable(host,head,rows){const d=document.createElement('details');d.className='data';const sm=document.createElement('summary');sm.textContent='Show the data';d.appendChild(sm);const w=document.createElement('div');w.className='tbl';const t=document.createElement('table');t.className='dt';let h='<tr>'+head.map(function(x){return '<th>'+x+'</th>';}).join('')+'</tr>';rows.forEach(function(r){h+='<tr>'+r.map(function(x){return '<td>'+x+'</td>';}).join('')+'</tr>';});t.innerHTML=h;w.appendChild(t);d.appendChild(w);host.parentNode.insertBefore(d,host.nextSibling);}
+
+/* ---------- line chart (linear or log y) ---------- */
+function lineChart(host,o){
+  const W=o.w||720,H=o.h||300,m={l:o.ml||54,r:(o.mr==null?110:o.mr),t:26,b:44};
+  const svg=mk(host,W,H,o.minW||520);
+  const pw=W-m.l-m.r,ph=H-m.t-m.b;
+  const fy=o.logY?Math.log10:function(v){return v;};
+  const X=function(v){return m.l+(v-o.x[0])/(o.x[1]-o.x[0])*pw;},Y=function(v){return m.t+ph-(fy(v)-fy(o.y[0]))/(fy(o.y[1])-fy(o.y[0]))*ph;};
+  o.yTicks.forEach(function(t){line(svg,m.l,Y(t),m.l+pw,Y(t),'grid');tx(svg,m.l-8,Y(t)+4,(o.yFmt||String)(t),'tick','end');});
+  line(svg,m.l,m.t+ph,m.l+pw,m.t+ph,'axis');
+  o.xTicks.forEach(function(t){tx(svg,X(t),m.t+ph+18,(o.xFmt||String)(t),'tick','middle');});
+  if(o.yTitle)tx(svg,4,14,o.yTitle,'axt','start');
+  if(o.xTitle)tx(svg,m.l+pw,m.t+ph+38,o.xTitle,'axt','end');
+  (o.refs||[]).forEach(function(r){line(svg,m.l,Y(r.y),m.l+pw,Y(r.y),'ref');tx(svg,r.left?m.l+8:m.l+pw+8,Y(r.y)+(r.dy==null?4:r.dy),r.label,'reflbl','start');});
+  o.series.forEach(function(s){
+    const d=s.data.map(function(p,i){return (i?'L':'M')+X(p[0]).toFixed(1)+' '+Y(Math.max(p[1],o.y[0])).toFixed(1);}).join(' ');
+    el('path',{d:d,class:'ln',style:'stroke:var('+s.c+')'+(s.dash?';stroke-dasharray:6 4':'')},svg);
+    const L=s.data[s.data.length-1];
+    el('circle',{cx:X(L[0]),cy:Y(Math.max(L[1],o.y[0])),r:4.5,class:'dot',style:'fill:var('+s.c+')'},svg);
+    if(s.label)tx(svg,X(L[0])+(s.ldx==null?10:s.ldx),Y(Math.max(L[1],o.y[0]))+(s.ldy==null?4:s.ldy),s.label,'endlbl',s.lanchor||'start');
+  });
+  const cross=el('line',{y1:m.t,y2:m.t+ph,class:'cross',visibility:'hidden'},svg);
+  const hd=o.series.map(function(s){return el('circle',{r:5,class:'dot',style:'fill:var('+s.c+')',visibility:'hidden'},svg);});
+  const hit=el('rect',{x:m.l,y:m.t,width:pw,height:ph,class:'hit'},svg);
+  function off(){cross.setAttribute('visibility','hidden');hd.forEach(function(c){c.setAttribute('visibility','hidden');});hideTip();}
+  hit.addEventListener('pointermove',function(e){
+    const p=svgPt(svg,e);const xv=o.x[0]+(p.x-m.l)/pw*(o.x[1]-o.x[0]);const tol=(o.x[1]-o.x[0])*0.03;const rows=[];
+    o.series.forEach(function(s,i){
+      const f=Math.min(s.data[0][0],s.data[s.data.length-1][0]),l=Math.max(s.data[0][0],s.data[s.data.length-1][0]);
+      if(xv<f-Math.abs(tol)||xv>l+Math.abs(tol)){hd[i].setAttribute('visibility','hidden');return;}
+      let bi=0;s.data.forEach(function(q,j){if(Math.abs(q[0]-xv)<Math.abs(s.data[bi][0]-xv))bi=j;});
+      const b=s.data[bi];hd[i].setAttribute('cx',X(b[0]));hd[i].setAttribute('cy',Y(Math.max(b[1],o.y[0])));hd[i].setAttribute('visibility','visible');
+      rows.push('<div class="tr"><i style="background:var('+s.c+')"></i>'+s.name+'<b>'+(o.tipY||fmtNum)(b[1])+'</b></div><div class="sub">'+(o.tipX||String)(b[0],s)+'</div>');
+    });
+    if(!rows.length){off();return;}
+    cross.setAttribute('x1',p.x);cross.setAttribute('x2',p.x);cross.setAttribute('visibility','visible');
+    showTip(e,rows.join(''));
+  });
+  hit.addEventListener('pointerleave',off);
+  if(o.table)dataTable(host,o.table.head,o.table.rows);
+}
+
+/* ---------- horizontal bars ---------- */
+function rrect(x,y,w,h,r){if(w<=r)return 'M'+x+' '+y+'h'+w+'v'+h+'h'+(-w)+'z';return 'M'+x+' '+y+'h'+(w-r)+'a'+r+' '+r+' 0 0 1 '+r+' '+r+'v'+(h-2*r)+'a'+r+' '+r+' 0 0 1 '+(-r)+' '+r+'h'+(-(w-r))+'z';}
+function hbar(host,o){
+  const W=o.w||720,rowH=o.rowH||38,m={l:o.ml||250,r:o.mr||70,t:10,b:34};
+  const H=m.t+m.b+rowH*o.rows.length;const svg=mk(host,W,H,o.minW||560);
+  const pw=W-m.l-m.r;const X=function(v){return m.l+v/o.max*pw;};
+  o.ticks.forEach(function(t){line(svg,X(t),m.t,X(t),H-m.b,'grid');tx(svg,X(t),H-m.b+18,(o.tickFmt||String)(t),'tick','middle');});
+  line(svg,m.l,m.t,m.l,H-m.b,'axis');
+  if(o.xTitle)tx(svg,m.l+pw,H-2,o.xTitle,'axt','end');
+  o.rows.forEach(function(r,i){
+    const yc=m.t+rowH*i+rowH/2;const bh=18;
+    tx(svg,m.l-12,yc+4,r.label,'bs','end');
+    el('path',{d:rrect(X(0),yc-bh/2,Math.max(1,X(r.v)-X(0)),bh,4),style:'fill:var('+(r.c||'--accent')+')'},svg);
+    tx(svg,X(r.v)+8,yc+4,(o.fmt||String)(r.v),'vlbl','start');
+    const h=el('rect',{x:m.l,y:yc-rowH/2,width:pw,height:rowH,fill:'transparent',class:'barhit'},svg);
+    h.addEventListener('pointermove',function(e){showTip(e,'<div><b style="margin:0;padding:0">'+r.label+'</b></div><div class="sub">'+(r.tip||(o.fmt||String)(r.v))+'</div>');});
+    h.addEventListener('pointerleave',hideTip);
+  });
+  if(o.table)dataTable(host,o.table.head,o.table.rows);
+}
+
+/* ---------- columns ---------- */
+function cpath(x,base,w,h,r){if(h<=r)return 'M'+x+' '+base+'v'+(-h)+'h'+w+'v'+h+'z';return 'M'+x+' '+base+'v'+(-(h-r))+'a'+r+' '+r+' 0 0 1 '+r+' '+(-r)+'h'+(w-2*r)+'a'+r+' '+r+' 0 0 1 '+r+' '+r+'v'+(h-r)+'z';}
+function columns(host,o){
+  const W=o.w||720,H=o.h||300,m={l:54,r:12,t:24,b:56};const svg=mk(host,W,H,520);
+  const pw=W-m.l-m.r,ph=H-m.t-m.b;const Y=function(v){return m.t+ph-v/o.max*ph;};const band=pw/o.cats.length;
+  o.ticks.forEach(function(t){line(svg,m.l,Y(t),m.l+pw,Y(t),'grid');tx(svg,m.l-8,Y(t)+4,(o.tickFmt||String)(t),'tick','end');});
+  line(svg,m.l,Y(0),m.l+pw,Y(0),'axis');
+  if(o.yTitle)tx(svg,4,14,o.yTitle,'axt','start');
+  const bw=Math.min(44,band*0.5);
+  o.cats.forEach(function(c,i){
+    const cx=m.l+band*i+band/2;tx(svg,cx,Y(0)+20,c.label,'bs','middle');if(c.sub)tx(svg,cx,Y(0)+36,c.sub,'sm','middle');
+    el('path',{d:cpath(cx-bw/2,Y(0),bw,Y(0)-Y(c.v),4),class:'bar'},svg);
+    tx(svg,cx,Y(c.v)-7,(o.fmt||String)(c.v),'vlbl','middle');
+    const h=el('rect',{x:cx-band/2,y:m.t,width:band,height:ph,fill:'transparent',class:'barhit'},svg);
+    h.addEventListener('pointermove',function(e){showTip(e,'<div><b style="margin:0;padding:0">'+c.label+'</b></div><div class="sub">'+(c.tip||(o.fmt||String)(c.v))+'</div>');});
+    h.addEventListener('pointerleave',hideTip);
+  });
+  if(o.table)dataTable(host,o.table.head,o.table.rows);
+}
+
+
+/* ---------- data (from the verified results.json of each experiment) ---------- */
+const ONED={t0:[50,100,200,300,400,600],
+  lin:[1.163,1.641,2.712,2.873,3.286,3.734],
+  linreg:[3.271,3.292,3.601,3.555,3.560,3.776],
+  self:[3.219,3.357,3.816,3.569,3.602,3.790],
+  mean:[6.245,6.404,5.723,4.504,3.676,3.834],
+  full:3.408, ddim50:3.298};
+const TWOD={t0:[10,20,50,100,200,300,400,600],
+  lin:[1.060,1.410,2.483,4.428,8.798,14.296,21.458,39.033],
+  mean:[20.164,20.182,20.287,20.628,22.193,25.332,30.255,42.970],
+  full:56.966, meanAlone:20.149, linAlone:0.289};
+const NOISE={snr:[140,120,100,80,60,40],lin:[0.346,0.391,0.442,0.658,2.278,3.986],free:0.338,model:[3.07,3.41]};
+
+/* ---------- figures ---------- */
+const F={};
+F.pipeline=function(h){
+  const s=mk(h,960,236,760);
+  tx(s,10,20,'WARM START','tag');
+  box(s,10,32,190,66,['sensor values y','30 per pixel'],'box box-s2');
+  arr(s,[[204,65],[244,65]]);
+  box(s,248,32,214,66,['rough estimate x̂₀(y)','μ + K(y − Rᵀμ) · 0 NFE · 4 ms'],'box box-acc');
+  arr(s,[[466,65],[506,65]]);
+  box(s,510,32,206,66,['add noise for step t₀','√ᾱ·x̂₀ + √(1−ᾱ)·ε'],'box');
+  arr(s,[[720,65],[760,65]],'ar-acc');
+  box(s,764,32,186,66,['t₀ reverse steps','or 10 DDIM steps → x̂'],'box box-acc');
+  tx(s,10,140,'STANDARD','tag');
+  box(s,10,152,190,66,['pure noise','x₉₉₉ ~ N(0, I)'],'box');
+  arr(s,[[204,185],[760,185]]);
+  tx(s,482,176,'1 000 reverse steps (or 50–100 DDIM steps)','bs','middle');
+  box(s,764,152,186,66,['reconstructed cube x̂','same network'],'box');
+};
+
+/* ---------- charts ---------- */
+const CH={};
+CH.oned=function(h){
+  const mkS=function(k,c,name,label,ldy){return {name:name,label:label,c:c,ldy:ldy,dash:k==='mean',data:ONED.t0.map(function(t,i){return [t,ONED[k][i]];})};};
+  lineChart(h,{x:[0,620],y:[0,7],yTicks:[0,1,2,3,4,5,6,7],yFmt:function(v){return v+' %';},xTicks:[50,100,200,300,400,600],xTitle:'start step t₀ (DDPM from t₀ to 0)',yTitle:'RMSE, % reflectance',mr:120,minW:640,
+    refs:[{y:ONED.full,label:'full DDPM 3.41 %',dy:-6},{y:ONED.ddim50,label:'DDIM-50 3.30 %',dy:12}],
+    series:[mkS('lin','--accent','noise-free linear start','',4),mkS('linreg','--s2','40 dB linear start','',-14),mkS('self','--s3','model 5-step DDIM start','',-2),mkS('mean','--s4','prior-mean start','',12)],
+    tipY:function(v){return v.toFixed(2)+' %';},tipX:function(t,s){return 't₀ = '+t+' · '+(t+1+(s&&s.name.indexOf('5-step')>=0?5:0))+' NFE';},
+    table:{head:['t₀','noise-free linear','40 dB linear','5-step DDIM','prior mean'],rows:ONED.t0.map(function(t,i){return [t,ONED.lin[i].toFixed(2)+' %',ONED.linreg[i].toFixed(2)+' %',ONED.self[i].toFixed(2)+' %',ONED.mean[i].toFixed(2)+' %'];})}});
+};
+CH.twod=function(h){
+  const mkS=function(k,c,name,label,ldy){return {name:name,label:label,c:c,ldy:ldy,dash:k==='mean',data:TWOD.t0.map(function(t,i){return [t,TWOD[k][i]];})};};
+  lineChart(h,{x:[0,620],y:[0.1,100],logY:true,yTicks:[0.1,1,10,100],yFmt:function(v){return v+' %';},xTicks:[10,100,200,300,400,600],xTitle:'start step t₀ (DDPM from t₀ to 0)',yTitle:'RMSE, % of range (log scale)',mr:150,minW:640,
+    refs:[{y:TWOD.full,label:'full DDPM 57.0 %',dy:-6},{y:TWOD.meanAlone,label:'prior mean alone 20.1 %',dy:14},{y:TWOD.linAlone,label:'linear alone 0.29 %',dy:-6}],
+    series:[mkS('lin','--accent','linear start','',4),mkS('mean','--s4','prior-mean start','',-8)],
+    tipY:function(v){return v.toFixed(2)+' %';},tipX:function(t){return 't₀ = '+t+' · '+(t+1)+' NFE';},
+    table:{head:['t₀','linear start','prior-mean start'],rows:TWOD.t0.map(function(t,i){return [t,TWOD.lin[i].toFixed(2)+' %',TWOD.mean[i].toFixed(2)+' %'];})}});
+};
+CH.noise=function(h){
+  lineChart(h,{x:[145,35],y:[0,4.5],yTicks:[0,1,2,3,4],yFmt:function(v){return v+' %';},xTicks:[140,120,100,80,60,40],xFmt:function(v){return v+' dB';},xTitle:'sensor SNR (more noise to the right)',yTitle:'RMSE, % reflectance',mr:150,minW:640,
+    refs:[{y:NOISE.model[0],label:'model, re-run 3.07 %',dy:14},{y:NOISE.model[1],label:'model 3.41 %',dy:-6}],
+    series:[{name:'linear estimate',label:'',c:'--accent',data:NOISE.snr.map(function(s,i){return [s,NOISE.lin[i]];})}],
+    tipY:function(v){return v.toFixed(2)+' %';},tipX:function(s){return s+' dB SNR';},
+    table:{head:['SNR','linear estimate'],rows:[['noise-free',NOISE.free.toFixed(2)+' %']].concat(NOISE.snr.map(function(s,i){return [s+' dB',NOISE.lin[i].toFixed(2)+' %'];}))}});
+};
+
+document.querySelectorAll('[data-fig]').forEach(function(h){const f=F[h.dataset.fig];if(f)f(h);});
+document.querySelectorAll('[data-chart]').forEach(function(h){const f=CH[h.dataset.chart];if(f)f(h);});
+})();
+</script>

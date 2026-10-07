@@ -1,0 +1,51 @@
+{
+ "primary": [
+  "/data/chaoyi_he/HSI/Diffu/dataset/HFD100 Mat dataset/MatFlower60/Train/P090/85_4.mat",
+  "/data/chaoyi_he/HSI/Diffu/dataset/HFD100 Mat dataset/MatFlower60/Train/P091/63_5.mat",
+  "/data/chaoyi_he/HSI/Diffu/dataset/HFD100 Mat dataset/MatFlower60/Train/P092/90_2.mat",
+  "/data/chaoyi_he/HSI/Diffu/dataset/HFD100 Mat dataset/MatFlower60/Train/P092/52_1.mat",
+  "/data/chaoyi_he/HSI/Diffu/dataset/HFD100 Mat dataset/MatFlower60/Train/P093/96_1.mat",
+  "/data/chaoyi_he/HSI/Diffu/dataset/HFD100 Mat dataset/MatFlower60/Train/P093/70_1.mat",
+  "/data/chaoyi_he/HSI/Diffu/dataset/HFD100 Mat dataset/MatFlower60/Train/P094/52_1.mat",
+  "/data/chaoyi_he/HSI/Diffu/dataset/HFD100 Mat dataset/MatFlower60/Train/P094/54_1.mat",
+  "/data/chaoyi_he/HSI/Diffu/dataset/HFD100 Mat dataset/MatFlower60/Train/P095/2_4.mat",
+  "/data/chaoyi_he/HSI/Diffu/dataset/HFD100 Mat dataset/MatFlower60/Train/P095/83_2.mat",
+  "/data/chaoyi_he/HSI/Diffu/dataset/HFD100 Mat dataset/MatFlower60/Train/P096/100_1.mat",
+  "/data/chaoyi_he/HSI/Diffu/dataset/HFD100 Mat dataset/MatFlower60/Train/P097/42_5.mat",
+  "/data/chaoyi_he/HSI/Diffu/dataset/HFD100 Mat dataset/MatFlower60/Train/P097/89_2.mat",
+  "/data/chaoyi_he/HSI/Diffu/dataset/HFD100 Mat dataset/MatFlower60/Train/P098/103_1.mat",
+  "/data/chaoyi_he/HSI/Diffu/dataset/HFD100 Mat dataset/MatFlower60/Train/P099/78_5.mat",
+  "/data/chaoyi_he/HSI/Diffu/dataset/HFD100 Mat dataset/MatFlower60/Train/P100/70_5.mat"
+ ],
+ "secondary": [
+  "/data/chaoyi_he/HSI/Diffu/dataset/HFD100 Mat dataset/MatFlower60/Train/P002/66_8.mat",
+  "/data/chaoyi_he/HSI/Diffu/dataset/HFD100 Mat dataset/MatFlower60/Train/P007/58_5.mat",
+  "/data/chaoyi_he/HSI/Diffu/dataset/HFD100 Mat dataset/MatFlower60/Train/P008/60_4.mat",
+  "/data/chaoyi_he/HSI/Diffu/dataset/HFD100 Mat dataset/MatFlower60/Train/P015/29_3.mat",
+  "/data/chaoyi_he/HSI/Diffu/dataset/HFD100 Mat dataset/MatFlower60/Train/P027/5_3.mat",
+  "/data/chaoyi_he/HSI/Diffu/dataset/HFD100 Mat dataset/MatFlower60/Train/P047/47_2.mat",
+  "/data/chaoyi_he/HSI/Diffu/dataset/HFD100 Mat dataset/MatFlower60/Train/P069/41_9.mat",
+  "/data/chaoyi_he/HSI/Diffu/dataset/HFD100 Mat dataset/MatFlower60/Train/P073/19_5.mat"
+ ],
+ "s": 3e-07,
+ "s_grid": {
+  "1e-07": 0.47282584460919985,
+  "3e-07": 0.26189547196213786,
+  "1e-06": 0.28101033878739,
+  "3e-06": 0.3073749731242516,
+  "1e-05": 0.3198343343078223,
+  "3e-05": 0.34570565344223636,
+  "0.0001": 0.3999724448489833,
+  "0.0003": 0.46730217338100977,
+  "0.001": 0.5810629673612694,
+  "0.003": 0.690157345206782,
+  "0.01": 0.9319128194106002,
+  "0.03": 1.181778393538772,
+  "0.1": 1.750226424869159,
+  "0.3": 2.8451967581359994,
+  "1.0": 4.47496158945164
+ },
+ "fit_files": 3000,
+ "fit_pixels": 768000,
+ "val_files": 400
+}
