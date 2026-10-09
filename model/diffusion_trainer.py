@@ -48,6 +48,8 @@ class DiffusionTrainer:
         self.clamp_x0 = clamp_x0
         # min-SNR-γ loss weighting (Hang et al. 2023). None or <=0 disables.
         self.snr_gamma = snr_gamma if (snr_gamma is not None and snr_gamma > 0) else None
+        # number of model evaluations made by the most recent `sample` call
+        self.last_nfe = 0
 
         # Build beta schedule
         if beta_schedule == "linear":
@@ -256,6 +258,8 @@ class DiffusionTrainer:
         use_interpolated_alphas: bool = False,
         progress: bool = True,
         clamp_x0: Optional[Tuple[float, float]] = None,
+        x_init: Optional[torch.Tensor] = None,
+        t_start: Optional[int] = None,
     ) -> torch.Tensor:
         """Unified sampler. Choose method 'ddpm' (ancestral) or 'ddim'.
 
@@ -268,6 +272,11 @@ class DiffusionTrainer:
                       each step to this range (e.g. (-1, 1)). Pass `None` to use the
                       instance default (`self.clamp_x0`); pass `(-inf, inf)` or set
                       instance default to `None` to disable clamping.
+            x_init: optional clean-space estimate of shape `shape`. With `t_start`, the chain
+                    starts from sqrt(ab[t_start]) * x_init + sqrt(1 - ab[t_start]) * noise and
+                    runs only the steps from t_start down to 0 (warm start). Both or neither.
+            t_start: integer in [0, n_timesteps - 1]; 0 returns clamp(x_init) with no model call.
+        Side effect: sets self.last_nfe to the number of model evaluations made.
         """
         method = method.lower()
         if method not in ("ddpm", "ddim"):
@@ -284,11 +293,28 @@ class DiffusionTrainer:
                 return x0_pred
             return x0_pred.clamp(clamp_range[0], clamp_range[1])
 
-        x = torch.randn(shape, device=self.device)
-
-        # Build descending timestep schedule (respaced if n_steps < n_timesteps)
-        step_interval = max(1, self.n_timesteps // n_steps)
-        ts = list(range(self.n_timesteps - 1, -1, -step_interval))
+        if (x_init is None) != (t_start is None):
+            raise ValueError('x_init and t_start must be given together')
+        warm = x_init is not None
+        if warm:
+            if not (0 <= int(t_start) < self.n_timesteps):
+                raise ValueError(f't_start must be in [0, {self.n_timesteps - 1}]')
+            t_start = int(t_start)
+            x_init = x_init.to(self.device)
+            if t_start == 0:
+                self.last_nfe = 0
+                return _maybe_clamp(x_init)
+            ab = self.alpha_bars[t_start]
+            x = torch.sqrt(ab) * x_init + torch.sqrt(1.0 - ab) * torch.randn(shape, device=self.device)
+            n_eff = min(n_steps, t_start + 1)
+            grid = torch.linspace(t_start, 0, n_eff + 1).round().long().tolist()[:-1]   # descending, excludes 0
+            ts = sorted(set(grid), reverse=True)
+        else:
+            x = torch.randn(shape, device=self.device)
+            # Build descending timestep schedule (respaced if n_steps < n_timesteps)
+            step_interval = max(1, self.n_timesteps // n_steps)
+            ts = list(range(self.n_timesteps - 1, -1, -step_interval))
+        self.last_nfe = len(ts)
         iterator = tqdm(ts, desc=f"{method.upper()} Sampling") if progress else ts
 
         B = shape[0]
