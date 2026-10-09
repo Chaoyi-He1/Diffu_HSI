@@ -188,6 +188,15 @@ def test_yswap_files_is_stratified_by_class():
         yswap_files(sub['files'][:100], subset_class_counts())                     # counts do not describe the list
 
 
+def test_file_sha256_hashes_the_bytes(tmp_path):
+    import hashlib
+    from scripts.eval_warmstart import file_sha256
+    p = tmp_path / 'blob.bin'
+    data = bytes(range(256)) * 9000                                                 # > one 1 MiB read block
+    p.write_bytes(data)
+    assert file_sha256(str(p)) == hashlib.sha256(data).hexdigest()
+
+
 @pytest.mark.dataset
 def test_baseline_eval_reproduces_recorded_numbers(data_root):
     from scripts.eval_warmstart import baseline_eval
@@ -198,8 +207,10 @@ def test_baseline_eval_reproduces_recorded_numbers(data_root):
     rec = json.load(open(rec_path))
     sub = json.load(open(os.path.join(REPO, 'tests', 'data', 'val_subset_200.json')))
     files = [os.path.join(data_root, f) for f in sub['files'][:40]]
-    out = baseline_eval(data_root, prior, d=4, files=files)
-    assert abs(out['mean']['rmse_pct'] - rec['d4']['subset40_rmse_pct']) < 0.01
+    # d = 1 is the spec's pin (S9): the only rate whose error is dominated by the solver and s, not by the lift
+    for d in (1, 4):
+        out = baseline_eval(data_root, prior, d=d, files=files)
+        assert abs(out['mean']['rmse_pct'] - rec[f'd{d}']['subset40_rmse_pct']) < 0.01, f'd={d}'
 
 
 @pytest.mark.dataset

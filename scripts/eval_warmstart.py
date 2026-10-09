@@ -7,6 +7,7 @@
 Metrics are on the [0, 1] display scale of (x + 1) / 2: RMSE in % of range, PSNR with peak 1, SAM in degrees.
 """
 import argparse
+import hashlib
 import json
 import math
 import os
@@ -89,6 +90,15 @@ def aggregate_row(per_item, base_rmse, classes, n_seeds):
 
 
 # ----------------------------------------------------------------------------- data
+def file_sha256(path):
+    """sha256 of a file's bytes (provenance of the prior npz)."""
+    h = hashlib.sha256()
+    with open(path, 'rb') as f:
+        for block in iter(lambda: f.read(1 << 20), b''):
+            h.update(block)
+    return h.hexdigest()
+
+
 def load_subset(data_root, which='files'):
     sub = json.load(open(SUBSET))
     return [os.path.join(data_root, f) for f in sub[which]]
