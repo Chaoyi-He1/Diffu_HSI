@@ -18,6 +18,7 @@ import scipy.io as sio
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO)
 from data_loader.HFD_dataset import HFD_data  # noqa: E402
+from data_loader.linear_estimate import linear_inverse  # noqa: E402
 
 DATA_ROOT = os.environ.get('HFD_DATA_ROOT', '/data/chaoyi_he/HSI/Diffu/dataset/HFD100 Mat dataset')
 OUT_DIR = os.path.join(REPO, 'results', 'residual_warmstart')
@@ -51,18 +52,33 @@ def make_gain(C, R, s):
     return L @ Vt.T @ np.diag(filt) @ U.T                           # [31, 30]
 
 
-def linear_estimate(Y, prior, K, R):
-    """Y: [..., 30] -> [..., 31] on the [-1, 1] scale (not clipped)."""
-    return prior['mu'] + (Y - prior['mu'] @ R) @ K.T
+def heldout_pixels(files, px_per_file, seed):
+    """`px_per_file` random pixels (seeded) of each file: [len(files) * px_per_file, 31] on the [-1, 1] scale."""
+    rng = np.random.default_rng(seed)
+    out = []
+    for f in files:
+        x = load_cube(f).reshape(-1, 31)
+        out.append(x[rng.choice(len(x), px_per_file, replace=False)])
+    return np.concatenate(out)
 
 
-def choose_s(prior, R, heldout_pixels, candidates=S_CANDIDATES):
-    """Pick the regulariser with the lowest per-element RMSE on held-out spectra [N, 31]."""
-    Y = (heldout_pixels @ R).astype(np.float32).astype(np.float64)  # float32 like the loader's collate
+def sensor_float32(X, R):
+    """The sensor reading of spectra X [..., 31] as the network sees it: float32-rounded, returned as float64."""
+    return (X @ R).astype(np.float32).astype(np.float64)
+
+
+def score_s(prior, R, held, s):
+    """Per-element RMSE ([-1, 1] scale) of the production estimator (clipped linear_inverse) on held-out spectra
+    [N, 31], from float32 sensor values."""
+    Xh = linear_inverse(sensor_float32(held, R), prior['mu'], make_gain(prior['C'], R, s), R)
+    return float(np.sqrt(((Xh - held) ** 2).mean()))
+
+
+def choose_s(prior, R, held, candidates=S_CANDIDATES):
+    """Pick the regulariser with the lowest score_s on held-out spectra [N, 31]."""
     best, best_err = None, np.inf
     for s in candidates:
-        Xh = linear_estimate(Y, prior, make_gain(prior['C'], R, s), R)
-        err = np.sqrt(((Xh - heldout_pixels) ** 2).mean())
+        err = score_s(prior, R, held, s)
         if err < best_err:
             best, best_err = s, err
     return best
@@ -108,6 +124,7 @@ def main():
     ap.add_argument('--n_files', type=int, default=3000)
     ap.add_argument('--px_per_file', type=int, default=256)
     ap.add_argument('--n_heldout_files', type=int, default=300)
+    ap.add_argument('--heldout_px_per_file', type=int, default=64)
     ap.add_argument('--seed', type=int, default=0)
     ap.add_argument('--out', default=os.path.join(OUT_DIR, 'linear_prior_R1.npz'))
     ap.add_argument('--overwrite_sigma', action='store_true',
@@ -123,13 +140,15 @@ def main():
     heldout, fit_files = files[:args.n_heldout_files], files[args.n_heldout_files:]
 
     prior = fit_prior(fit_files, R, args.n_files, args.px_per_file, args.seed)
-    held_px = np.concatenate([load_cube(f).reshape(-1, 31)[::64] for f in heldout])
+    held_px = heldout_pixels(heldout, args.heldout_px_per_file, args.seed + 2)
+    print('held-out RMSE ([-1,1] scale) per candidate s:',
+          ', '.join(f'{c:g}: {score_s(prior, R, held_px, c):.6f}' for c in S_CANDIDATES))
     s = choose_s(prior, R, held_px)
     K = make_gain(prior['C'], R, s)
-    Xh = linear_estimate((held_px @ R).astype(np.float32).astype(np.float64), prior, K, R)
-    err = np.sqrt(((Xh - held_px) ** 2).mean())
+    err = score_s(prior, R, held_px, s)
     print(f'fit on {prior["n_fit_pixels"]} pixels of {prior["n_fit_files"]} files; s = {s:g}; '
-          f'held-out per-element RMSE {err:.5f} ([-1,1] scale) = {err / 2 * 100:.3f} % of range')
+          f'held-out per-element RMSE {err:.5f} ([-1,1] scale, clipped, float32 y) = {err / 2 * 100:.3f} % of range '
+          f'({len(held_px)} random pixels of {len(heldout)} files)')
 
     kept = write_prior(args.out, dict(mu=prior['mu'], C=prior['C'], K=K, s=np.float64(s), R=R,
                                       sigma_d=np.zeros(0), d_values=np.zeros(0, dtype=int),

@@ -36,6 +36,23 @@ def test_choose_s_picks_a_candidate(small_R, synthetic_prior):
     assert s in [1e-7, 1e-5, 1e-3, 1e-1]
 
 
+def test_choose_s_scores_with_the_production_clipped_inverse(small_R, synthetic_prior, monkeypatch):
+    """s is chosen with the estimator the dataset uses (clipped linear_inverse) on float32-rounded sensor values."""
+    import scripts.fit_linear_prior as flp
+    from data_loader import linear_estimate
+    assert flp.linear_inverse is linear_estimate.linear_inverse                    # one estimator, no local copy
+    calls = []
+
+    def spy(y, mu, K, R):
+        calls.append(np.array(y, copy=True))
+        return linear_estimate.linear_inverse(y, mu, K, R)
+    monkeypatch.setattr(flp, 'linear_inverse', spy)
+    held = synthetic_prior['X'][:500]
+    flp.choose_s(synthetic_prior, small_R, held, candidates=[1e-7, 1e-3])
+    y32 = (held @ small_R).astype(np.float32).astype(np.float64)
+    assert len(calls) == 2 and all(np.array_equal(c, y32) for c in calls)
+
+
 def test_write_prior_keeps_sigma_d_unless_asked(tmp_path):
     """Re-fitting must not wipe the sigma_d table of an existing prior (it costs a scale run to rebuild)."""
     from scripts.fit_linear_prior import write_prior
@@ -51,6 +68,20 @@ def test_write_prior_keeps_sigma_d_unless_asked(tmp_path):
     with np.load(p) as z:
         assert z['d_values'].size == 0 and z['sigma_d'].size == 0
     assert sorted(os.listdir(tmp_path)) == ['prior.npz']                           # the temp file was renamed away
+
+
+@pytest.mark.dataset
+def test_heldout_pixels_are_random_and_seeded(data_root):
+    from data_loader.HFD_dataset import HFD_data
+    from scripts.fit_linear_prior import heldout_pixels, load_cube
+    ds = HFD_data(data_path=data_root, train_mode='image', eval_ratio=0.1, split='train',
+                  data_format='image', type='Flower', R_n=1, sensor_down_sample_rate=1)
+    files = ds.img_list[:3]
+    a = heldout_pixels(files, 64, seed=0)
+    assert a.shape == (3 * 64, 31)
+    assert np.array_equal(a, heldout_pixels(files, 64, seed=0))
+    assert not np.array_equal(a, heldout_pixels(files, 64, seed=1))
+    assert not np.array_equal(a, np.concatenate([load_cube(f).reshape(-1, 31)[::64] for f in files]))   # not a stride
 
 
 @pytest.mark.dataset

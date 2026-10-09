@@ -27,6 +27,21 @@ def test_item_shapes_and_consistency(data_root):
 
 @pytest.mark.dataset
 @needs_prior
+@pytest.mark.parametrize('d', [1, 4])
+def test_x0_hat_is_a_function_of_the_returned_float32_y_d(data_root, d):
+    """The sensor data is the float32 y_d the network consumes; x0_hat must be computed from exactly that."""
+    from data_loader.hfd_residual import HFDResidualData
+    from data_loader.linear_estimate import estimate_from_sensor
+    ds = HFDResidualData(data_path=data_root, split='test', sensor_down_sample_rate=d, prior_path=PRIOR)
+    for i in (0, 500):
+        x, y, xh = ds[i]
+        assert y.dtype == np.float32 and xh.dtype == np.float32
+        again = estimate_from_sensor(y, ds.prior, d, x.shape[0], x.shape[1], ds.A).astype(np.float32)
+        assert np.array_equal(again, xh)
+
+
+@pytest.mark.dataset
+@needs_prior
 def test_collate(data_root):
     from data_loader.hfd_residual import HFDResidualData, residual_collate_fn
     ds = HFDResidualData(data_path=data_root, split='test', sensor_down_sample_rate=2, prior_path=PRIOR)

@@ -37,9 +37,11 @@ class HFDResidualData(HFD_data):
     def __getitem__(self, idx):
         x64, y_d = super().__getitem__(idx)                       # [H, W, 64], [h, w, 30]
         H, W = x64.shape[:2]
-        x0_hat = estimate_from_sensor(np.asarray(y_d, dtype=np.float64), self.prior, self.d, H, W, self.A)
-        return (np.asarray(x64, dtype=np.float32), np.asarray(y_d, dtype=np.float32),
-                np.asarray(x0_hat, dtype=np.float32))
+        # The sensor data is the float32 y_d the network consumes; x0_hat is a deterministic function of exactly
+        # that array (the estimate itself runs in float64), so the baseline never sees more precision than the net.
+        y_d = np.asarray(y_d, dtype=np.float32)
+        x0_hat = estimate_from_sensor(y_d.astype(np.float64), self.prior, self.d, H, W, self.A)
+        return np.asarray(x64, dtype=np.float32), y_d, np.asarray(x0_hat, dtype=np.float32)
 
 
 def residual_collate_fn(batch):
