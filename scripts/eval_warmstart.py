@@ -4,6 +4,10 @@
   python scripts/eval_warmstart.py --d 4 --ckpt results/residual_warmstart/residual/d4/checkpoint_epoch_200.pth \
          --mode residual --base_channels 256 [--seeds 0 1] [--device cuda:0]
 
+Baselines go to results/residual_warmstart/eval/baseline_d<d>.json; checkpoint evaluations to
+results/residual_warmstart/eval/<mode>/d<d>/<ckpt basename>.json with a `provenance` record. A checkpoint carrying
+a `meta` dict must agree with the CLI args, the prior's sigma_d and the prior file's sha256 (else ValueError).
+
 Metrics are on the [0, 1] display scale of (x + 1) / 2: RMSE in % of range, PSNR with peak 1, SAM in degrees.
 """
 import argparse
@@ -11,6 +15,7 @@ import hashlib
 import json
 import math
 import os
+import subprocess
 import sys
 import time
 
@@ -234,16 +239,55 @@ def build_model(mode, base_channels, device):
     return ResidualWrapper(net, use_x0_hat=(mode == 'residual')).to(device).eval()
 
 
+META_ARGS = ('mode', 'd', 'base_channels', 'prediction_type')
+
+
+def check_meta(ck, args, sigma_d, prior_sha256):
+    """Compare a checkpoint's `meta` dict (written by the training script) with this evaluation: META_ARGS against
+    the CLI args, sigma_d against the prior's (|diff| < 1e-9), prior_sha256 against the prior file's hash. Raises
+    ValueError naming every mismatch (a missing key counts as one). Without `meta`, prints a one-line warning and
+    returns False (the CLI args are trusted); returns True when the meta was checked."""
+    meta = ck.get('meta') if isinstance(ck, dict) else None
+    if meta is None:
+        print(f'warning: checkpoint {args.ckpt} carries no meta; trusting the CLI args '
+              f'({", ".join(f"{k}={getattr(args, k)!r}" for k in META_ARGS)})')
+        return False
+    bad = [f'{k}: checkpoint {meta.get(k, "<missing>")!r} vs args {getattr(args, k)!r}'
+           for k in META_ARGS if k not in meta or meta[k] != getattr(args, k)]
+    if 'sigma_d' not in meta or abs(float(meta['sigma_d']) - sigma_d) >= 1e-9:
+        bad.append(f'sigma_d: checkpoint {meta.get("sigma_d", "<missing>")!r} vs prior {sigma_d!r}')
+    if meta.get('prior_sha256') != prior_sha256:
+        bad.append(f'prior_sha256: checkpoint {meta.get("prior_sha256", "<missing>")!r} vs prior file {prior_sha256!r}')
+    if bad:
+        raise ValueError(f'checkpoint {args.ckpt} does not match this evaluation: ' + '; '.join(bad))
+    return True
+
+
+def git_head():
+    """The repo's HEAD commit, or None when git is unavailable (best effort)."""
+    try:
+        r = subprocess.run(['git', '-C', REPO, 'rev-parse', 'HEAD'], capture_output=True, text=True, timeout=10)
+        return r.stdout.strip() if r.returncode == 0 and r.stdout.strip() else None
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+
 def checkpoint_eval(args):
     device = torch.device(args.device)
     trainer = DiffusionTrainer(device=device, prediction_type=args.prediction_type, loss_type='l1', snr_gamma=None)
     model = build_model(args.mode, args.base_channels, device)
     ck = torch.load(args.ckpt, map_location='cpu', weights_only=False)
+    ds_all = dataset_for(args.data_root, args.prior, args.d, load_subset(args.data_root, 'files'))
+    sigma_d = ds_all.sigma_d
+    prior_sha256 = file_sha256(args.prior)
+    meta_checked = check_meta(ck, args, sigma_d, prior_sha256)                 # before any expensive work
     sd = ck.get('model_state_dict', ck)
     model.load_state_dict(sd, strict=True)
-    ds_all = dataset_for(args.data_root, args.prior, args.d, load_subset(args.data_root, 'files'))
     ds_ddpm = dataset_for(args.data_root, args.prior, args.d, load_subset(args.data_root, 'ddpm1000_subset'))
-    sigma_d = ds_all.sigma_d
+    provenance = dict(mode=args.mode, d=args.d, base_channels=args.base_channels, prediction_type=args.prediction_type,
+                      n_timesteps=trainer.n_timesteps, sigma_d=sigma_d, prior_s=float(ds_all.prior['s']),
+                      prior_sha256=prior_sha256, prior_path=os.path.abspath(args.prior),
+                      ckpt=os.path.abspath(args.ckpt), git_head=git_head(), meta_checked=meta_checked)
     base = baseline_eval(args.data_root, args.prior, args.d, ds_all.img_list)
     n_seeds = len(args.seeds)
     rows = []
@@ -276,12 +320,14 @@ def checkpoint_eval(args):
     batch = residual_collate_fn([ds_ys[i] for i in range(len(ds_ys))])
     ys = yswap_check(model, trainer, args.mode, batch, sigma_d=sigma_d)
     print('y-swap:', json.dumps(ys))
-    out = dict(ckpt=args.ckpt, mode=args.mode, d=args.d, sigma_d=sigma_d, seeds=args.seeds, baseline=base['mean'],
-               baseline_per_item=base['per_item'], baseline_files=base['files'], rows=rows, yswap=ys,
-               yswap_files=[os.path.relpath(f, args.data_root) for f in ds_ys.img_list])
-    os.makedirs(EVAL_DIR, exist_ok=True)
-    path = os.path.join(EVAL_DIR, f"{os.path.splitext(os.path.basename(args.ckpt))[0]}_{args.mode}_d{args.d}.json")
-    json.dump(out, open(path, 'w'), indent=1)
+    out = dict(provenance=provenance, ckpt=args.ckpt, mode=args.mode, d=args.d, sigma_d=sigma_d, seeds=args.seeds,
+               baseline=base['mean'], baseline_per_item=base['per_item'], baseline_files=base['files'], rows=rows,
+               yswap=ys, yswap_files=[os.path.relpath(f, args.data_root) for f in ds_ys.img_list])
+    out_dir = os.path.join(EVAL_DIR, args.mode, f'd{args.d}')                 # spec S12; baselines stay in EVAL_DIR
+    os.makedirs(out_dir, exist_ok=True)
+    path = os.path.join(out_dir, os.path.splitext(os.path.basename(args.ckpt))[0] + '.json')
+    with open(path, 'w') as f:
+        json.dump(out, f, indent=1)
     print('wrote', path)
 
 

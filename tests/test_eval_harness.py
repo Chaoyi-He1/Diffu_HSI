@@ -197,6 +197,34 @@ def test_file_sha256_hashes_the_bytes(tmp_path):
     assert file_sha256(str(p)) == hashlib.sha256(data).hexdigest()
 
 
+def _meta_args(**kw):
+    import argparse
+    return argparse.Namespace(**dict(dict(mode='residual', d=4, base_channels=64, prediction_type='v', ckpt='c.pth'), **kw))
+
+
+def test_check_meta_without_meta_warns_and_trusts_the_args(capsys):
+    from scripts.eval_warmstart import check_meta
+    assert check_meta({'net.w': torch.zeros(1)}, _meta_args(), 0.05, 'abc') is False   # a bare state dict
+    assert check_meta({'model_state_dict': {}}, _meta_args(), 0.05, 'abc') is False
+    lines = [l for l in capsys.readouterr().out.splitlines() if l]
+    assert len(lines) == 2 and all('no meta' in l and 'CLI args' in l for l in lines)
+
+
+def test_check_meta_names_every_mismatch():
+    from scripts.eval_warmstart import check_meta
+    meta = dict(mode='residual', d=4, base_channels=64, prediction_type='v', sigma_d=0.05, prior_sha256='abc')
+    assert check_meta({'meta': meta}, _meta_args(), 0.05, 'abc') is True
+    assert check_meta({'meta': dict(meta, sigma_d=0.05 + 1e-12)}, _meta_args(), 0.05, 'abc') is True
+    for change, word in ((dict(mode='standard'), 'mode'), (dict(base_channels=256), 'base_channels'),
+                         (dict(prediction_type='eps'), 'prediction_type'), (dict(sigma_d=0.06), 'sigma_d'),
+                         (dict(prior_sha256='def'), 'prior_sha256')):
+        with pytest.raises(ValueError, match=word):
+            check_meta({'meta': dict(meta, **change)}, _meta_args(), 0.05, 'abc')
+    no_sigma = {k: v for k, v in meta.items() if k != 'sigma_d'}
+    with pytest.raises(ValueError, match='sigma_d'):
+        check_meta({'meta': no_sigma}, _meta_args(), 0.05, 'abc')                     # a missing key is a mismatch
+
+
 @pytest.mark.dataset
 def test_baseline_eval_reproduces_recorded_numbers(data_root):
     from scripts.eval_warmstart import baseline_eval
@@ -234,9 +262,16 @@ def test_checkpoint_eval_records_per_cube_values(data_root, tmp_path, monkeypatc
     prior = os.path.join(REPO, 'results', 'residual_warmstart', 'linear_prior_R1.npz')
     if not os.path.exists(prior):
         pytest.skip('prior missing')
+    from data_loader.linear_estimate import load_prior
     torch.manual_seed(0)
+    sd = ew.build_model('residual', 8, torch.device('cpu')).state_dict()               # wrapper state dict, keys 'net.*'
+    p = load_prior(prior)
+    meta = dict(mode='residual', d=4, base_channels=8, prediction_type='v',
+                sigma_d=float(p['sigma_d'][list(p['d_values']).index(4)]), prior_sha256=ew.file_sha256(prior))
     ckpt = tmp_path / 'tiny.pth'
-    torch.save(ew.build_model('residual', 8, torch.device('cpu')).state_dict(), ckpt)   # wrapper state dict, keys 'net.*'
+    torch.save({'model_state_dict': sd, 'meta': meta}, ckpt)                            # matching meta: evaluates
+    bad = tmp_path / 'tiny_bad.pth'
+    torch.save({'model_state_dict': sd, 'meta': dict(meta, d=2)}, bad)                 # trained at another d: refused
     real_load_subset = ew.load_subset
     pick = list(range(0, 3)) + list(range(24, 27)) + list(range(176, 178))              # 3 x P022, 3 x P023, 2 x P024
     monkeypatch.setattr(ew, 'load_subset', lambda root, which='files': (
@@ -247,8 +282,17 @@ def test_checkpoint_eval_records_per_cube_values(data_root, tmp_path, monkeypatc
     monkeypatch.setattr(ew, 'EVAL_DIR', str(tmp_path))
     args = argparse.Namespace(d=4, ckpt=str(ckpt), mode='residual', base_channels=8, prediction_type='v', seeds=[0, 1],
                               batch_size=4, device='cpu', data_root=data_root, prior=prior)
+    with pytest.raises(ValueError, match=r'\bd: checkpoint 2 vs args 4'):
+        ew.checkpoint_eval(argparse.Namespace(**dict(vars(args), ckpt=str(bad))))
     ew.checkpoint_eval(args)
-    out = json.load(open(tmp_path / 'tiny_residual_d4.json'))
+    out = json.load(open(tmp_path / 'residual' / 'd4' / 'tiny.json'))                 # eval/<mode>/d<d>/<ckpt>.json
+    prov = out['provenance']
+    assert {k: prov[k] for k in ('mode', 'd', 'base_channels', 'prediction_type')} == \
+        dict(mode='residual', d=4, base_channels=8, prediction_type='v')
+    assert prov['sigma_d'] == meta['sigma_d'] and prov['prior_sha256'] == meta['prior_sha256']
+    assert prov['n_timesteps'] == 1000 and prov['prior_s'] == float(p['s'])
+    assert prov['prior_path'] == os.path.abspath(prior) and prov['ckpt'] == os.path.abspath(ckpt)
+    assert prov['git_head'] is None or len(prov['git_head']) == 40
     assert len(out['yswap_files']) == 8 and 'passes' in out['yswap']
     assert [f.split('/')[2] for f in out['yswap_files']].count('P024') == 2          # the stratified pick reached P024
     assert len(out['baseline_files']) == 8 and len(out['baseline_per_item']['rmse_pct']) == 8
