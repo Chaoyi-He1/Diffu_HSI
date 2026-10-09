@@ -54,6 +54,40 @@ def summarize(per_item, classes):
     return out
 
 
+def _by_seed(v, n_seeds):
+    """Flat seed-major list [n_seeds * N] -> float64 array [n_seeds, N]."""
+    v = np.asarray(v, dtype=np.float64)
+    if v.size % n_seeds:
+        raise ValueError(f'{v.size} values cannot be split into {n_seeds} seeds of equal length')
+    return v.reshape(n_seeds, -1)
+
+
+def summarize_seeds(per_item, classes, n_seeds):
+    """Like `summarize`, for values collected over several seeds (flat, seed-major: seed 0's cubes, then seed 1's, ...).
+
+    The cube is the independent unit, so each cube's metric is first averaged over seeds; the mean, the standard error
+    and the per-class means are then taken over the N cubes. The spread between seeds is reported separately as
+    `<metric>_seed_std` (std over seeds of the per-seed means)."""
+    by_seed = {k: _by_seed(v, n_seeds) for k, v in per_item.items()}
+    n = next(iter(by_seed.values())).shape[1]
+    if len(classes) != n:
+        raise ValueError(f'{len(classes)} classes for {n} cubes')
+    out = summarize({k: v.mean(0) for k, v in by_seed.items()}, classes)
+    for k, v in by_seed.items():
+        out[k + '_seed_std'] = float(v.mean(1).std(ddof=1)) if n_seeds > 1 else 0.0
+    return out
+
+
+def aggregate_row(per_item, base_rmse, classes, n_seeds):
+    """summarize_seeds plus the paired RMSE difference to the baseline. base_rmse: per-cube baseline RMSE [N] (it does
+    not depend on the seed). The difference is formed per cube (averaged over seeds) before its mean and SE."""
+    out = summarize_seeds(per_item, classes, n_seeds)
+    diff = (_by_seed(per_item['rmse_pct'], n_seeds) - np.asarray(base_rmse, dtype=np.float64)[None]).mean(0)
+    out['paired_rmse_diff'] = float(diff.mean())
+    out['paired_rmse_se'] = float(diff.std(ddof=1) / math.sqrt(len(diff))) if len(diff) > 1 else 0.0
+    return out
+
+
 # ----------------------------------------------------------------------------- data
 def load_subset(data_root, which='files'):
     sub = json.load(open(SUBSET))
@@ -65,7 +99,15 @@ def dataset_for(data_root, prior_path, d, files=None):
     if files is not None:
         wanted = {os.path.abspath(f) for f in files}
         ds.img_list = [f for f in ds.img_list if os.path.abspath(f) in wanted]
+        assert len(ds.img_list) == len(wanted), \
+            f'only {len(ds.img_list)} of {len(wanted)} requested files are in the validation split'
     return ds
+
+
+def yswap_files(files, n=8):
+    """n cubes strided through `files` (200-file subset -> every 25th) so the y-swap pairs are not neighbouring
+    patches of one source image."""
+    return files[::max(1, len(files) // n)][:n]
 
 
 def class_of(path):
@@ -124,15 +166,24 @@ def _one_step_x0(model, trainer, mode, x_target, cond, t_val):
     return x0_pred
 
 
-def yswap_check(model, trainer, mode, batch, t_values=(100, 300), sigma_d=1.0):
+def yswap_check(model, trainer, mode, batch, t_values=(100, 300), sigma_d=None):
+    """One-step x0 error of `model` under the true condition and under swapped / zeroed conditions.
+
+    Only the network's inputs (`cond`) are swapped; every variant is composed with the TRUE x0_hat
+    (x_hat = x0_hat_true + sigma_d * pred in residual mode, x_hat = pred in standard mode), so the score measures
+    what the network does with its condition and not the gap between two cubes' priors. Pairs are formed by rolling
+    the batch by B // 2. `sigma_d` is required in residual mode."""
     x, y_d, x0_hat = [b.to(trainer.device) for b in batch]
     if x.shape[0] < 2:
         raise ValueError('y-swap check needs a batch of at least 2 items')
+    if mode == 'residual' and sigma_d is None:
+        raise ValueError('yswap_check in residual mode needs sigma_d (the residual scale of this d)')
+    k = x.shape[0] // 2
     target = (x - x0_hat) / sigma_d if mode == 'residual' else x
     conds = {
         'true': {'sensor': y_d, 'x0_hat': x0_hat},
-        'swap_full': {'sensor': y_d.roll(1, 0), 'x0_hat': x0_hat.roll(1, 0)},
-        'swap_sensor_only': {'sensor': y_d.roll(1, 0), 'x0_hat': x0_hat},
+        'swap_full': {'sensor': y_d.roll(k, 0), 'x0_hat': x0_hat.roll(k, 0)},
+        'swap_sensor_only': {'sensor': y_d.roll(k, 0), 'x0_hat': x0_hat},
         'zero': {'sensor': torch.zeros_like(y_d), 'x0_hat': torch.zeros_like(x0_hat)},
     }
     res, ok = {}, True
@@ -140,7 +191,7 @@ def yswap_check(model, trainer, mode, batch, t_values=(100, 300), sigma_d=1.0):
         row = {}
         for name, c in conds.items():
             pred = _one_step_x0(model, trainer, mode, target, c, tv)
-            x_hat = (c['x0_hat'] + sigma_d * pred) if mode == 'residual' else pred
+            x_hat = (x0_hat + sigma_d * pred) if mode == 'residual' else pred
             row[name] = float(metrics(x_hat.clamp(-1, 1), x)['rmse_pct'].mean())
         res[f't{tv}'] = row
         ok = ok and (row['true'] <= 0.9 * row['swap_full'])
@@ -166,30 +217,40 @@ def checkpoint_eval(args):
     ds_ddpm = dataset_for(args.data_root, args.prior, args.d, load_subset(args.data_root, 'ddpm1000_subset'))
     sigma_d = ds_all.sigma_d
     base = baseline_eval(args.data_root, args.prior, args.d, ds_all.img_list)
+    n_seeds = len(args.seeds)
     rows = []
     for cfg in sampler_grid():
         ds = ds_ddpm if cfg['name'] == 'ddpm1000' else ds_all
         loader = torch.utils.data.DataLoader(ds, batch_size=args.batch_size, shuffle=False, num_workers=4, collate_fn=residual_collate_fn)
         per = {k: [] for k in ('rmse_pct', 'psnr', 'sam_deg')}; base_r = []; secs = 0.0; nfe = None
-        for seed in args.seeds:
+        for si, seed in enumerate(args.seeds):
             for bi, batch in enumerate(loader):
                 t0 = time.time()
                 x_hat = reconstruct(model, trainer, args.mode, batch, cfg, sigma_d, seed * 1000 + bi)
+                if trainer.device.type == 'cuda':
+                    torch.cuda.synchronize(trainer.device)          # queued GPU work belongs to this cube's time
                 secs += time.time() - t0
                 nfe = trainer.last_nfe
-                m = metrics(x_hat, batch[0].to(device)); mb = metrics(batch[2].to(device), batch[0].to(device))
+                m = metrics(x_hat, batch[0].to(device))
                 for k in per: per[k] += m[k].tolist()
-                base_r += mb['rmse_pct'].tolist()
-        classes = [class_of(f) for f in ds.img_list] * len(args.seeds)
-        diff = np.asarray(per['rmse_pct']) - np.asarray(base_r)
-        rows.append(dict(cfg, nfe=nfe, sec_per_cube=secs / len(per['rmse_pct']), **summarize(per, classes),
-                         paired_rmse_diff=float(diff.mean()), paired_rmse_se=float(diff.std(ddof=1) / math.sqrt(len(diff)))))
-        print(f"{cfg['name']:>14} nfe={nfe:5d} rmse={rows[-1]['rmse_pct']:.3f}±{rows[-1]['rmse_pct_se']:.3f} "
-              f"(baseline {np.mean(base_r):.3f}, paired {diff.mean():+.3f}±{rows[-1]['paired_rmse_se']:.3f}) sam={rows[-1]['sam_deg']:.2f}")
-    batch = next(iter(torch.utils.data.DataLoader(ds_all, batch_size=8, shuffle=False, collate_fn=residual_collate_fn)))
+                if si == 0:                                          # the baseline does not depend on the seed
+                    base_r += metrics(batch[2].to(device), batch[0].to(device))['rmse_pct'].tolist()
+        assert len(per['rmse_pct']) == n_seeds * len(ds)
+        agg = aggregate_row(per, base_r, [class_of(f) for f in ds.img_list], n_seeds)
+        rows.append(dict(cfg, nfe=nfe, sec_per_cube=secs / len(per['rmse_pct']), seeds=list(args.seeds),
+                         batch_size=args.batch_size, files=[os.path.relpath(f, args.data_root) for f in ds.img_list],
+                         per_item={k: _by_seed(v, n_seeds).tolist() for k, v in per.items()},   # [seed][cube], subset order
+                         **agg))
+        print(f"{cfg['name']:>14} nfe={nfe:5d} rmse={agg['rmse_pct']:.3f}±{agg['rmse_pct_se']:.3f} "
+              f"(baseline {np.mean(base_r):.3f}, paired {agg['paired_rmse_diff']:+.3f}±{agg['paired_rmse_se']:.3f}) "
+              f"seed-std {agg['rmse_pct_seed_std']:.3f} sam={agg['sam_deg']:.2f}")
+    ds_ys = dataset_for(args.data_root, args.prior, args.d, yswap_files(load_subset(args.data_root, 'files')))
+    batch = residual_collate_fn([ds_ys[i] for i in range(len(ds_ys))])
     ys = yswap_check(model, trainer, args.mode, batch, sigma_d=sigma_d)
     print('y-swap:', json.dumps(ys))
-    out = dict(ckpt=args.ckpt, mode=args.mode, d=args.d, sigma_d=sigma_d, seeds=args.seeds, baseline=base['mean'], rows=rows, yswap=ys)
+    out = dict(ckpt=args.ckpt, mode=args.mode, d=args.d, sigma_d=sigma_d, seeds=args.seeds, baseline=base['mean'],
+               baseline_per_item=base['per_item'], baseline_files=base['files'], rows=rows, yswap=ys,
+               yswap_files=[os.path.relpath(f, args.data_root) for f in ds_ys.img_list])
     os.makedirs(EVAL_DIR, exist_ok=True)
     path = os.path.join(EVAL_DIR, f"{os.path.splitext(os.path.basename(args.ckpt))[0]}_{args.mode}_d{args.d}.json")
     json.dump(out, open(path, 'w'), indent=1)
