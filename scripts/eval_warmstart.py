@@ -257,7 +257,7 @@ def checkpoint_eval(args):
         agg = aggregate_row(per, base_r, [class_of(f) for f in ds.img_list], n_seeds)
         rows.append(dict(cfg, nfe=nfe, sec_per_cube=secs / len(per['rmse_pct']), seeds=list(args.seeds),
                          batch_size=args.batch_size, files=[os.path.relpath(f, args.data_root) for f in ds.img_list],
-                         per_item={k: _by_seed(v, n_seeds).tolist() for k, v in per.items()},   # [seed][cube], subset order
+                         per_item={k: _by_seed(v, n_seeds).tolist() for k, v in per.items()},   # [seed][cube]; cube order = this row's `files` (dataset sorted order, NOT the JSON subset order)
                          **agg))
         print(f"{cfg['name']:>14} nfe={nfe:5d} rmse={agg['rmse_pct']:.3f}±{agg['rmse_pct_se']:.3f} "
               f"(baseline {np.mean(base_r):.3f}, paired {agg['paired_rmse_diff']:+.3f}±{agg['paired_rmse_se']:.3f}) "

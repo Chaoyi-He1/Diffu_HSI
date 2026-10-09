@@ -244,7 +244,7 @@ def test_checkpoint_eval_records_per_cube_values(data_root, tmp_path, monkeypatc
     assert len(out['rows']) == 2
     for row in out['rows']:
         per = np.asarray(row['per_item']['rmse_pct'])
-        assert per.shape == (2, 8) and len(row['files']) == 8                      # [seed][cube], in subset order
+        assert per.shape == (2, 8) and len(row['files']) == 8                      # [seed][cube]; cube order = row["files"] (dataset sorted order)
         assert row['seeds'] == [0, 1] and row['batch_size'] == 4 and row['nfe'] == 2
         assert set(row['per_item']) == {'rmse_pct', 'psnr', 'sam_deg'}
         assert not np.array_equal(per[0], per[1])                                      # seeds really differ
