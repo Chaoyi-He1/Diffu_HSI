@@ -1,14 +1,16 @@
 """Fit the per-pixel linear Gaussian prior used for the warm-start estimate.
 
-Writes results/residual_warmstart/linear_prior_R1.npz with mu, C, K, s, R (and sigma_d, filled by
-scripts/compute_residual_scale.py in Task 3). Fitted on pixels of the loader's TRAINING split only.
+Writes results/residual_warmstart/linear_prior_R1.npz with mu, C, K, s, R (and sigma_d / d_values, filled by
+scripts/compute_residual_scale.py; an existing file's sigma_d table is kept unless --overwrite_sigma). The write
+is atomic (temp file + os.replace). Fitted on pixels of the loader's TRAINING split only.
 Run from the repo root:
-    python scripts/fit_linear_prior.py [--n_files 3000] [--px_per_file 256]
+    python scripts/fit_linear_prior.py [--n_files 3000] [--px_per_file 256] [--overwrite_sigma]
 """
 import argparse
 import os
 import random
 import sys
+import tempfile
 
 import numpy as np
 import scipy.io as sio
@@ -66,6 +68,41 @@ def choose_s(prior, R, heldout_pixels, candidates=S_CANDIDATES):
     return best
 
 
+def atomic_savez(path, **arrays):
+    """np.savez to a temp file in the target's directory, then os.replace: a crash never leaves a half-written npz."""
+    out_dir = os.path.dirname(os.path.abspath(path))
+    os.makedirs(out_dir, exist_ok=True)
+    if os.path.exists(path):
+        mode = os.stat(path).st_mode & 0o777
+    else:
+        umask = os.umask(0); os.umask(umask)
+        mode = 0o666 & ~umask
+    fd, tmp = tempfile.mkstemp(dir=out_dir, prefix='.' + os.path.basename(path) + '.', suffix='.tmp')
+    try:
+        with os.fdopen(fd, 'wb') as f:
+            np.savez(f, **arrays)
+        os.chmod(tmp, mode)
+        os.replace(tmp, path)
+    except BaseException:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+        raise
+
+
+def write_prior(path, arrays, overwrite_sigma=False):
+    """Write the prior npz atomically. If `path` exists, its sigma_d / d_values table is carried over (unless
+    overwrite_sigma) instead of the empty one in `arrays`. Returns the list of d values kept."""
+    arrays = dict(arrays)
+    kept = []
+    if os.path.exists(path) and not overwrite_sigma:
+        with np.load(path) as old:
+            if 'd_values' in old.files and 'sigma_d' in old.files:
+                arrays['d_values'], arrays['sigma_d'] = old['d_values'], old['sigma_d']
+                kept = [int(v) for v in old['d_values']]
+    atomic_savez(path, **arrays)
+    return kept
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--n_files', type=int, default=3000)
@@ -73,6 +110,8 @@ def main():
     ap.add_argument('--n_heldout_files', type=int, default=300)
     ap.add_argument('--seed', type=int, default=0)
     ap.add_argument('--out', default=os.path.join(OUT_DIR, 'linear_prior_R1.npz'))
+    ap.add_argument('--overwrite_sigma', action='store_true',
+                    help='drop the sigma_d table of an existing output file (default: keep it)')
     args = ap.parse_args()
 
     ds = HFD_data(data_path=DATA_ROOT, train_mode='image', eval_ratio=0.1, split='train',
@@ -92,11 +131,15 @@ def main():
     print(f'fit on {prior["n_fit_pixels"]} pixels of {prior["n_fit_files"]} files; s = {s:g}; '
           f'held-out per-element RMSE {err:.5f} ([-1,1] scale) = {err / 2 * 100:.3f} % of range')
 
-    os.makedirs(os.path.dirname(args.out), exist_ok=True)
-    np.savez(args.out, mu=prior['mu'], C=prior['C'], K=K, s=np.float64(s), R=R,
-             sigma_d=np.zeros(0), d_values=np.zeros(0, dtype=int),
-             n_fit_files=prior['n_fit_files'], n_fit_pixels=prior['n_fit_pixels'], seed=args.seed)
+    kept = write_prior(args.out, dict(mu=prior['mu'], C=prior['C'], K=K, s=np.float64(s), R=R,
+                                      sigma_d=np.zeros(0), d_values=np.zeros(0, dtype=int),
+                                      n_fit_files=prior['n_fit_files'], n_fit_pixels=prior['n_fit_pixels'],
+                                      seed=args.seed),
+                       overwrite_sigma=args.overwrite_sigma)
     print('wrote', args.out)
+    if kept:
+        print(f'kept the existing sigma_d for d = {kept}; they belong to the previous gain, so re-run '
+              f'scripts/compute_residual_scale.py --d_values {" ".join(map(str, kept))} if the fit changed')
 
 
 if __name__ == '__main__':

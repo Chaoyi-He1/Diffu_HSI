@@ -11,14 +11,28 @@ from data_loader.linear_estimate import estimate_from_sensor, expand_matrix, loa
 
 
 class HFDResidualData(HFD_data):
-    def __init__(self, data_path, split, sensor_down_sample_rate, prior_path, eval_ratio=0.1, type='Flower'):
+    def __init__(self, data_path, split, sensor_down_sample_rate, prior_path, eval_ratio=0.1, type='Flower',
+                 require_sigma_d=True):
+        """require_sigma_d=False is for scripts/compute_residual_scale.py only, which measures sigma_d; the
+        dataset then has sigma_d = None. Everything else needs the prior's sigma_d for this d and fails without it."""
         super().__init__(data_path=data_path, train_mode='image', eval_ratio=eval_ratio, split=split,
                          data_format='image', type=type, R_n=1, sensor_down_sample_rate=sensor_down_sample_rate)
         self.d = int(sensor_down_sample_rate)
         self.prior = load_prior(prior_path)
+        R_loader = np.asarray(self.sensor_R_matrix, dtype=np.float64)
+        if self.prior['R'].shape != R_loader.shape or not np.allclose(self.prior['R'], R_loader):
+            raise ValueError(f'prior {prior_path} was fitted for a different sensor matrix R than the loader uses '
+                             f'(prior R {self.prior["R"].shape}, loader R {R_loader.shape}); '
+                             f're-run scripts/fit_linear_prior.py and scripts/compute_residual_scale.py')
         self.A = expand_matrix(self.wavelens, 64)
-        dv = list(self.prior['d_values'].tolist()) if self.prior['d_values'].size else []
-        self.sigma_d = float(self.prior['sigma_d'][dv.index(self.d)]) if self.d in dv else 1.0
+        dv = [int(v) for v in self.prior['d_values']]
+        if self.d in dv:
+            self.sigma_d = float(self.prior['sigma_d'][dv.index(self.d)])
+        elif require_sigma_d:
+            raise ValueError(f"prior has no sigma_d for d={self.d}; "
+                             f"run scripts/compute_residual_scale.py --d_values {self.d}")
+        else:
+            self.sigma_d = None
 
     def __getitem__(self, idx):
         x64, y_d = super().__getitem__(idx)                       # [H, W, 64], [h, w, 30]

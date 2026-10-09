@@ -37,13 +37,14 @@ def test_collate(data_root):
 
 @pytest.mark.dataset
 @needs_prior
-def test_sigma_d_is_unit_rms_after_scale_script(data_root):
+@pytest.mark.parametrize('d', [1, 2, 4, 8])
+def test_sigma_d_is_unit_rms_after_scale_script(data_root, d):
     from data_loader.hfd_residual import HFDResidualData
     from data_loader.linear_estimate import load_prior
     prior = load_prior(PRIOR)
-    if prior['sigma_d'].size == 0:
-        pytest.skip('run scripts/compute_residual_scale.py first')
-    ds = HFDResidualData(data_path=data_root, split='train', sensor_down_sample_rate=4, prior_path=PRIOR)
+    if d not in [int(v) for v in prior['d_values']]:
+        pytest.skip(f'run scripts/compute_residual_scale.py --d_values {d} first')
+    ds = HFDResidualData(data_path=data_root, split='train', sensor_down_sample_rate=d, prior_path=PRIOR)
     rng = np.random.default_rng(0)
     r2 = []
     for i in rng.choice(len(ds), 40, replace=False):
@@ -51,3 +52,58 @@ def test_sigma_d_is_unit_rms_after_scale_script(data_root):
         r2.append(((x - xh) / ds.sigma_d) ** 2)
     rms = np.sqrt(np.mean(r2))
     assert 0.8 < rms < 1.2
+
+
+def _prior_copy(tmp_path, **override):
+    """The real prior with some arrays replaced, saved to tmp_path."""
+    from data_loader.linear_estimate import load_prior
+    z = load_prior(PRIOR)
+    z.update(override)
+    p = tmp_path / 'prior.npz'
+    np.savez(p, **z)
+    return str(p)
+
+
+@pytest.mark.dataset
+@needs_prior
+def test_missing_sigma_d_raises(data_root, tmp_path):
+    """No silent fallback: a d the prior has no sigma_d for is an error, not sigma_d = 1."""
+    from data_loader.hfd_residual import HFDResidualData
+    p = _prior_copy(tmp_path, d_values=np.array([4]), sigma_d=np.array([0.05]))
+    with pytest.raises(ValueError, match=r'no sigma_d for d=2; run scripts/compute_residual_scale.py --d_values 2'):
+        HFDResidualData(data_path=data_root, split='test', sensor_down_sample_rate=2, prior_path=p)
+    assert HFDResidualData(data_path=data_root, split='test', sensor_down_sample_rate=4, prior_path=p).sigma_d == 0.05
+    # only the scale script, which is measuring sigma_d, may build the dataset without one
+    assert HFDResidualData(data_path=data_root, split='test', sensor_down_sample_rate=2, prior_path=p,
+                           require_sigma_d=False).sigma_d is None
+
+
+@pytest.mark.dataset
+@needs_prior
+def test_prior_with_a_different_sensor_matrix_is_rejected(data_root, tmp_path):
+    from data_loader.hfd_residual import HFDResidualData
+    from data_loader.linear_estimate import load_prior
+    p = _prior_copy(tmp_path, R=load_prior(PRIOR)['R'] * 1.01)
+    with pytest.raises(ValueError, match='sensor matrix'):
+        HFDResidualData(data_path=data_root, split='test', sensor_down_sample_rate=4, prior_path=p)
+
+
+def test_merge_sigma_replaces_one_d_and_keeps_the_others():
+    from scripts.compute_residual_scale import merge_sigma
+    dv, sg = merge_sigma(np.array([1, 2, 4, 8]), np.array([0.1, 0.2, 0.4, 0.8]), [(4, 0.45), (16, 1.6)])
+    assert dv.tolist() == [1, 2, 4, 8, 16] and sg.tolist() == [0.1, 0.2, 0.45, 0.8, 1.6]
+    dv, sg = merge_sigma(np.zeros(0, dtype=int), np.zeros(0), [(8, 0.8), (2, 0.2)])   # a freshly fitted prior
+    assert dv.tolist() == [2, 8] and sg.tolist() == [0.2, 0.8]
+    assert dv.dtype.kind == 'i' and sg.dtype == np.float64
+    with pytest.raises(ValueError):
+        merge_sigma(np.array([1, 2]), np.array([0.1]), [(4, 0.4)])                      # corrupt input arrays
+
+
+def test_scale_files_depend_only_on_d_and_seed():
+    """sigma_d must not depend on the order of --d_values: each d draws its own files from (seed, d)."""
+    from scripts.compute_residual_scale import sample_indices
+    a = sample_indices(9000, 500, 4, seed=0)
+    assert np.array_equal(a, sample_indices(9000, 500, 4, seed=0))
+    assert not np.array_equal(a, sample_indices(9000, 500, 2, seed=0))
+    assert len(set(a.tolist())) == 500 and a.max() < 9000
+    assert len(sample_indices(30, 500, 4, seed=0)) == 30

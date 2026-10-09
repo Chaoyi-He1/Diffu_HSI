@@ -1,3 +1,5 @@
+import os
+
 import numpy as np
 import pytest
 
@@ -32,6 +34,23 @@ def test_choose_s_picks_a_candidate(small_R, synthetic_prior):
     held = synthetic_prior['X'][:2000]
     s = choose_s(synthetic_prior, small_R, held, candidates=[1e-7, 1e-5, 1e-3, 1e-1])
     assert s in [1e-7, 1e-5, 1e-3, 1e-1]
+
+
+def test_write_prior_keeps_sigma_d_unless_asked(tmp_path):
+    """Re-fitting must not wipe the sigma_d table of an existing prior (it costs a scale run to rebuild)."""
+    from scripts.fit_linear_prior import write_prior
+    p = str(tmp_path / 'prior.npz')
+    empty = dict(sigma_d=np.zeros(0), d_values=np.zeros(0, dtype=int))
+    assert write_prior(p, dict(mu=np.zeros(3), **empty)) == []                    # fresh file: nothing to keep
+    np.savez(p, mu=np.zeros(3), sigma_d=np.array([0.1, 0.4]), d_values=np.array([1, 4]))
+    assert write_prior(p, dict(mu=np.ones(3), **empty)) == [1, 4]
+    with np.load(p) as z:
+        assert z['mu'].tolist() == [1.0, 1.0, 1.0]                                 # the new fit is written
+        assert z['d_values'].tolist() == [1, 4] and z['sigma_d'].tolist() == [0.1, 0.4]
+    assert write_prior(p, dict(mu=np.ones(3), **empty), overwrite_sigma=True) == []
+    with np.load(p) as z:
+        assert z['d_values'].size == 0 and z['sigma_d'].size == 0
+    assert sorted(os.listdir(tmp_path)) == ['prior.npz']                           # the temp file was renamed away
 
 
 @pytest.mark.dataset
