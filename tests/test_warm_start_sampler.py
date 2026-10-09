@@ -68,7 +68,7 @@ def test_defaults_unchanged_against_reference_run(method):
     assert tr.last_nfe == s.calls
 
 
-def test_warm_start_first_call_is_t_start_and_ends_at_zero():
+def test_warm_start_first_call_is_t_start_and_ends_above_zero():
     tr = _trainer()
     x0 = torch.full((1, 2, 4, 4), 0.3)
     m = CountingIdentityX0(x0)
@@ -82,6 +82,15 @@ def test_warm_start_small_t_start_has_no_repeated_steps():
     m = CountingIdentityX0(torch.zeros(1, 2, 4, 4))
     tr.sample(m, None, (1, 2, 4, 4), n_steps=10, method='ddpm', progress=False, x_init=torch.zeros(1, 2, 4, 4), t_start=5)
     assert len(set(m.seen_t)) == len(m.seen_t) and m.calls <= 6
+    assert m.seen_t == [5, 4, 3, 2, 1]
+
+
+@pytest.mark.parametrize('method', ['ddim', 'ddpm'])
+def test_warm_start_t_start_one_never_calls_model_at_zero(method):
+    tr = _trainer()
+    m = CountingIdentityX0(torch.zeros(1, 2, 4, 4))
+    tr.sample(m, None, (1, 2, 4, 4), n_steps=10, method=method, progress=False, x_init=torch.zeros(1, 2, 4, 4), t_start=1)
+    assert m.seen_t == [1] and m.calls == 1 and tr.last_nfe == 1
 
 
 def test_warm_start_t0_zero_returns_init():
@@ -105,6 +114,23 @@ def test_warm_start_noise_level_matches_schedule():
     torch.manual_seed(1)
     tr.sample(Probe(), None, (1, 1, 64, 64), n_steps=1, method='ddim', progress=False, x_init=x_init, t_start=400)
     expected_std = float(tr.sqrt_one_minus_alpha_bars[400])
+    assert abs(seen['x'].std().item() - expected_std) < 0.05 * expected_std
+
+
+def test_warm_start_signal_term_uses_x_init():
+    tr = _trainer()
+    seen = {}
+
+    class Probe(torch.nn.Module):
+        def forward(self, x_t, cond, t):
+            seen['x'] = x_t.clone(); return torch.zeros_like(x_t)
+
+    x_init = torch.full((1, 1, 64, 64), 0.7)
+    torch.manual_seed(1)
+    tr.sample(Probe(), None, (1, 1, 64, 64), n_steps=1, method='ddim', progress=False, x_init=x_init, t_start=400)
+    expected_mean = float(tr.sqrt_alpha_bars[400]) * 0.7
+    expected_std = float(tr.sqrt_one_minus_alpha_bars[400])
+    assert abs(seen['x'].mean().item() - expected_mean) < 0.05
     assert abs(seen['x'].std().item() - expected_std) < 0.05 * expected_std
 
 

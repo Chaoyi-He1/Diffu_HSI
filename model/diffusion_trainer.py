@@ -307,8 +307,8 @@ class DiffusionTrainer:
             ab = self.alpha_bars[t_start]
             x = torch.sqrt(ab) * x_init + torch.sqrt(1.0 - ab) * torch.randn(shape, device=self.device)
             n_eff = min(n_steps, t_start + 1)
-            grid = torch.linspace(t_start, 0, n_eff + 1).round().long().tolist()[:-1]   # descending, excludes 0
-            ts = sorted(set(grid), reverse=True)
+            grid = torch.linspace(t_start, 0, n_eff + 1).round().long().tolist()
+            ts = [t for t in sorted(set(grid), reverse=True) if t > 0]   # descending, de-duplicated, excludes 0
         else:
             x = torch.randn(shape, device=self.device)
             # Build descending timestep schedule (respaced if n_steps < n_timesteps)
