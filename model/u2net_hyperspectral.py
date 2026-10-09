@@ -305,6 +305,7 @@ class U2NetHyperspectral(nn.Module):
         channel_kernel=3,
         spatial_kernel=3,
         channel_num_filters=4,
+        extra_in_channels=0,
     ):
         """
         Args:
@@ -312,6 +313,9 @@ class U2NetHyperspectral(nn.Module):
             sensor_channels (int): Number of sensor response channels (S) for conditioning
             base_channels (int): Base number of channels, controls network capacity
                                Each subsequent level multiplies this by 2
+            extra_in_channels (int): Extra channels concatenated to x_t at the input (e.g. a
+                warm-start estimate x0_hat). The output keeps spectral_channels. Default 0 keeps
+                the original architecture and checkpoint compatibility.
         """
         super(U2NetHyperspectral, self).__init__()
         
@@ -341,8 +345,9 @@ class U2NetHyperspectral(nn.Module):
             nn.Conv2d(base_channels * 2, base_channels * 8, kernel_size=1),         # [B, Base_C*2, H, W] → [B, Base_C*8, H, W]
         )
         
-        # Input projection from spectral to base channels
-        self.input_proj = nn.Conv2d(spectral_channels, base_channels, kernel_size=3, padding=1)
+        self.extra_in_channels = extra_in_channels
+        # Input projection from spectral (+ extra) channels to base channels
+        self.input_proj = nn.Conv2d(spectral_channels + extra_in_channels, base_channels, kernel_size=3, padding=1)
         
         block_kwargs = {
             "time_dim": time_dim,
@@ -419,13 +424,14 @@ class U2NetHyperspectral(nn.Module):
         
         Args:
             x_t: Noisy hyperspectral image tensor of shape [B, L, H, W]
+                (or [B, L + extra_in_channels, H, W] when extra_in_channels > 0)
             t: Time embedding tensor of shape [B]
             context: Sensor response tensor of shape [B, S, H, W]
                 
         Returns:
             Output tensor of shape [B, L, H, W] - predicted noise or clean image
         """
-        B, L, H, W = x_t.shape
+        B, _, H, W = x_t.shape
         
         # Time embedding
         t_emb = self.time_embedding(t)                            # [B] → [B, Base_C*8]
