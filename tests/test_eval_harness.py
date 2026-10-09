@@ -172,11 +172,20 @@ def test_aggregate_row_paired_difference_is_per_cube():
         aggregate_row({'rmse_pct': [1.0, 2.0, 3.0]}, [1.0, 2.0], ['A', 'A'], n_seeds=2)   # not seed-major N x S
 
 
-def test_yswap_files_strides_through_the_subset():
-    from scripts.eval_warmstart import yswap_files
-    files = [f'f{i}' for i in range(200)]
-    assert yswap_files(files) == files[::25] and len(yswap_files(files)) == 8
-    assert yswap_files(files[:3]) == files[:3]                                    # never fewer than the whole list when small
+def test_yswap_files_is_stratified_by_class():
+    """The subset file list is grouped P022 (24), P023 (152), P024 (24); the y-swap batch takes evenly spaced files from
+    each block (1 / 6 / 1), so the hard class P024 is represented and no two cubes share a source image."""
+    from scripts.eval_warmstart import yswap_files, subset_class_counts, class_of
+    sub = json.load(open(os.path.join(REPO, 'tests', 'data', 'val_subset_200.json')))
+    assert subset_class_counts() == sub['classes']
+    picked = yswap_files(sub['files'], subset_class_counts())
+    classes = [class_of(f) for f in picked]
+    assert len(picked) == 8 and len(set(picked)) == 8
+    assert [classes.count(c) for c in ('P022', 'P023', 'P024')] == [1, 6, 1]
+    assert len({os.path.basename(f).split('_')[0] for f in picked}) == 8          # eight different source images
+    assert picked == yswap_files(sub['files'], subset_class_counts())             # deterministic
+    with pytest.raises(ValueError):
+        yswap_files(sub['files'][:100], subset_class_counts())                     # counts do not describe the list
 
 
 @pytest.mark.dataset
@@ -218,7 +227,10 @@ def test_checkpoint_eval_records_per_cube_values(data_root, tmp_path, monkeypatc
     ckpt = tmp_path / 'tiny.pth'
     torch.save(ew.build_model('residual', 8, torch.device('cpu')).state_dict(), ckpt)   # wrapper state dict, keys 'net.*'
     real_load_subset = ew.load_subset
-    monkeypatch.setattr(ew, 'load_subset', lambda root, which='files': real_load_subset(root, which)[:8 if which == 'files' else 4])
+    pick = list(range(0, 3)) + list(range(24, 27)) + list(range(176, 178))              # 3 x P022, 3 x P023, 2 x P024
+    monkeypatch.setattr(ew, 'load_subset', lambda root, which='files': (
+        [real_load_subset(root, 'files')[i] for i in pick] if which == 'files' else real_load_subset(root, which)[:4]))
+    monkeypatch.setattr(ew, 'subset_class_counts', lambda: {'P022': 3, 'P023': 3, 'P024': 2})
     monkeypatch.setattr(ew, 'sampler_grid', lambda: [dict(name='ddim2', method='ddim', n_steps=2),
                                                      dict(name='warm50_ddim', method='ddim', n_steps=2, t_start=50)])
     monkeypatch.setattr(ew, 'EVAL_DIR', str(tmp_path))
@@ -227,6 +239,7 @@ def test_checkpoint_eval_records_per_cube_values(data_root, tmp_path, monkeypatc
     ew.checkpoint_eval(args)
     out = json.load(open(tmp_path / 'tiny_residual_d4.json'))
     assert len(out['yswap_files']) == 8 and 'passes' in out['yswap']
+    assert [f.split('/')[2] for f in out['yswap_files']].count('P024') == 2          # the stratified pick reached P024
     assert len(out['baseline_files']) == 8 and len(out['baseline_per_item']['rmse_pct']) == 8
     assert len(out['rows']) == 2
     for row in out['rows']:

@@ -104,10 +104,28 @@ def dataset_for(data_root, prior_path, d, files=None):
     return ds
 
 
-def yswap_files(files, n=8):
-    """n cubes strided through `files` (200-file subset -> every 25th) so the y-swap pairs are not neighbouring
-    patches of one source image."""
-    return files[::max(1, len(files) // n)][:n]
+def subset_class_counts():
+    """Files per class of the validation subset, in the JSON's key order (the file list is grouped in that order)."""
+    return dict(json.load(open(SUBSET))['classes'])
+
+
+def yswap_files(files, class_counts, n=8):
+    """Stratified, deterministic y-swap batch: `files` is grouped in blocks of `class_counts` (class -> number of
+    files, in order); from each block take max(1, round(n * block / total)) evenly spaced files (200-file subset ->
+    1 x P022, 6 x P023, 1 x P024). Evenly spaced files within a class are unlikely to be patches of one source image,
+    and the hard class P024 is always represented."""
+    total = sum(class_counts.values())
+    if total != len(files):
+        raise ValueError(f'class counts add up to {total} files but {len(files)} were given')
+    picked, start = [], 0
+    for c, n_c in class_counts.items():
+        end = start + n_c
+        if any(class_of(f) != c for f in files[start:end]):
+            raise ValueError(f'files[{start}:{end}] are not all of class {c}')
+        k = min(n_c, max(1, round(n * n_c / total)))
+        picked += [files[i] for i in np.linspace(start, end - 1, k).round().astype(int)]
+        start = end
+    return picked
 
 
 def class_of(path):
@@ -244,7 +262,7 @@ def checkpoint_eval(args):
         print(f"{cfg['name']:>14} nfe={nfe:5d} rmse={agg['rmse_pct']:.3f}±{agg['rmse_pct_se']:.3f} "
               f"(baseline {np.mean(base_r):.3f}, paired {agg['paired_rmse_diff']:+.3f}±{agg['paired_rmse_se']:.3f}) "
               f"seed-std {agg['rmse_pct_seed_std']:.3f} sam={agg['sam_deg']:.2f}")
-    ds_ys = dataset_for(args.data_root, args.prior, args.d, yswap_files(load_subset(args.data_root, 'files')))
+    ds_ys = dataset_for(args.data_root, args.prior, args.d, yswap_files(load_subset(args.data_root, 'files'), subset_class_counts()))
     batch = residual_collate_fn([ds_ys[i] for i in range(len(ds_ys))])
     ys = yswap_check(model, trainer, args.mode, batch, sigma_d=sigma_d)
     print('y-swap:', json.dumps(ys))
