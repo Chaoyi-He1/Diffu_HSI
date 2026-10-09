@@ -172,6 +172,55 @@ def test_aggregate_row_paired_difference_is_per_cube():
         aggregate_row({'rmse_pct': [1.0, 2.0, 3.0]}, [1.0, 2.0], ['A', 'A'], n_seeds=2)   # not seed-major N x S
 
 
+def test_per_split_statistics_and_unseen_aggregate():
+    """Per class and for the unseen aggregate (P023 + P024): mean and SE over cubes (after averaging over seeds),
+    and in aggregate_row the paired difference to the baseline with its SE. Existing keys keep their values."""
+    from scripts.eval_warmstart import summarize, aggregate_row
+    classes = ['P022', 'P022', 'P023', 'P023', 'P024', 'P024']
+    v = [1.0, 3.0, 2.0, 4.0, 6.0, 10.0]
+    s = summarize({'rmse_pct': v}, classes)
+    assert s['rmse_pct'] == pytest.approx(26.0 / 6.0) and s['rmse_pct_se'] == pytest.approx(np.std(v, ddof=1) / np.sqrt(6))
+    assert (s['rmse_pct_P022'], s['rmse_pct_P022_se']) == pytest.approx((2.0, 1.0))
+    assert (s['rmse_pct_P023'], s['rmse_pct_P023_se']) == pytest.approx((3.0, 1.0))
+    assert (s['rmse_pct_P024'], s['rmse_pct_P024_se']) == pytest.approx((8.0, 2.0))
+    assert (s['rmse_pct_unseen'], s['rmse_pct_unseen_se']) == pytest.approx((5.5, np.sqrt(35.0 / 3.0) / 2.0))
+    assert 'rmse_pct_unseen' not in summarize({'rmse_pct': [1.0, 2.0]}, ['A', 'B'])   # no unseen class, no key
+
+    per = {'rmse_pct': v + [x + 0.2 for x in v]}                                    # 2 seeds; seed means v + 0.1
+    base = [0.5, 2.5, 2.0, 3.0, 5.0, 9.0]                                           # per-cube diffs 0.6 0.6 | 0.1 1.1 | 1.1 1.1
+    r = aggregate_row(per, base, classes, n_seeds=2)
+    assert (r['rmse_pct_unseen'], r['rmse_pct_unseen_se']) == pytest.approx((5.6, np.sqrt(35.0 / 3.0) / 2.0))
+    assert r['paired_rmse_diff'] == pytest.approx(4.6 / 6.0)
+    assert (r['paired_rmse_diff_P022'], r['paired_rmse_se_P022']) == pytest.approx((0.6, 0.0))
+    assert (r['paired_rmse_diff_P023'], r['paired_rmse_se_P023']) == pytest.approx((0.6, 0.5))
+    assert (r['paired_rmse_diff_P024'], r['paired_rmse_se_P024']) == pytest.approx((1.1, 0.0))
+    assert (r['paired_rmse_diff_unseen'], r['paired_rmse_se_unseen']) == pytest.approx((0.85, 0.25))
+
+
+def test_reconstruct_x_init_per_mode():
+    """Warm start: residual mode starts the chain from x_init = 0 (a zero residual), standard mode from x0_hat, so
+    the first state's mean is 0 vs sqrt(alpha_bar[t_start]) * mean(x0_hat)."""
+    tr = DiffusionTrainer(device=torch.device('cpu'), prediction_type='x0', snr_gamma=None)
+    seen = []
+
+    class Probe(torch.nn.Module):
+        def forward(self, x_t, cond, t):
+            seen.append((int(t[0]), x_t.clone()))
+            return torch.zeros_like(x_t)
+    x0_hat = torch.full((2, 4, 32, 32), 0.7)
+    batch = (torch.zeros_like(x0_hat), torch.zeros(2, 3, 8, 8), x0_hat)
+    cfg = dict(name='warm400_ddim', method='ddim', n_steps=1, t_start=400)
+    noise_std = float(tr.sqrt_one_minus_alpha_bars[400])
+    for mode, expected_mean in (('residual', 0.0), ('standard', float(tr.sqrt_alpha_bars[400]) * 0.7)):
+        seen.clear()
+        reconstruct(Probe(), tr, mode, batch, cfg, sigma_d=0.05, seed=0)
+        t0, x = seen[0]
+        assert t0 == 400 and tr.last_nfe == 1
+        assert abs(x.mean().item() - expected_mean) < 0.05, mode
+        assert abs(x.std().item() - noise_std) < 0.05 * noise_std, mode
+    assert float(tr.sqrt_alpha_bars[400]) * 0.7 > 0.2                               # the two modes are 4+ tolerances apart
+
+
 def test_yswap_files_is_stratified_by_class():
     """The subset file list is grouped P022 (24), P023 (152), P024 (24); the y-swap batch takes evenly spaced files from
     each block (1 / 6 / 1), so the hard class P024 is represented and no two cubes share a source image."""
@@ -310,3 +359,5 @@ def test_checkpoint_eval_records_per_cube_values(data_root, tmp_path, monkeypatc
         base = np.asarray(out['baseline_per_item']['rmse_pct'])
         assert row['files'] == out['baseline_files']
         assert row['paired_rmse_diff'] == pytest.approx((cube - base).mean())
+        unseen = np.array([f.split('/')[2] in ('P023', 'P024') for f in row['files']])
+        assert unseen.sum() == 5 and row['paired_rmse_diff_unseen'] == pytest.approx((cube - base)[unseen].mean())

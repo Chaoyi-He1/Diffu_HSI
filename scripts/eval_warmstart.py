@@ -48,15 +48,34 @@ def metrics(x_hat, x):
     return dict(rmse_pct=rmse_pct, psnr=psnr, sam_deg=sam_deg)
 
 
+UNSEEN_CLASSES = ('P023', 'P024')     # the loader trains on P001-P022 only; P022 is the one seen validation class
+
+
+def _mean_se(v):
+    v = np.asarray(v, dtype=np.float64)
+    return float(v.mean()), (float(v.std(ddof=1) / math.sqrt(len(v))) if len(v) > 1 else 0.0)
+
+
+def _splits(classes, unseen=UNSEEN_CLASSES):
+    """Split name -> boolean mask over items: one per class, plus 'unseen' (P023 + P024) when any is present."""
+    classes = np.asarray(classes)
+    out = {c: classes == c for c in sorted(set(classes.tolist()))}
+    un = np.isin(classes, unseen)
+    if un.any():
+        out['unseen'] = un
+    return out
+
+
 def summarize(per_item, classes):
-    """per_item: dict metric -> np.array [N]; classes: list of class ids per item."""
+    """per_item: dict metric -> np.array [N]; classes: list of class ids per item. For each metric: mean and SE over
+    items (`<k>`, `<k>_se`), and per split (`<k>_<class>`, `<k>_<class>_se`, `<k>_unseen`, `<k>_unseen_se`)."""
     out = {}
+    splits = _splits(classes)
     for k, v in per_item.items():
         v = np.asarray(v, dtype=np.float64)
-        out[k] = float(v.mean()); out[k + '_se'] = float(v.std(ddof=1) / math.sqrt(len(v))) if len(v) > 1 else 0.0
-        for c in sorted(set(classes)):
-            sel = np.array([ci == c for ci in classes])
-            out[f'{k}_{c}'] = float(v[sel].mean())
+        out[k], out[k + '_se'] = _mean_se(v)
+        for name, sel in splits.items():
+            out[f'{k}_{name}'], out[f'{k}_{name}_se'] = _mean_se(v[sel])
     return out
 
 
@@ -72,7 +91,7 @@ def summarize_seeds(per_item, classes, n_seeds):
     """Like `summarize`, for values collected over several seeds (flat, seed-major: seed 0's cubes, then seed 1's, ...).
 
     The cube is the independent unit, so each cube's metric is first averaged over seeds; the mean, the standard error
-    and the per-class means are then taken over the N cubes. The spread between seeds is reported separately as
+    and the per-split means and SEs are then taken over the N cubes. The spread between seeds is reported separately as
     `<metric>_seed_std` (std over seeds of the per-seed means)."""
     by_seed = {k: _by_seed(v, n_seeds) for k, v in per_item.items()}
     n = next(iter(by_seed.values())).shape[1]
@@ -86,11 +105,13 @@ def summarize_seeds(per_item, classes, n_seeds):
 
 def aggregate_row(per_item, base_rmse, classes, n_seeds):
     """summarize_seeds plus the paired RMSE difference to the baseline. base_rmse: per-cube baseline RMSE [N] (it does
-    not depend on the seed). The difference is formed per cube (averaged over seeds) before its mean and SE."""
+    not depend on the seed). The difference is formed per cube (averaged over seeds) before its mean and SE, overall
+    (`paired_rmse_diff`, `paired_rmse_se`) and per split (`paired_rmse_diff_<split>`, `paired_rmse_se_<split>`)."""
     out = summarize_seeds(per_item, classes, n_seeds)
     diff = (_by_seed(per_item['rmse_pct'], n_seeds) - np.asarray(base_rmse, dtype=np.float64)[None]).mean(0)
-    out['paired_rmse_diff'] = float(diff.mean())
-    out['paired_rmse_se'] = float(diff.std(ddof=1) / math.sqrt(len(diff))) if len(diff) > 1 else 0.0
+    out['paired_rmse_diff'], out['paired_rmse_se'] = _mean_se(diff)
+    for name, sel in _splits(classes).items():
+        out[f'paired_rmse_diff_{name}'], out[f'paired_rmse_se_{name}'] = _mean_se(diff[sel])
     return out
 
 
