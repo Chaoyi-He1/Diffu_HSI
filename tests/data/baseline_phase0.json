@@ -1,0 +1,38 @@
+{
+ "d1": {
+  "rmse_pct": 0.2576,
+  "psnr": 51.913,
+  "sam_deg": 0.3712,
+  "rmse_pct_P022": 0.2478,
+  "rmse_pct_P023": 0.2632,
+  "rmse_pct_P024": 0.2318,
+  "subset40_rmse_pct": 0.2541
+ },
+ "d2": {
+  "rmse_pct": 1.0335,
+  "psnr": 39.957,
+  "sam_deg": 1.0233,
+  "rmse_pct_P022": 0.9654,
+  "rmse_pct_P023": 1.0106,
+  "rmse_pct_P024": 1.2512,
+  "subset40_rmse_pct": 0.9956
+ },
+ "d4": {
+  "rmse_pct": 2.3126,
+  "psnr": 33.14,
+  "sam_deg": 1.7785,
+  "rmse_pct_P022": 2.1254,
+  "rmse_pct_P023": 2.2164,
+  "rmse_pct_P024": 3.1254,
+  "subset40_rmse_pct": 2.1825
+ },
+ "d8": {
+  "rmse_pct": 4.4904,
+  "psnr": 27.464,
+  "sam_deg": 3.0196,
+  "rmse_pct_P022": 4.1841,
+  "rmse_pct_P023": 4.2083,
+  "rmse_pct_P024": 6.6237,
+  "subset40_rmse_pct": 4.4062
+ }
+}
