@@ -326,15 +326,16 @@ def test_checkpoint_eval_records_per_cube_values(data_root, tmp_path, monkeypatc
     monkeypatch.setattr(ew, 'load_subset', lambda root, which='files': (
         [real_load_subset(root, 'files')[i] for i in pick] if which == 'files' else real_load_subset(root, which)[:4]))
     monkeypatch.setattr(ew, 'subset_class_counts', lambda: {'P022': 3, 'P023': 3, 'P024': 2})
-    monkeypatch.setattr(ew, 'sampler_grid', lambda: [dict(name='ddim2', method='ddim', n_steps=2),
-                                                     dict(name='warm50_ddim', method='ddim', n_steps=2, t_start=50)])
+    monkeypatch.setattr(ew, 'sampler_grid', lambda which='full': [dict(name='ddim2', method='ddim', n_steps=2),
+                                                                  dict(name='warm50_ddim', method='ddim', n_steps=2, t_start=50)])
     monkeypatch.setattr(ew, 'EVAL_DIR', str(tmp_path))
     args = argparse.Namespace(d=4, ckpt=str(ckpt), mode='residual', base_channels=8, prediction_type='v', seeds=[0, 1],
-                              batch_size=4, device='cpu', data_root=data_root, prior=prior)
+                              batch_size=4, device='cpu', data_root=data_root, prior=prior, grid='full', run_name='tiny_run')
     with pytest.raises(ValueError, match=r'\bd: checkpoint 2 vs args 4'):
         ew.checkpoint_eval(argparse.Namespace(**dict(vars(args), ckpt=str(bad))))
     ew.checkpoint_eval(args)
-    out = json.load(open(tmp_path / 'residual' / 'd4' / 'tiny.json'))                 # eval/<mode>/d<d>/<ckpt>.json
+    out = json.load(open(tmp_path / 'residual' / 'd4' / 'tiny_run__tiny.json'))       # eval/<mode>/d<d>/<run_name>__<ckpt>.json
+    assert out['grid'] == 'full' and out['run_name'] == 'tiny_run'
     prov = out['provenance']
     assert {k: prov[k] for k in ('mode', 'd', 'base_channels', 'prediction_type')} == \
         dict(mode='residual', d=4, base_channels=8, prediction_type='v')
@@ -361,3 +362,36 @@ def test_checkpoint_eval_records_per_cube_values(data_root, tmp_path, monkeypatc
         assert row['paired_rmse_diff'] == pytest.approx((cube - base).mean())
         unseen = np.array([f.split('/')[2] in ('P023', 'P024') for f in row['files']])
         assert unseen.sum() == 5 and row['paired_rmse_diff_unseen'] == pytest.approx((cube - base)[unseen].mean())
+
+
+from scripts.eval_warmstart import build_model, eval_output_path, sampler_grid
+
+
+def test_sampler_grid_quick_is_the_low_nfe_subset():
+    full = {c['name']: c for c in sampler_grid('full')}
+    quick = sampler_grid('quick')
+    names = [c['name'] for c in quick]
+    assert names == ['ddim1', 'ddim2', 'ddim5', 'ddim10', 'ddim20', 'warm50_ddim', 'warm100_ddim', 'warm200_ddim', 'warm400_ddim']
+    assert all(c == full[c['name']] for c in quick)
+    assert sampler_grid() == sampler_grid('full')
+    with pytest.raises(ValueError):
+        sampler_grid('fast')
+
+
+def test_build_model_standard_xhat_matches_wrapper_builder():
+    m = build_model('standard_xhat', 8, torch.device('cpu'))
+    assert m.use_x0_hat and m.net.input_proj.in_channels == 128 and not m.training
+    sd = m.state_dict()
+    build_model('standard_xhat', 8, torch.device('cpu')).load_state_dict(sd, strict=True)
+    with pytest.raises(RuntimeError):                      # A′ weights do not fit A
+        build_model('standard', 8, torch.device('cpu')).load_state_dict(sd, strict=True)
+
+
+def test_eval_output_path_separates_runs_and_grids():
+    a = eval_output_path('standard', 4, 'standard_d4_b64', '/x/runs/standard_d4_b64/checkpoint_epoch_100.pth')
+    b = eval_output_path('standard', 4, 'standard_d4_b256', '/x/runs/standard_d4_b256/checkpoint_epoch_100.pth')
+    q = eval_output_path('standard', 4, 'standard_d4_b64', '/x/runs/standard_d4_b64/checkpoint_epoch_100.pth', grid='quick')
+    assert a != b and a.endswith('eval/standard/d4/standard_d4_b64__checkpoint_epoch_100.json')
+    assert q.endswith('eval/standard/d4/standard_d4_b64__checkpoint_epoch_100__quick.json')
+    assert eval_output_path('standard_xhat', 4, None, '/x/runs/standard_xhat_d4_b64/checkpoint_epoch_100.pth') \
+        .endswith('eval/standard_xhat/d4/standard_xhat_d4_b64__checkpoint_epoch_100.json')

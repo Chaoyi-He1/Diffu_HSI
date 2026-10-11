@@ -2,10 +2,10 @@
 
   python scripts/eval_warmstart.py --d 4 --baseline
   python scripts/eval_warmstart.py --d 4 --ckpt results/residual_warmstart/residual/d4/checkpoint_epoch_200.pth \
-         --mode residual --base_channels 256 [--seeds 0 1] [--device cuda:0]
+         --mode residual --base_channels 256 [--seeds 0 1] [--device cuda:0] [--grid quick]
 
 Baselines go to results/residual_warmstart/eval/baseline_d<d>.json; checkpoint evaluations to
-results/residual_warmstart/eval/<mode>/d<d>/<ckpt basename>.json with a `provenance` record. A checkpoint carrying
+results/residual_warmstart/eval/<mode>/d<d>/<run_name>__<ckpt>[__quick].json with a `provenance` record. A checkpoint carrying
 a `meta` dict must agree with the CLI args, the prior's sigma_d and the prior file's sha256 (else ValueError).
 
 Metrics are on the [0, 1] display scale of (x + 1) / 2: RMSE in % of range, PSNR with peak 1, SAM in degrees.
@@ -26,13 +26,13 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO)
 from data_loader.hfd_residual import HFDResidualData, residual_collate_fn  # noqa: E402
 from model.diffusion_trainer import DiffusionTrainer  # noqa: E402
-from model.residual_wrapper import ResidualWrapper  # noqa: E402
-from model.u2net_hyperspectral import U2NetHyperspectral  # noqa: E402
+from model.residual_wrapper import MODES, build_residual_model  # noqa: E402
 
 DATA_ROOT = os.environ.get('HFD_DATA_ROOT', '/data/chaoyi_he/HSI/Diffu/dataset/HFD100 Mat dataset')
-PRIOR = os.path.join(REPO, 'results', 'residual_warmstart', 'linear_prior_R1.npz')
+RESULTS_ROOT = os.environ.get('RESIDUAL_WARMSTART_RESULTS', '/data/chaoyi_he/HSI/Diffu/results/residual_warmstart')
+PRIOR = os.path.join(RESULTS_ROOT, 'linear_prior_R1.npz')
 SUBSET = os.path.join(REPO, 'tests', 'data', 'val_subset_200.json')
-EVAL_DIR = os.path.join(REPO, 'results', 'residual_warmstart', 'eval')
+EVAL_DIR = os.path.join(RESULTS_ROOT, 'eval')
 
 
 # ----------------------------------------------------------------------------- metrics
@@ -182,12 +182,19 @@ def baseline_eval(data_root, prior_path, d, files=None, batch_size=16):
 
 
 # ----------------------------------------------------------------------------- samplers
-def sampler_grid():
+QUICK_GRID = ('ddim1', 'ddim2', 'ddim5', 'ddim10', 'ddim20', 'warm50_ddim', 'warm100_ddim', 'warm200_ddim', 'warm400_ddim')
+
+
+def sampler_grid(which='full'):
     g = [dict(name='ddpm1000', method='ddpm', n_steps=1000)]
     g += [dict(name=f'ddim{k}', method='ddim', n_steps=k) for k in (1, 2, 5, 10, 20)]
     g += [dict(name=f'warm{t}_ddim', method='ddim', n_steps=10, t_start=t) for t in (50, 100, 200, 400)]
     g += [dict(name=f'warm{t}_ddpm', method='ddpm', n_steps=1000, t_start=t) for t in (50, 100, 200, 400)]
-    return g
+    if which == 'full':
+        return g
+    if which == 'quick':                         # milestone checks: every row costs <= 20 NFE, no 50-cube DDPM row
+        return [c for c in g if c['name'] in QUICK_GRID]
+    raise ValueError(f"grid must be 'full' or 'quick', got {which!r}")
 
 
 def reconstruct(model, trainer, mode, batch, cfg, sigma_d, seed):
@@ -255,9 +262,17 @@ def yswap_check(model, trainer, mode, batch, t_values=(100, 300), sigma_d=None):
 
 # ----------------------------------------------------------------------------- checkpoint evaluation
 def build_model(mode, base_channels, device):
-    extra = 64 if mode == 'residual' else 0
-    net = U2NetHyperspectral(spectral_channels=64, sensor_channels=30, base_channels=base_channels, extra_in_channels=extra)
-    return ResidualWrapper(net, use_x0_hat=(mode == 'residual')).to(device).eval()
+    return build_residual_model(mode, base_channels).to(device).eval()
+
+
+def eval_output_path(mode, d, run_name, ckpt, grid='full'):
+    """eval/<mode>/d<d>/<run_name>__<ckpt stem>[__<grid>].json. run_name defaults to the checkpoint's parent directory
+    name, so the pilot (…_b64) and the full run (…_b256) of one mode and d never overwrite each other; a non-full grid
+    is suffixed so a quick milestone evaluation never overwrites the final full one."""
+    run_name = run_name or os.path.basename(os.path.dirname(os.path.abspath(ckpt)))
+    stem = os.path.splitext(os.path.basename(ckpt))[0]
+    suffix = '' if grid == 'full' else f'__{grid}'
+    return os.path.join(EVAL_DIR, mode, f'd{d}', f'{run_name}__{stem}{suffix}.json')
 
 
 META_ARGS = ('mode', 'd', 'base_channels', 'prediction_type')
@@ -295,6 +310,8 @@ def git_head():
 
 def checkpoint_eval(args):
     device = torch.device(args.device)
+    grid = getattr(args, 'grid', 'full')
+    run_name = getattr(args, 'run_name', None) or os.path.basename(os.path.dirname(os.path.abspath(args.ckpt)))
     trainer = DiffusionTrainer(device=device, prediction_type=args.prediction_type, loss_type='l1', snr_gamma=None)
     model = build_model(args.mode, args.base_channels, device)
     ck = torch.load(args.ckpt, map_location='cpu', weights_only=False)
@@ -312,7 +329,7 @@ def checkpoint_eval(args):
     base = baseline_eval(args.data_root, args.prior, args.d, ds_all.img_list)
     n_seeds = len(args.seeds)
     rows = []
-    for cfg in sampler_grid():
+    for cfg in sampler_grid(grid):
         ds = ds_ddpm if cfg['name'] == 'ddpm1000' else ds_all
         loader = torch.utils.data.DataLoader(ds, batch_size=args.batch_size, shuffle=False, num_workers=4, collate_fn=residual_collate_fn)
         per = {k: [] for k in ('rmse_pct', 'psnr', 'sam_deg')}; base_r = []; secs = 0.0; nfe = None
@@ -342,11 +359,11 @@ def checkpoint_eval(args):
     ys = yswap_check(model, trainer, args.mode, batch, sigma_d=sigma_d)
     print('y-swap:', json.dumps(ys))
     out = dict(provenance=provenance, ckpt=args.ckpt, mode=args.mode, d=args.d, sigma_d=sigma_d, seeds=args.seeds,
+               grid=grid, run_name=run_name,
                baseline=base['mean'], baseline_per_item=base['per_item'], baseline_files=base['files'], rows=rows,
                yswap=ys, yswap_files=[os.path.relpath(f, args.data_root) for f in ds_ys.img_list])
-    out_dir = os.path.join(EVAL_DIR, args.mode, f'd{args.d}')                 # spec S12; baselines stay in EVAL_DIR
-    os.makedirs(out_dir, exist_ok=True)
-    path = os.path.join(out_dir, os.path.splitext(os.path.basename(args.ckpt))[0] + '.json')
+    path = eval_output_path(args.mode, args.d, run_name, args.ckpt, grid)      # spec S12; baselines stay in EVAL_DIR
+    os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, 'w') as f:
         json.dump(out, f, indent=1)
     print('wrote', path)
@@ -356,7 +373,9 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--d', type=int, required=True)
     ap.add_argument('--baseline', action='store_true')
-    ap.add_argument('--ckpt'); ap.add_argument('--mode', choices=['residual', 'standard'])
+    ap.add_argument('--ckpt'); ap.add_argument('--mode', choices=list(MODES))
+    ap.add_argument('--grid', choices=['full', 'quick'], default='full')
+    ap.add_argument('--run_name', default=None)
     ap.add_argument('--base_channels', type=int, default=64)
     ap.add_argument('--prediction_type', default='v')
     ap.add_argument('--seeds', type=int, nargs='+', default=[0, 1])

@@ -26,3 +26,28 @@ class ResidualWrapper(nn.Module):
         else:
             inp = x_t
         return self.net(inp, cond['sensor'], t)
+
+
+MODES = ('residual', 'standard', 'standard_xhat')
+# residual      (B):  input [x_t, x0_hat], target (x - x0_hat) / sigma_d
+# standard      (A):  input  x_t,          target  x
+# standard_xhat (A'): input [x_t, x0_hat], target  x   -- B's inputs with A's target: controls for the spatially
+#                     aligned x0_hat channels that the position-blind cross-attention context cannot provide
+
+
+def build_residual_model(mode, base_channels, spectral_channels=64, sensor_channels=30):
+    """The one place that maps a mode name to an architecture; training and evaluation both call it."""
+    from model.u2net_hyperspectral import U2NetHyperspectral      # local import: u2net_hyperspectral must not import this module
+    if mode not in MODES:
+        raise ValueError(f'mode must be one of {MODES}, got {mode!r}')
+    use_x0_hat = mode in ('residual', 'standard_xhat')
+    net = U2NetHyperspectral(spectral_channels=spectral_channels, sensor_channels=sensor_channels,
+                             base_channels=base_channels, extra_in_channels=spectral_channels if use_x0_hat else 0)
+    return ResidualWrapper(net, use_x0_hat=use_x0_hat)
+
+
+def target_for(mode, x, x0_hat, sigma_d):
+    """The diffusion target per mode (all on the loader's [-1, 1] scale)."""
+    if mode == 'residual':
+        return (x - x0_hat) / sigma_d
+    return x
