@@ -263,8 +263,98 @@ def test_make_datasets_excludes_gate_cubes_from_validation(tmp_path, monkeypatch
     import json
     sub = json.load(open(os.path.join(tr.REPO, 'tests', 'data', 'val_subset_200.json')))
     fake_train = TinyResidualSet(n=4); fake_val = TinyResidualSet(n=8)
-    fake_val.img_list = [os.path.join('/root', f) for f in sub['files'][:5]] + ['/root/MatFlower60/Train/P023/other.mat'] * 3
+    assert len(sub['files']) == 200
+    fake_val.img_list = [os.path.join('/root', f) for f in sub['files']] + ['/root/MatFlower60/Train/P023/other.mat'] * 3
     monkeypatch.setattr(tr, 'HFDResidualData', lambda root, split, **kw: fake_train if split == 'train' else fake_val)
     args = tiny_args(tmp_path, data_root='/root')
     train, val = tr.make_datasets(args)
     assert len(train) == 4 and len(val) == 3 and all('other' in f for f in val.img_list)
+
+
+def test_make_datasets_fails_loudly_when_gate_files_are_missing_from_validation(tmp_path, monkeypatch):
+    """A path-form mismatch (gate files not recognised in the validation list) must not silently peek."""
+    import json
+    sub = json.load(open(os.path.join(tr.REPO, 'tests', 'data', 'val_subset_200.json')))
+    fake_val = TinyResidualSet(n=8)
+    fake_val.img_list = [os.path.join('/root', f) for f in sub['files'][:5]] + ['/root/MatFlower60/Train/P023/other.mat'] * 3
+    monkeypatch.setattr(tr, 'HFDResidualData', lambda root, split, **kw: TinyResidualSet(n=4) if split == 'train' else fake_val)
+    with pytest.raises(AssertionError, match=r'only 5 of 200 gate files'):
+        tr.make_datasets(tiny_args(tmp_path, data_root='/root'))
+
+
+# ----------------------------------------------------------------------------- resume refuses a mismatched checkpoint
+def saved_checkpoint(tmp_path, **arg_kw):
+    """A checkpoint written by a (tiny) run with the default arguments; returns (ck, path, args, ds)."""
+    args = tiny_args(tmp_path, **arg_kw)
+    parts = make_parts(args); ds, _, model, _, opt, sched = parts
+    path = str(tmp_path / 'run' / 'checkpoint_epoch_1.pth')
+    tr.save_checkpoint(model, opt, sched, 0, 0.5, tr.checkpoint_meta(args, ds.sigma_d, 3e-7, 'x' * 64), path, 0.0, tr.NO_DIST)
+    return tr.load_checkpoint(path), path, args, ds
+
+
+def test_resume_meta_matching_passes(tmp_path):
+    ck, path, args, ds = saved_checkpoint(tmp_path)
+    assert tr.check_resume_meta(ck, args, ds.sigma_d, 'x' * 64, path=path) is True
+
+
+def test_resume_meta_mode_mismatch_raises(tmp_path):
+    """A' and B have identical parameter shapes, so only the meta check can catch a mode switch."""
+    ck, path, args, ds = saved_checkpoint(tmp_path)
+    build_residual_model('standard_xhat', 8).load_state_dict(ck['model_state_dict'], strict=True)      # strict load alone is blind to it
+    args.mode = 'standard_xhat'
+    with pytest.raises(ValueError, match='mode'):
+        tr.check_resume_meta(ck, args, ds.sigma_d, 'x' * 64, path=path)
+
+
+def test_resume_meta_names_every_mismatch(tmp_path):
+    ck, path, args, ds = saved_checkpoint(tmp_path)
+    args.d, args.base_channels, args.prediction_type = 8, 16, 'eps'
+    with pytest.raises(ValueError) as e:
+        tr.check_resume_meta(ck, args, ds.sigma_d + 1e-3, 'y' * 64, path=path)
+    msg = str(e.value)
+    assert all(k in msg for k in ('d: checkpoint 4 vs args 8', 'base_channels', 'prediction_type', 'sigma_d', 'prior_sha256')) and path in msg
+
+
+def test_resume_meta_d_mismatch_raises(tmp_path):
+    ck, path, args, ds = saved_checkpoint(tmp_path)
+    args.d = 8
+    with pytest.raises(ValueError, match='d: checkpoint 4 vs args 8'):
+        tr.check_resume_meta(ck, args, ds.sigma_d, 'x' * 64, path=path)
+
+
+def test_resume_meta_prior_hash_mismatch_raises(tmp_path):
+    ck, path, args, ds = saved_checkpoint(tmp_path)
+    with pytest.raises(ValueError, match='prior_sha256'):
+        tr.check_resume_meta(ck, args, ds.sigma_d, 'a different prior', path=path)
+
+
+def test_resume_meta_missing_meta_is_refused(tmp_path):
+    ck, path, args, ds = saved_checkpoint(tmp_path)
+    del ck['meta']
+    with pytest.raises(ValueError, match='no meta'):
+        tr.check_resume_meta(ck, args, ds.sigma_d, 'x' * 64, path=path)
+
+
+def test_resume_t_max_mismatch_warns_but_does_not_raise(tmp_path, capsys):
+    ck, path, args, ds = saved_checkpoint(tmp_path, num_epochs=3)
+    args.num_epochs = 5
+    capsys.readouterr()
+    assert tr.check_resume_meta(ck, args, ds.sigma_d, 'x' * 64, path=path) is True
+    out = capsys.readouterr().out
+    assert 'WARNING' in out and 'T_max=3' in out and '--num_epochs 5' in out
+    args.num_epochs = 3
+    assert tr.check_resume_meta(ck, args, ds.sigma_d, 'x' * 64, path=path) is True
+    assert capsys.readouterr().out == ''                                              # no warning when they agree
+
+
+def test_build_everything_checks_resume_meta(tmp_path, monkeypatch):
+    """The wiring: build_everything itself refuses a mismatched --resume and accepts a matching one."""
+    ck, path, args, ds = saved_checkpoint(tmp_path)
+    monkeypatch.setattr(tr, 'make_datasets', lambda a: (TinyResidualSet(), TinyResidualSet()))
+    monkeypatch.setattr(tr, 'file_sha256', lambda p: 'x' * 64)
+    args.resume = path
+    parts = tr.build_everything(args, tr.NO_DIST, CPU)
+    assert parts.start_epoch == 1 and parts.resume_path == path
+    args.mode = 'standard_xhat'
+    with pytest.raises(ValueError, match='mode'):
+        tr.build_everything(args, tr.NO_DIST, CPU)

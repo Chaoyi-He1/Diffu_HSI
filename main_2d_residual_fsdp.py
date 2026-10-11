@@ -115,7 +115,11 @@ def make_datasets(args):
     train = HFDResidualData(args.data_root, split='train', sensor_down_sample_rate=args.d, prior_path=args.prior)
     val = HFDResidualData(args.data_root, split='test', sensor_down_sample_rate=args.d, prior_path=args.prior)
     gate = {os.path.normpath(os.path.join(args.data_root, f)) for f in json.load(open(SUBSET))['files']}
+    n_before = len(val.img_list)
     val.img_list = [f for f in val.img_list if os.path.normpath(f) not in gate]       # monitoring never sees the gate cubes
+    assert n_before - len(val.img_list) == len(gate), \
+        f'only {n_before - len(val.img_list)} of {len(gate)} gate files were found in the validation split ' \
+        f'(path-form mismatch?); refusing to monitor on gate cubes'
     if args.limit_files:
         train.img_list = train.img_list[:args.limit_files]; val.img_list = val.img_list[:max(8, args.limit_files // 8)]
     return train, val
@@ -190,6 +194,33 @@ def save_checkpoint(model, optimizer, scheduler, epoch, train_loss, meta, path, 
 
 def load_checkpoint(path):
     return torch.load(path, map_location='cpu', weights_only=False)
+
+
+RESUME_META_KEYS = ('mode', 'd', 'base_channels', 'prediction_type')
+
+
+def check_resume_meta(ck, args, sigma_d, prior_sha256, path='<checkpoint>', warn=True):
+    """Refuse to resume a checkpoint whose `meta` differs from the current run (the provenance chain the gate relies on
+    must not break silently: A' and B have identical parameter shapes, so strict loading would not notice a mode switch).
+    Compares RESUME_META_KEYS exactly, sigma_d (|diff| < 1e-9) and prior_sha256; raises ValueError naming every mismatch,
+    and also when the checkpoint has no meta. A scheduler T_max different from --num_epochs only warns (the cosine
+    schedule keeps the checkpoint's T_max; the Task 3 smoke test deliberately resumes 2 -> 3 epochs). Returns True."""
+    meta = ck.get('meta') if isinstance(ck, dict) else None
+    if not meta:
+        raise ValueError(f'checkpoint {path} carries no meta; refusing to resume (every checkpoint this script writes has one)')
+    bad = [f'{k}: checkpoint {meta.get(k, "<missing>")!r} vs args {getattr(args, k)!r}'
+           for k in RESUME_META_KEYS if k not in meta or meta[k] != getattr(args, k)]
+    if 'sigma_d' not in meta or abs(float(meta['sigma_d']) - sigma_d) >= 1e-9:
+        bad.append(f'sigma_d: checkpoint {meta.get("sigma_d", "<missing>")!r} vs prior {sigma_d!r}')
+    if meta.get('prior_sha256') != prior_sha256:
+        bad.append(f'prior_sha256: checkpoint {meta.get("prior_sha256", "<missing>")!r} vs prior file {prior_sha256!r}')
+    if bad:
+        raise ValueError(f'checkpoint {path} does not match the current arguments: ' + '; '.join(bad))
+    t_max = ck.get('scheduler_state_dict', {}).get('T_max')
+    if warn and t_max != args.num_epochs:
+        print(f'WARNING: checkpoint scheduler T_max={t_max} != --num_epochs {args.num_epochs}; '
+              f'the cosine schedule keeps the checkpoint\'s T_max', flush=True)
+    return True
 
 
 def restore_training_state(ck, model, optimizer, scheduler, dist_ctx):
@@ -293,6 +324,7 @@ def build_everything(args, dist_ctx, device):
     resume_path = latest_checkpoint(args.save_dir) if args.resume == 'auto' else (args.resume or None)
     ck = load_checkpoint(resume_path) if resume_path else None
     if ck is not None:
+        check_resume_meta(ck, args, train_ds.sigma_d, file_sha256(args.prior), path=resume_path, warn=dist_ctx.rank == 0)
         model.load_state_dict(ck['model_state_dict'], strict=True)          # before the wrap, on CPU
     model = wrap_fsdp(model, args, dist_ctx) if dist_ctx.enabled else model.to(device)
     trainer = make_trainer(args, device)
