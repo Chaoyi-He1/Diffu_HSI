@@ -1,0 +1,413 @@
+"""Residual warm-start diffusion training (spec 2026-10-08, Phase 1).
+
+Single GPU:  python main_2d_residual_fsdp.py --mode residual --ds 4 --base_channels 64 --batch_size 8 --device cuda:0 \
+                 --save_dir /data/chaoyi_he/HSI/Diffu/results/residual_warmstart/runs/residual_d4_b64
+FSDP:        torchrun --standalone --nproc_per_node=2 main_2d_residual_fsdp.py --mode residual --ds 4 --base_channels 256 \
+                 --batch_size 4 --save_dir .../runs/residual_d4_b256
+Timing only: add --dry_run_steps 200 (sec/step with and without data wait, peak memory; writes nothing).
+
+Modes (model/residual_wrapper.py): residual (B), standard (A), standard_xhat (A'). --batch_size is PER GPU.
+Conventions taken from main_2d_fsdp.py (FSDP wrap, bf16, AdamW + cosine per epoch, FULL_STATE_DICT checkpoints) without
+its rank-0-only checkpoint calls, worker cap and save-path rewriting. Every distributed decision (non-finite skip, memory
+refusal, wall-clock stop) is collective. No ds warm-up: d is fixed because x0_hat and sigma_d depend on it.
+"""
+import argparse
+import functools
+import hashlib
+import json
+import os
+import random
+import sys
+import time
+from types import SimpleNamespace
+
+import numpy as np
+import torch
+import torch.distributed as dist
+from torch.distributed.fsdp import BackwardPrefetch, FullyShardedDataParallel as FSDP, MixedPrecision, ShardingStrategy
+from torch.distributed.fsdp.fully_sharded_data_parallel import FullOptimStateDictConfig, FullStateDictConfig, StateDictType
+from torch.distributed.fsdp.wrap import size_based_auto_wrap_policy
+from torch.utils.data import DataLoader
+from torch.utils.data.distributed import DistributedSampler
+
+REPO = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, REPO)
+from data_loader.hfd_residual import HFDResidualData, residual_collate_fn  # noqa: E402
+from model.diffusion_trainer import DiffusionTrainer  # noqa: E402
+from model.residual_wrapper import MODES, build_residual_model, target_for  # noqa: E402
+
+DATA_ROOT = os.environ.get('HFD_DATA_ROOT', '/data/chaoyi_he/HSI/Diffu/dataset/HFD100 Mat dataset')
+RESULTS_ROOT = os.environ.get('RESIDUAL_WARMSTART_RESULTS', '/data/chaoyi_he/HSI/Diffu/results/residual_warmstart')
+PRIOR = os.path.join(RESULTS_ROOT, 'linear_prior_R1.npz')
+SUBSET = os.path.join(REPO, 'tests', 'data', 'val_subset_200.json')
+N_TIMESTEPS = 1000
+NO_DIST = SimpleNamespace(enabled=False, rank=0, world=1, local_rank=0)
+
+
+def get_parser():
+    ap = argparse.ArgumentParser(description="Residual warm-start diffusion training (B / A / A')")
+    ap.add_argument('--mode', choices=list(MODES), required=True)
+    ap.add_argument('--ds', '--sensor_down_sample_rate', dest='d', type=int, default=4, help='sensor downsampling d (fixed for the run)')
+    ap.add_argument('--data_root', default=DATA_ROOT); ap.add_argument('--prior', default=PRIOR)
+    ap.add_argument('--limit_files', type=int, default=0, help='debug: use only the first N training files (0 = all)')
+    ap.add_argument('--base_channels', type=int, default=64)
+    ap.add_argument('--batch_size', type=int, default=8, help='batch size PER GPU')
+    ap.add_argument('--num_workers', type=int, default=8, help='DataLoader workers per process (>= 8 keeps the pilot compute-bound)')
+    ap.add_argument('--num_epochs', type=int, default=100)
+    ap.add_argument('--max_hours', type=float, default=24.0, help='stop after the epoch that crosses this wall-clock budget')
+    ap.add_argument('--lr', type=float, default=1e-4); ap.add_argument('--lrf', type=float, default=0.033, help='eta_min = lr * lrf')
+    ap.add_argument('--weight_decay', type=float, default=0.0); ap.add_argument('--grad_clip', type=float, default=1.0)
+    ap.add_argument('--prediction_type', choices=['eps', 'x0', 'v'], default='v')
+    ap.add_argument('--loss_type', choices=['l1', 'l2'], default='l1'); ap.add_argument('--snr_gamma', type=float, default=5.0)
+    ap.add_argument('--val_every', type=int, default=5, help='loss-only validation on the non-gate validation files every N epochs (0 = never)')
+    ap.add_argument('--save_every', type=int, default=10); ap.add_argument('--keep_last', type=int, default=2)
+    ap.add_argument('--keep_epochs', type=int, nargs='*', default=[25, 50, 100], help='milestone checkpoints exempt from pruning')
+    ap.add_argument('--max_nonfinite', type=int, default=10, help='abort after this many consecutive non-finite losses')
+    ap.add_argument('--log_interval', type=int, default=200)
+    ap.add_argument('--save_dir', required=True); ap.add_argument('--resume', default='', help='checkpoint path; "auto" = latest in --save_dir')
+    ap.add_argument('--device', default='cuda:0', help='single-process device; ignored under torchrun')
+    ap.add_argument('--no_bf16', action='store_true'); ap.add_argument('--seed', type=int, default=42)
+    ap.add_argument('--sharding_strategy', choices=['FULL_SHARD', 'SHARD_GRAD_OP', 'NO_SHARD'], default='FULL_SHARD')
+    ap.add_argument('--wrap_min_params', type=int, default=1_000_000)
+    ap.add_argument('--dry_run_steps', type=int, default=0, help='time N steps (after warm-up) and exit without saving')
+    return ap
+
+
+# ----------------------------------------------------------------------------- setup
+def setup_dist(args):
+    """torchrun sets WORLD_SIZE; without it this is a single-process run on args.device."""
+    if int(os.environ.get('WORLD_SIZE', '1')) > 1:
+        dist.init_process_group('nccl')
+        local = int(os.environ['LOCAL_RANK']); torch.cuda.set_device(local)
+        return SimpleNamespace(enabled=True, rank=dist.get_rank(), world=dist.get_world_size(), local_rank=local), torch.device(f'cuda:{local}')
+    dev = torch.device(args.device)
+    if dev.type == 'cuda':
+        torch.cuda.set_device(dev)
+    return NO_DIST, dev
+
+
+def seed_everything(seed, rank):
+    torch.manual_seed(seed + rank); np.random.seed(seed + rank); random.seed(seed + rank); torch.cuda.manual_seed_all(seed + rank)
+
+
+def epoch_seed(args, epoch, rank):
+    """The noise stream of epoch e depends only on (seed, rank, e): a resumed epoch replays nothing."""
+    seed_everything(args.seed + 1000 * (epoch + 1), rank)
+
+
+def file_sha256(path):
+    h = hashlib.sha256()
+    with open(path, 'rb') as f:
+        for chunk in iter(lambda: f.read(1 << 20), b''):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def all_min(value, device, dist_ctx):
+    """Collective minimum of a scalar (identity without distributed)."""
+    t = torch.tensor(float(value), device=device)
+    if dist_ctx.enabled:
+        dist.all_reduce(t, op=dist.ReduceOp.MIN)
+    return t.item()
+
+
+def make_datasets(args):
+    train = HFDResidualData(args.data_root, split='train', sensor_down_sample_rate=args.d, prior_path=args.prior)
+    val = HFDResidualData(args.data_root, split='test', sensor_down_sample_rate=args.d, prior_path=args.prior)
+    gate = {os.path.normpath(os.path.join(args.data_root, f)) for f in json.load(open(SUBSET))['files']}
+    val.img_list = [f for f in val.img_list if os.path.normpath(f) not in gate]       # monitoring never sees the gate cubes
+    if args.limit_files:
+        train.img_list = train.img_list[:args.limit_files]; val.img_list = val.img_list[:max(8, args.limit_files // 8)]
+    return train, val
+
+
+def make_loader(ds, args, batch_size, shuffle, rank, world, device):
+    """Shuffled loaders always use a DistributedSampler (num_replicas=1 on one GPU) so the order of epoch e is a pure
+    function of (seed, e) via set_epoch — the basis of exact resume."""
+    sampler = DistributedSampler(ds, num_replicas=world, rank=rank, shuffle=shuffle, seed=args.seed, drop_last=shuffle) \
+        if (shuffle or world > 1) else None
+    kw = dict(num_workers=args.num_workers, pin_memory=(device.type == 'cuda'), collate_fn=residual_collate_fn)
+    if args.num_workers > 0:
+        kw.update(persistent_workers=True, prefetch_factor=4)         # safe: d never changes during a run
+    return DataLoader(ds, batch_size=batch_size, sampler=sampler, shuffle=False, drop_last=shuffle, **kw)
+
+
+def make_trainer(args, device):
+    return DiffusionTrainer(device=device, n_timesteps=N_TIMESTEPS, loss_type=args.loss_type,
+                            prediction_type=args.prediction_type, snr_gamma=args.snr_gamma if args.snr_gamma > 0 else None)
+
+
+def wrap_fsdp(model, args, dist_ctx):
+    mp = None if args.no_bf16 else MixedPrecision(param_dtype=torch.bfloat16, reduce_dtype=torch.float32, buffer_dtype=torch.bfloat16)
+    return FSDP(model, sharding_strategy=getattr(ShardingStrategy, args.sharding_strategy), mixed_precision=mp,
+                auto_wrap_policy=functools.partial(size_based_auto_wrap_policy, min_num_params=args.wrap_min_params),
+                backward_prefetch=BackwardPrefetch.BACKWARD_PRE, device_id=dist_ctx.local_rank,
+                sync_module_states=True, use_orig_params=True)
+
+
+def make_optimizer(model, args):
+    return torch.optim.AdamW(model.parameters(), lr=args.lr, betas=(0.9, 0.999), eps=1e-8 if args.no_bf16 else 1e-6,
+                             weight_decay=args.weight_decay)
+
+
+def make_scheduler(optimizer, args):
+    return torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.num_epochs, eta_min=args.lr * args.lrf)
+
+
+# ----------------------------------------------------------------------------- checkpoints
+def checkpoint_meta(args, sigma_d, prior_s, prior_sha256):
+    """What scripts/eval_warmstart.py::check_meta verifies (mode, d, base_channels, prediction_type, sigma_d, prior_sha256)
+    plus provenance."""
+    return dict(mode=args.mode, d=args.d, base_channels=args.base_channels, prediction_type=args.prediction_type,
+                n_timesteps=N_TIMESTEPS, sigma_d=float(sigma_d), prior_s=float(prior_s), prior_sha256=prior_sha256, args=vars(args))
+
+
+def save_checkpoint(model, optimizer, scheduler, epoch, train_loss, meta, path, elapsed_hours, dist_ctx):
+    """EVERY rank must call this (the FSDP gathers and the barrier are collectives); only rank 0 writes, atomically."""
+    if dist_ctx.enabled:
+        with FSDP.state_dict_type(model, StateDictType.FULL_STATE_DICT, FullStateDictConfig(offload_to_cpu=True, rank0_only=True),
+                                  FullOptimStateDictConfig(offload_to_cpu=True, rank0_only=True)):
+            model_state = model.state_dict()
+            optim_state = FSDP.optim_state_dict(model, optimizer)
+    else:
+        model_state = {k: v.detach().cpu() for k, v in model.state_dict().items()}
+        optim_state = optimizer.state_dict()
+    if dist_ctx.rank == 0:
+        ck = dict(epoch=epoch, loss=float(train_loss), model_state_dict=model_state, optimizer_state_dict=optim_state,
+                  scheduler_state_dict=scheduler.state_dict(), meta=meta, elapsed_hours=float(elapsed_hours))
+        os.makedirs(os.path.dirname(path) or '.', exist_ok=True)
+        tmp = path + '.tmp'
+        try:
+            torch.save(ck, tmp)
+            os.replace(tmp, path)
+        finally:
+            if os.path.exists(tmp):
+                os.remove(tmp)
+        print(f'[rank 0] checkpoint saved -> {path}', flush=True)
+    if dist_ctx.enabled:
+        dist.barrier()
+
+
+def load_checkpoint(path):
+    return torch.load(path, map_location='cpu', weights_only=False)
+
+
+def restore_training_state(ck, model, optimizer, scheduler, dist_ctx):
+    """Model weights are loaded by the caller (before any FSDP wrap). Restores optimizer + scheduler exactly
+    (no cosine restart) and returns (start_epoch, elapsed_hours)."""
+    osd = ck['optimizer_state_dict']
+    if dist_ctx.enabled:
+        osd = FSDP.optim_state_dict_to_load(model, optimizer, osd)
+    optimizer.load_state_dict(osd)
+    scheduler.load_state_dict(ck['scheduler_state_dict'])
+    return int(ck['epoch']) + 1, float(ck.get('elapsed_hours', 0.0))
+
+
+def latest_checkpoint(run_dir):
+    cks = [f for f in os.listdir(run_dir) if f.startswith('checkpoint_epoch_') and f.endswith('.pth')] if os.path.isdir(run_dir) else []
+    return os.path.join(run_dir, max(cks, key=lambda f: int(f[len('checkpoint_epoch_'):-4]))) if cks else None
+
+
+def prune_checkpoints(run_dir, keep_last=2, keep_epochs=()):
+    cks = sorted((int(f[len('checkpoint_epoch_'):-4]), f) for f in os.listdir(run_dir) if f.startswith('checkpoint_epoch_') and f.endswith('.pth'))
+    keep = {e for e, _ in cks[-keep_last:]} | set(keep_epochs)
+    for e, f in cks:
+        if e not in keep:
+            os.remove(os.path.join(run_dir, f))
+
+
+def should_save(epoch1, args):
+    """epoch1 is 1-based."""
+    return epoch1 % args.save_every == 0 or epoch1 in set(args.keep_epochs) or epoch1 == args.num_epochs
+
+
+# ----------------------------------------------------------------------------- loops
+def clip_grads(model, clip, dist_ctx):
+    if clip and clip > 0:
+        return float(model.clip_grad_norm_(clip)) if dist_ctx.enabled else float(torch.nn.utils.clip_grad_norm_(model.parameters(), clip))
+    return float('nan')
+
+
+def train_one_epoch(model, trainer, loader, optimizer, args, device, dist_ctx, mode, sigma_d, log_prefix=''):
+    model.train()
+    use_bf16 = not args.no_bf16 and device.type == 'cuda'
+    tot, n, skipped, run_skipped, t_data, t0 = 0.0, 0, 0, 0, 0.0, time.time()
+    t_fetch = time.time()
+    for step, (x, y_d, xh) in enumerate(loader):
+        t_data += time.time() - t_fetch
+        x, y_d, xh = x.to(device, non_blocking=True), y_d.to(device, non_blocking=True), xh.to(device, non_blocking=True)
+        cond = {'sensor': y_d, 'x0_hat': xh}                        # moved per key: get_loss moves only x_0
+        target = target_for(mode, x, xh, sigma_d)
+        with torch.autocast('cuda', dtype=torch.bfloat16, enabled=use_bf16):
+            loss, _ = trainer.get_loss(model, target, cond, loss_in_fp32=True)
+        if all_min(torch.isfinite(loss).item(), device, dist_ctx) == 0:    # collective: every rank skips together
+            skipped += 1; run_skipped += 1
+            optimizer.zero_grad(set_to_none=True)
+            if run_skipped >= args.max_nonfinite:
+                raise RuntimeError(f'{run_skipped} consecutive non-finite losses at step {step}; aborting')
+            t_fetch = time.time(); continue
+        run_skipped = 0
+        optimizer.zero_grad(set_to_none=True)
+        loss.backward()
+        clip_grads(model, args.grad_clip, dist_ctx)
+        optimizer.step()
+        tot += loss.item(); n += 1
+        if dist_ctx.rank == 0 and args.log_interval and step % args.log_interval == 0:
+            print(f'{log_prefix}step {step}/{len(loader)} loss {loss.item():.4f} lr {optimizer.param_groups[0]["lr"]:.2e}', flush=True)
+        t_fetch = time.time()
+    agg = torch.tensor([tot, float(n)], device=device)
+    if dist_ctx.enabled:
+        dist.all_reduce(agg, op=dist.ReduceOp.SUM)
+    return dict(loss=(agg[0] / max(agg[1], 1)).item(), lr=optimizer.param_groups[0]['lr'], steps=n,
+                skipped_nonfinite=skipped, sec=time.time() - t0, data_sec=t_data)
+
+
+@torch.no_grad()
+def validate(model, trainer, loader, args, device, dist_ctx, mode, sigma_d):
+    """Loss-only (the training objective) with a fixed RNG so epochs are comparable; never used for selection."""
+    model.eval()
+    use_bf16 = not args.no_bf16 and device.type == 'cuda'
+    tot, n = 0.0, 0
+    devices = [device.index if device.index is not None else torch.cuda.current_device()] if device.type == 'cuda' else []
+    with torch.random.fork_rng(devices=devices):            # fork_rng takes CUDA device indices
+        torch.manual_seed(args.seed + 12345)
+        if device.type == 'cuda':
+            torch.cuda.manual_seed_all(args.seed + 12345)
+        for x, y_d, xh in loader:
+            x, y_d, xh = x.to(device), y_d.to(device), xh.to(device)
+            with torch.autocast('cuda', dtype=torch.bfloat16, enabled=use_bf16):
+                loss, _ = trainer.get_loss(model, target_for(mode, x, xh, sigma_d), {'sensor': y_d, 'x0_hat': xh}, loss_in_fp32=True)
+            tot += loss.item() * x.shape[0]; n += x.shape[0]
+    agg = torch.tensor([tot, float(n)], device=device)
+    if dist_ctx.enabled:
+        dist.all_reduce(agg, op=dist.ReduceOp.SUM)
+    model.train()
+    return dict(val_loss=(agg[0] / max(agg[1], 1)).item(), val_n=int(agg[1].item()))
+
+
+# ----------------------------------------------------------------------------- entry points
+def build_everything(args, dist_ctx, device):
+    train_ds, val_ds = make_datasets(args)
+    model = build_residual_model(args.mode, args.base_channels)
+    n_params = sum(p.numel() for p in model.parameters())           # counted before the wrap (sharding hides it after)
+    resume_path = latest_checkpoint(args.save_dir) if args.resume == 'auto' else (args.resume or None)
+    ck = load_checkpoint(resume_path) if resume_path else None
+    if ck is not None:
+        model.load_state_dict(ck['model_state_dict'], strict=True)          # before the wrap, on CPU
+    model = wrap_fsdp(model, args, dist_ctx) if dist_ctx.enabled else model.to(device)
+    trainer = make_trainer(args, device)
+    optimizer = make_optimizer(model, args); scheduler = make_scheduler(optimizer, args)
+    start_epoch, elapsed = (0, 0.0) if ck is None else restore_training_state(ck, model, optimizer, scheduler, dist_ctx)
+    return SimpleNamespace(train_ds=train_ds, val_ds=val_ds, model=model, trainer=trainer, optimizer=optimizer, scheduler=scheduler,
+                           start_epoch=start_epoch, elapsed=elapsed, resume_path=resume_path, n_params=n_params)
+
+
+def run_epochs(args, parts, dist_ctx, device):
+    """The epoch loop. `parts` is either build_everything()'s namespace or the tests' tuple (ds, loader, model, trainer, opt, sched)."""
+    if isinstance(parts, tuple):
+        ds, train_loader, model, trainer, optimizer, scheduler = parts
+        val_loader, start_epoch, elapsed, sigma_d = None, 0, 0.0, ds.sigma_d
+    else:
+        model, trainer, optimizer, scheduler = parts.model, parts.trainer, parts.optimizer, parts.scheduler
+        start_epoch, elapsed, sigma_d = parts.start_epoch, parts.elapsed, parts.train_ds.sigma_d
+        train_loader = make_loader(parts.train_ds, args, args.batch_size, True, dist_ctx.rank, dist_ctx.world, device)
+        val_loader = make_loader(parts.val_ds, args, args.batch_size, False, dist_ctx.rank, dist_ctx.world, device)
+    meta = checkpoint_meta(args, sigma_d, getattr(parts, 'train_ds', parts[0] if isinstance(parts, tuple) else None).prior['s'], file_sha256(args.prior) if os.path.exists(args.prior) else '')
+    t_start = time.time() - elapsed * 3600                           # before any rank-0-only work: the ranks' clocks agree
+    final_epoch = start_epoch
+    for epoch in range(start_epoch, args.num_epochs):
+        epoch_seed(args, epoch, dist_ctx.rank)
+        train_loader.sampler.set_epoch(epoch)
+        rec = train_one_epoch(model, trainer, train_loader, optimizer, args, device, dist_ctx, args.mode, sigma_d, log_prefix=f'[epoch {epoch + 1}] ')
+        scheduler.step()
+        epoch1 = epoch + 1
+        if val_loader is not None and args.val_every and epoch1 % args.val_every == 0:
+            rec.update(validate(model, trainer, val_loader, args, device, dist_ctx, args.mode, sigma_d))
+        hours = (time.time() - t_start) / 3600
+        stop = torch.tensor(float(hours >= args.max_hours), device=device)
+        if dist_ctx.enabled:
+            dist.broadcast(stop, src=0)                               # one decision for every rank
+        out_of_time = bool(stop.item())
+        rec.update(epoch=epoch1, elapsed_hours=hours, peak_gb=torch.cuda.max_memory_allocated(device) / 2 ** 30 if device.type == 'cuda' else 0.0)
+        if should_save(epoch1, args) or out_of_time:
+            save_checkpoint(model, optimizer, scheduler, epoch, rec['loss'], meta, os.path.join(args.save_dir, f'checkpoint_epoch_{epoch1}.pth'), hours, dist_ctx)
+            if dist_ctx.rank == 0:
+                prune_checkpoints(args.save_dir, args.keep_last, list(args.keep_epochs) + [epoch1])
+        if dist_ctx.rank == 0:
+            os.makedirs(args.save_dir, exist_ok=True)
+            with open(os.path.join(args.save_dir, 'train_log.jsonl'), 'a') as f:
+                f.write(json.dumps(rec) + '\n')
+            print(f'epoch {epoch1}/{args.num_epochs} loss {rec["loss"]:.5f} lr {rec["lr"]:.2e} '
+                  f'{"val " + format(rec["val_loss"], ".5f") + " " if "val_loss" in rec else ""}'
+                  f'{rec["sec"]:.0f}s (data {rec["data_sec"]:.0f}s) elapsed {hours:.2f}h', flush=True)
+        final_epoch = epoch1
+        if out_of_time:
+            if dist_ctx.rank == 0:
+                print(f'wall-clock budget {args.max_hours} h reached after epoch {epoch1}; stopping', flush=True)
+            break
+    if dist_ctx.rank == 0:
+        with open(os.path.join(args.save_dir, 'DONE'), 'w') as f:
+            f.write(f'{final_epoch}\n')
+    return final_epoch
+
+
+def dry_run(args):
+    """Time the production step on this configuration. Steady-state data wait excludes the prefetched warm-up batches."""
+    dist_ctx, device = setup_dist(args)
+    seed_everything(args.seed, dist_ctx.rank)
+    parts = build_everything(args, dist_ctx, device)
+    loader = make_loader(parts.train_ds, args, args.batch_size, True, dist_ctx.rank, dist_ctx.world, device)
+    loader.sampler.set_epoch(0)
+    use_bf16 = not args.no_bf16 and device.type == 'cuda'
+    warm = max(3, args.num_workers * 4)                               # 4 = prefetch_factor
+    it = iter(loader); comp, wall, data = [], [], []
+    for step in range(args.dry_run_steps + warm):
+        tf = time.time(); x, y_d, xh = next(it); td = time.time() - tf
+        x, y_d, xh = x.to(device), y_d.to(device), xh.to(device)
+        if device.type == 'cuda': torch.cuda.synchronize(device)
+        t0 = time.time()
+        with torch.autocast('cuda', dtype=torch.bfloat16, enabled=use_bf16):
+            loss, _ = parts.trainer.get_loss(parts.model, target_for(args.mode, x, xh, parts.train_ds.sigma_d), {'sensor': y_d, 'x0_hat': xh}, loss_in_fp32=True)
+        parts.optimizer.zero_grad(set_to_none=True); loss.backward(); clip_grads(parts.model, args.grad_clip, dist_ctx); parts.optimizer.step()
+        if device.type == 'cuda': torch.cuda.synchronize(device)
+        if step >= warm:
+            comp.append(time.time() - t0); data.append(td); wall.append(time.time() - tf)
+    world = dist_ctx.world
+    rec = dict(config=f'{args.mode}_d{args.d}_b{args.base_channels}_bs{args.batch_size}x{world}_w{args.num_workers}', mode=args.mode, d=args.d,
+               base_channels=args.base_channels, batch_size_per_gpu=args.batch_size, world=world, num_workers=args.num_workers, fsdp=dist_ctx.enabled,
+               bf16=use_bf16, steps=len(comp), warmup_steps=warm, params=parts.n_params, sec_per_step=float(np.mean(comp)), data_wait_sec=float(np.mean(data)),
+               wall_sec_per_step=float(np.mean(wall)), peak_gb=torch.cuda.max_memory_allocated(device) / 2 ** 30 if device.type == 'cuda' else 0.0,
+               sec_per_epoch=float(np.mean(wall)) * len(parts.train_ds) / (args.batch_size * world), loss=float(loss.item()), torch=torch.__version__)
+    if dist_ctx.rank == 0:
+        print(json.dumps(rec, indent=1))
+    if dist_ctx.enabled:
+        dist.destroy_process_group()
+    return rec
+
+
+def main(args):
+    dist_ctx, device = setup_dist(args)
+    seed_everything(args.seed, dist_ctx.rank)
+    if device.type == 'cuda':
+        free = torch.cuda.mem_get_info(device)[0] / 2 ** 20
+        if all_min(free, device, dist_ctx) < 3000:                    # collective: every rank refuses together
+            raise SystemExit(f'a GPU has less than 3000 MiB free ({device}: {free:.0f}); refusing to start')
+    parts = build_everything(args, dist_ctx, device)
+    if dist_ctx.rank == 0:
+        os.makedirs(args.save_dir, exist_ok=True)
+        with open(os.path.join(args.save_dir, 'args.json'), 'w') as f:
+            json.dump(vars(args), f, indent=1)
+        print(f'mode={args.mode} d={args.d} base={args.base_channels} params={parts.n_params:,} sigma_d={parts.train_ds.sigma_d:.6f} '
+              f'train={len(parts.train_ds)} val={len(parts.val_ds)} batch/gpu={args.batch_size} world={dist_ctx.world} workers={args.num_workers} '
+              f'resume={parts.resume_path} start_epoch={parts.start_epoch} elapsed={parts.elapsed:.2f}h', flush=True)
+    run_epochs(args, parts, dist_ctx, device)
+    if dist_ctx.enabled:
+        dist.destroy_process_group()
+
+
+if __name__ == '__main__':
+    a = get_parser().parse_args()
+    if a.dry_run_steps:
+        dry_run(a)
+    else:
+        main(a)
