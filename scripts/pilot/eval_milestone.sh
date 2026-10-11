@@ -14,4 +14,5 @@ if [[ "$GRID" == "full" ]]; then
   [[ "$PROCS" -eq 0 ]] || { echo "GPU $GPU busy; the full-grid evaluation needs an idle GPU"; exit 1; }
   nvidia-smi --id="$GPU" >> "$LOG"
 fi
+export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1
 $PY scripts/eval_warmstart.py --d 4 --ckpt "$CK" --mode "$MODE" --base_channels 64 --grid "$GRID" --seeds 0 1 --batch_size 8 --device "cuda:$GPU" 2>&1 | tee -a "$LOG"
