@@ -17,6 +17,7 @@ RESUME=""
 if compgen -G "$RUN/checkpoint_epoch_*.pth" > /dev/null; then
   RESUME="--resume auto"
 fi
+export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1
 nohup $PY main_2d_residual_fsdp.py --mode "$MODE" --ds 4 --base_channels 64 --batch_size 8 --num_workers 8 --device "cuda:$GPU" \
     --num_epochs 100 --max_hours 24 --save_every 10 --keep_epochs 25 50 100 --val_every 5 --save_dir "$RUN" $RESUME "$@" \
     >> "$RUN/run.log" 2>&1 &
