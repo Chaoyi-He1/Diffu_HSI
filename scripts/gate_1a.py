@@ -17,11 +17,14 @@ import numpy as np
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO)
+from scripts.paired_stats import cluster_se  # noqa: E402
 
 EXPECTED = {'b': 'residual', 'a': 'standard', 'aprime': 'standard_xhat'}
 PREREG = 'ddim10'
 REQUIRED_ROWS = (PREREG, 'ddpm1000')          # a full-grid evaluation always has both
 DEFAULT_MAX_NFE, DEFAULT_K = 10, 2.0
+K_SE = ('se: the iid paired SE over cubes (std ddof=1 / sqrt(n)), as the spec §8 rule states; se_cluster (CR1 over '
+        'source images, n_clusters images) is reported alongside and is not used by the rule')
 
 
 def _need(e, key, where='evaluation'):
@@ -83,16 +86,37 @@ def per_cube(row):
     return np.asarray(row['per_item']['rmse_pct'], dtype=float).mean(0)       # [seed][cube] -> [cube]
 
 
-def _paired(d):
+def _paired(d, files):
+    """Mean and iid SE of per-cube differences `d`, plus the cluster-robust SE over the cubes' source images."""
     if len(d) < 2:
         raise ValueError('need at least 2 paired cubes')
-    return dict(diff=float(d.mean()), se=float(d.std(ddof=1) / np.sqrt(len(d))), n=int(len(d)))
+    se_cluster, n_clusters = cluster_se(d, files)
+    return dict(diff=float(d.mean()), se=float(d.std(ddof=1) / np.sqrt(len(d))), n=int(len(d)),
+                se_cluster=se_cluster, n_clusters=n_clusters)
 
 
 def paired_vs_model(row_b, row_other):
     if row_b['files'] != row_other['files']:
         raise ValueError('rows score different cubes (or a different order); pair via files')
-    return _paired(per_cube(row_b) - per_cube(row_other))
+    return _paired(per_cube(row_b) - per_cube(row_other), row_b['files'])
+
+
+def baseline_by_file(ev):
+    """file -> per-cube baseline RMSE of an evaluation, or None when it does not carry them."""
+    if 'baseline_files' not in ev or 'baseline_per_item' not in ev:
+        return None
+    return dict(zip(ev['baseline_files'], ev['baseline_per_item']['rmse_pct']))
+
+
+def paired_vs_baseline(row, base=None):
+    """The row's stored paired difference to the baseline and its iid SE (computed by the harness). The clustered SE
+    is the row's own when the harness stored it, else recomputed from `base` (file -> per-cube baseline), else None."""
+    r = dict(diff=row['paired_rmse_diff'], se=row['paired_rmse_se'], n=len(row['files']), se_cluster=None, n_clusters=None)
+    if 'paired_rmse_se_cluster' in row:
+        r.update(se_cluster=row['paired_rmse_se_cluster'], n_clusters=row['n_clusters'])
+    elif base is not None and all(f in base for f in row['files']):
+        r['se_cluster'], r['n_clusters'] = cluster_se(per_cube(row) - np.array([base[f] for f in row['files']]), row['files'])
+    return r
 
 
 def paired_on_intersection(row_x, row_y):
@@ -101,17 +125,17 @@ def paired_on_intersection(row_x, row_y):
     common = [f for f in row_y['files'] if f in cx]
     if not common:
         raise ValueError('no common cubes')
-    return _paired(np.array([cx[f] - cy[f] for f in common]))
+    return _paired(np.array([cx[f] - cy[f] for f in common]), common)
 
 
 def row_named(ev, name):
     return next((r for r in ev['rows'] if r['name'] == name), None)
 
 
-def comparisons(rb, ra, rp, k, blind_a, blind_aprime):
-    """B's row against the baseline (its stored paired diff/SE), A's row and A''s row; pass = diff + k·SE < 0."""
-    vs = dict(vs_baseline=dict(diff=rb['paired_rmse_diff'], se=rb['paired_rmse_se'], n=len(rb['files'])),
-              vs_a=paired_vs_model(rb, ra), vs_aprime=paired_vs_model(rb, rp))
+def comparisons(rb, ra, rp, k, blind_a, blind_aprime, base=None):
+    """B's row against the baseline (its stored paired diff/SE), A's row and A''s row; pass = diff + k·SE < 0, with
+    the iid SE (se_cluster is reported only). `base`: file -> per-cube baseline, for the baseline's clustered SE."""
+    vs = dict(vs_baseline=paired_vs_baseline(rb, base), vs_a=paired_vs_model(rb, ra), vs_aprime=paired_vs_model(rb, rp))
     for r in vs.values():
         r['pass'] = bool(r['diff'] + k * r['se'] < 0)
     vs['vs_a']['ablation_blind'] = blind_a
@@ -145,7 +169,8 @@ def gate(ev_b, ev_a, ev_aprime, max_nfe=DEFAULT_MAX_NFE, k=DEFAULT_K, require_do
                          f"A'={epochs['aprime']}; pass allow_unequal_epochs to compare them anyway (the verdict is then marked)")
     blind_a, blind_ap = not bool(ev_a['yswap']['passes']), not bool(ev_aprime['yswap']['passes'])
     rb, ra, rp = (best_row(ev, max_nfe) for ev in (ev_b, ev_a, ev_aprime))
-    vs = comparisons(rb, ra, rp, k, blind_a, blind_ap)
+    base = baseline_by_file(ev_b)
+    vs = comparisons(rb, ra, rp, k, blind_a, blind_ap, base)
     yswap_b = bool(ev_b['yswap']['passes'])
     if not yswap_b:
         verdict = 'INVALID'
@@ -156,11 +181,11 @@ def gate(ev_b, ev_a, ev_aprime, max_nfe=DEFAULT_MAX_NFE, k=DEFAULT_K, require_do
     if unequal:
         verdict += '_UNEQUAL_EPOCHS'
     pb, pa, pp = (row_named(ev, PREREG) for ev in (ev_b, ev_a, ev_aprime))
-    prereg = dict(setting=PREREG, **comparisons(pb, pa, pp, k, blind_a, blind_ap),
+    prereg = dict(setting=PREREG, **comparisons(pb, pa, pp, k, blind_a, blind_ap, base),
                   rmse_pct=dict(b=pb['rmse_pct'], a=pa['rmse_pct'], aprime=pp['rmse_pct']))
     at_b_setting = {s: paired_vs_model(rb, row_named(ev, rb['name'])) for s, ev in (('a', ev_a), ('aprime', ev_aprime)) if row_named(ev, rb['name'])}
     speed = {s: paired_on_intersection(row_named(ev, PREREG), row_named(ev, 'ddpm1000')) for s, ev in evs.items()}
-    return dict(verdict=verdict, max_nfe=max_nfe, k=k, require_done=bool(require_done), yswap_b=yswap_b,
+    return dict(verdict=verdict, max_nfe=max_nfe, k=k, k_se=K_SE, require_done=bool(require_done), yswap_b=yswap_b,
                 run_names={s: ev.get('run_name') for s, ev in evs.items()}, final_epochs=epochs,
                 b=dict(selected_from_grid=rb['name'], nfe=rb['nfe'], rmse_pct=rb['rmse_pct'], rmse_pct_se=rb['rmse_pct_se'], ckpt=ev_b['provenance']['ckpt']),
                 a=dict(selected_from_grid=ra['name'], nfe=ra['nfe'], rmse_pct=ra['rmse_pct'], ckpt=ev_a['provenance']['ckpt']),
@@ -173,7 +198,8 @@ def _print_comparisons(g, indent='  '):
     for lab, key in (('B - baseline', 'vs_baseline'), ('B - A', 'vs_a'), ("B - A'", 'vs_aprime')):
         r = g[key]
         flag = '  [ablation y-swap failed]' if r.get('ablation_blind') else ''
-        print(f"{indent}{lab:<13} {r['diff']:+.4f} ± {r['se']:.4f} (n={r['n']})  {'pass' if r['pass'] else 'fail'}{flag}")
+        cl = f", clustered ± {r['se_cluster']:.4f} over {r['n_clusters']} images" if r.get('se_cluster') is not None else ''
+        print(f"{indent}{lab:<13} {r['diff']:+.4f} ± {r['se']:.4f} (n={r['n']}{cl})  {'pass' if r['pass'] else 'fail'}{flag}")
 
 
 def main(argv=None):

@@ -74,6 +74,49 @@ def test_paired_needs_at_least_two_cubes():
         paired_on_intersection(row('ddim10', 10, [[1.0] * 6]), two)               # only f0 is common
 
 
+IMG_FILES = [f'MatFlower60/Train/P023/{i // 2}_{i % 2 + 1}.mat' for i in range(6)]    # 3 source images x 2 patches
+
+
+def test_paired_comparisons_report_cluster_robust_se():
+    """Fix item 10: every paired comparison also reports the CR1 SE over source images and the number of images;
+    diff, se and n are unchanged."""
+    from scripts.paired_stats import cluster_se
+    off = np.array([0.3, 0.3, -0.2, -0.2, 0.05, 0.05]) + np.array([0.01, -0.01, 0.02, -0.02, 0.0, 0.01])
+    b = row('ddim10', 10, [[1.0 + o for o in off]] * 2, files=IMG_FILES)
+    a = row('ddim5', 5, [[2.0] * 6] * 2, files=IMG_FILES)
+    r = paired_vs_model(b, a)
+    d = 1.0 + off - 2.0
+    assert r['diff'] == pytest.approx(d.mean()) and r['se'] == pytest.approx(d.std(ddof=1) / np.sqrt(6)) and r['n'] == 6
+    assert r['n_clusters'] == 3 and r['se_cluster'] == pytest.approx(cluster_se(d, IMG_FILES)[0]) and r['se_cluster'] > r['se']
+    y = row('ddpm1000', 1000, [[0.9, 1.0, 1.3]] * 2, files=IMG_FILES[:3])
+    r = paired_on_intersection(b, y)
+    assert r['n'] == 3 and r['n_clusters'] == 2                                             # cubes 0, 1 share an image
+
+
+def test_gate_records_cluster_se_for_the_baseline_comparison():
+    """vs_baseline takes diff and SE from the row; its clustered SE comes from the row when the harness stored it,
+    otherwise from the evaluation's per-cube baseline. The record names the SE the k rule uses."""
+    from scripts.paired_stats import cluster_se
+    base = np.array([2.6, 2.6, 2.1, 2.1, 2.3, 2.35])
+    b_cube = np.full(6, 1.8)
+    evs = []
+    for mode, cube in (('residual', b_cube), ('standard', b_cube + 0.8), ('standard_xhat', b_cube + 0.6)):
+        e = ev(mode, [row('ddim10', 10, [cube, cube], base, files=IMG_FILES), row('ddpm1000', 1000, [cube[:3]] * 2, files=IMG_FILES[:3])])
+        e.update(baseline_files=list(IMG_FILES), baseline_per_item={'rmse_pct': base.tolist()})
+        evs.append(e)
+    g = gate(*evs, require_done=False)
+    vb = g['vs_baseline']
+    assert vb['diff'] == pytest.approx((b_cube - base).mean()) and vb['n'] == 6
+    assert (vb['se_cluster'], vb['n_clusters']) == pytest.approx(cluster_se(b_cube - base, IMG_FILES))
+    assert g['prereg']['vs_baseline']['n_clusters'] == 3 and g['vs_a']['n_clusters'] == 3
+    assert 'iid' in g['k_se'] and 'se_cluster' in g['k_se']
+    stored = dict(evs[0], rows=[dict(evs[0]['rows'][0], paired_rmse_se_cluster=0.123, n_clusters=3)] + evs[0]['rows'][1:])
+    assert gate(stored, *evs[1:], require_done=False)['vs_baseline']['se_cluster'] == 0.123      # the harness's value
+    bare = [{k: v for k, v in e.items() if not k.startswith('baseline_')} for e in evs]
+    vb = gate(*bare, require_done=False)['vs_baseline']                     # an evaluation without per-cube baselines
+    assert vb['se_cluster'] is None and vb['n_clusters'] is None and vb['pass'] is True
+
+
 def test_gate_threshold_uses_k_paired_se():
     base = np.full(6, 2.3)
     a_cube = np.array([2.0, 2.2, 2.4, 2.6, 2.8, 3.0]); b_cube = a_cube + np.array([-0.3, 0.1, -0.2, 0.0, -0.25, 0.05])

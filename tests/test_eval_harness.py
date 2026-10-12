@@ -197,6 +197,52 @@ def test_per_split_statistics_and_unseen_aggregate():
     assert (r['paired_rmse_diff_unseen'], r['paired_rmse_se_unseen']) == pytest.approx((0.85, 0.25))
 
 
+def test_source_image_is_class_dir_plus_image_stem():
+    """Fix item 10: the cluster of a cube is its source image, i.e. class dir + basename.rsplit('_', 1)[0]."""
+    from scripts.paired_stats import source_image
+    assert source_image('MatFlower60/Train/P023/34_10.mat') == source_image('/abs/MatFlower60/Train/P023/34_1.mat') == 'P023/34'
+    assert source_image('MatFlower60/Train/P022/34_1.mat') != source_image('MatFlower60/Train/P023/34_1.mat')
+    assert source_image('MatFlower60/Train/P023/3_4.mat') != source_image('MatFlower60/Train/P023/34_1.mat')
+
+
+def test_cluster_se_is_cr1_over_source_images():
+    from scripts.paired_stats import cluster_se
+    # hand-computed CR1: d = [1, 3, 2, 6], images a a b c; dbar = 3, cluster sums of (d - dbar) = -2, -1, 3
+    files = ['P023/a_1.mat', 'P023/a_2.mat', 'P023/b_1.mat', 'P023/c_1.mat']
+    se, g = cluster_se([1.0, 3.0, 2.0, 6.0], files)
+    assert g == 3 and se == pytest.approx(np.sqrt(3 / 2 * (4 + 1 + 9)) / 4, abs=1e-12)
+    # one patch per image: CR1 equals the iid SE (ddof = 1)
+    rng = np.random.default_rng(0)
+    d = rng.standard_normal(40)
+    se, g = cluster_se(d, [f'MatFlower60/Train/P023/{i}_1.mat' for i in range(40)])
+    assert g == 40 and se == pytest.approx(d.std(ddof=1) / np.sqrt(40), abs=1e-12)
+    # two patches of one image share an offset: the clustered SE exceeds the iid SE
+    files = [f'MatFlower60/Train/P023/{i // 2}_{i % 2 + 1}.mat' for i in range(40)]
+    d = np.repeat(rng.standard_normal(20), 2) + 0.1 * rng.standard_normal(40)
+    se, g = cluster_se(d, files)
+    assert g == 20 and se > 1.2 * d.std(ddof=1) / np.sqrt(40)
+    assert cluster_se([1.0, 2.0], ['P023/a_1.mat', 'P023/a_2.mat']) == (None, 1)          # one cluster: no SE
+    with pytest.raises(ValueError):
+        cluster_se([1.0, 2.0], ['P023/a_1.mat'])
+
+
+def test_aggregate_row_reports_cluster_robust_se():
+    """Additive: with `files`, aggregate_row also reports the CR1 SE of the paired difference over source images and
+    the number of images, overall and per split; every existing key keeps its value."""
+    from scripts.eval_warmstart import aggregate_row
+    from scripts.paired_stats import cluster_se
+    classes = ['P022', 'P022', 'P023', 'P023', 'P023', 'P024']
+    files = [f'MatFlower60/Train/{c}/{s}.mat' for c, s in zip(classes, ('1_1', '1_2', '5_1', '5_7', '6_1', '2_1'))]
+    per = {'rmse_pct': [1.0, 3.0, 2.0, 4.0, 6.0, 10.0, 1.2, 3.2, 2.2, 4.4, 6.0, 10.2]}
+    base = [0.5, 2.5, 2.0, 3.0, 5.0, 9.0]
+    plain, r = aggregate_row(per, base, classes, n_seeds=2), aggregate_row(per, base, classes, n_seeds=2, files=files)
+    assert 'paired_rmse_se_cluster' not in plain and {k: r[k] for k in plain} == plain
+    diff = np.asarray(per['rmse_pct']).reshape(2, 6).mean(0) - np.asarray(base)
+    assert (r['paired_rmse_se_cluster'], r['n_clusters']) == cluster_se(diff, files) and r['n_clusters'] == 4
+    assert r['n_clusters_P023'] == 2 and r['paired_rmse_se_cluster_P023'] == pytest.approx(cluster_se(diff[2:5], files[2:5])[0])
+    assert r['n_clusters_unseen'] == 3 and r['paired_rmse_se_cluster_P024'] is None             # P024 has one image
+
+
 def test_reconstruct_x_init_per_mode():
     """Warm start: residual mode starts the chain from x_init = 0 (a zero residual), standard mode from x0_hat, so
     the first state's mean is 0 vs sqrt(alpha_bar[t_start]) * mean(x0_hat)."""
@@ -427,6 +473,8 @@ def test_checkpoint_eval_records_per_cube_values(data_root, tmp_path, monkeypatc
         assert row['paired_rmse_diff'] == pytest.approx((cube - base).mean())
         unseen = np.array([f.split('/')[2] in ('P023', 'P024') for f in row['files']])
         assert unseen.sum() == 5 and row['paired_rmse_diff_unseen'] == pytest.approx((cube - base)[unseen].mean())
+        from scripts.paired_stats import cluster_se                                    # fix item 10: CR1 over source images
+        assert (row['paired_rmse_se_cluster'], row['n_clusters']) == pytest.approx(cluster_se(cube - base, row['files']))
 
 
 from scripts.eval_warmstart import build_model, eval_output_path, sampler_grid

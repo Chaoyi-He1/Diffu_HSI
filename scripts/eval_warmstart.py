@@ -25,6 +25,7 @@ sys.path.insert(0, REPO)
 from data_loader.hfd_residual import HFDResidualData, limit_worker_threads, residual_collate_fn  # noqa: E402
 from model.diffusion_trainer import DiffusionTrainer  # noqa: E402
 from model.residual_wrapper import MODES, build_residual_model  # noqa: E402
+from scripts.paired_stats import cluster_se  # noqa: E402
 # Defined once (fix item 15) and re-exported from here: scripts/make_baseline_record.py and the tests import them from
 # this module, and check_meta / checkpoint_eval use file_sha256 and git_head.
 from data_loader.warmstart_paths import (DATA_ROOT, EVAL_DIR, PRIOR, RESULTS_ROOT, SUBSET,  # noqa: E402,F401
@@ -99,15 +100,26 @@ def summarize_seeds(per_item, classes, n_seeds):
     return out
 
 
-def aggregate_row(per_item, base_rmse, classes, n_seeds):
+def aggregate_row(per_item, base_rmse, classes, n_seeds, files=None):
     """summarize_seeds plus the paired RMSE difference to the baseline. base_rmse: per-cube baseline RMSE [N] (it does
     not depend on the seed). The difference is formed per cube (averaged over seeds) before its mean and SE, overall
-    (`paired_rmse_diff`, `paired_rmse_se`) and per split (`paired_rmse_diff_<split>`, `paired_rmse_se_<split>`)."""
+    (`paired_rmse_diff`, `paired_rmse_se`) and per split (`paired_rmse_diff_<split>`, `paired_rmse_se_<split>`).
+
+    With the cubes' `files`, it also reports the cluster-robust (CR1) SE of the paired difference over source images
+    and the number of images, overall (`paired_rmse_se_cluster`, `n_clusters`) and per split (`..._<split>`; the SE is
+    None for a split from one image). Patches of one image are not independent (fix item 10)."""
     out = summarize_seeds(per_item, classes, n_seeds)
     diff = (_by_seed(per_item['rmse_pct'], n_seeds) - np.asarray(base_rmse, dtype=np.float64)[None]).mean(0)
     out['paired_rmse_diff'], out['paired_rmse_se'] = _mean_se(diff)
-    for name, sel in _splits(classes).items():
+    splits = _splits(classes)
+    for name, sel in splits.items():
         out[f'paired_rmse_diff_{name}'], out[f'paired_rmse_se_{name}'] = _mean_se(diff[sel])
+    if files is not None:
+        files = list(files)
+        out['paired_rmse_se_cluster'], out['n_clusters'] = cluster_se(diff, files)
+        for name, sel in splits.items():
+            out[f'paired_rmse_se_cluster_{name}'], out[f'n_clusters_{name}'] = \
+                cluster_se(diff[sel], [f for f, s in zip(files, sel) if s])
     return out
 
 
@@ -331,7 +343,7 @@ def checkpoint_eval(args):
                 if si == 0:                                          # the baseline does not depend on the seed
                     base_r += metrics(batch[2].to(device), batch[0].to(device))['rmse_pct'].tolist()
         assert len(per['rmse_pct']) == n_seeds * len(ds)
-        agg = aggregate_row(per, base_r, [class_of(f) for f in ds.img_list], n_seeds)
+        agg = aggregate_row(per, base_r, [class_of(f) for f in ds.img_list], n_seeds, files=ds.img_list)
         rows.append(dict(cfg, nfe=nfe, sec_per_cube=secs / len(per['rmse_pct']), seeds=list(args.seeds),
                          batch_size=args.batch_size, files=[os.path.relpath(f, args.data_root) for f in ds.img_list],
                          per_item={k: _by_seed(v, n_seeds).tolist() for k, v in per.items()},   # [seed][cube]; cube order = this row's `files` (dataset sorted order, NOT the JSON subset order)
