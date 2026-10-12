@@ -2,11 +2,13 @@ import fcntl
 import json
 import os
 import subprocess
+import sys
 import time
 import types
 
 import pytest
 
+from data_loader import warmstart_paths
 from scripts import gate_1a
 from scripts.pilot import pilot_driver
 from scripts.pilot.pilot_driver import (MAX_ACTION_FAILURES, executable, is_stuck, load_failures, next_actions,
@@ -53,8 +55,9 @@ def events(root):
 
 @pytest.fixture
 def driver_root(tmp_path, monkeypatch):
-    """The driver pointed at a tmp results root, with no nvidia-smi and no sleeping."""
+    """The driver pointed at a tmp results root, with no nvidia-smi, no sleeping and no earlier poll launch attempts."""
     monkeypatch.setattr(pilot_driver, 'ROOT', str(tmp_path))
+    monkeypatch.setattr(pilot_driver, '_TICK_TRIED', {})
     monkeypatch.setattr(pilot_driver, 'gpu_status', lambda: {0: 'free', 1: 'free'})
     monkeypatch.setattr(pilot_driver, 'time', types.SimpleNamespace(sleep=lambda s: pytest.fail('the loop must not sleep here')))
     return tmp_path
@@ -364,7 +367,7 @@ def test_a_launch_during_an_eval_leaves_the_rest_of_the_stale_plan_for_the_next_
     monkeypatch.setattr(pilot_driver, 'next_actions', lambda st, g: next(plans, []))
     ran = []
 
-    def fake_execute(a, on_tick=None):
+    def fake_execute(a, on_tick=None, **kw):
         ran.append(a)
         if on_tick:
             on_tick(60.0)
@@ -373,6 +376,52 @@ def test_a_launch_during_an_eval_leaves_the_rest_of_the_stale_plan_for_the_next_
     st, executed = pilot_driver.one_pass()
     assert ran == executed == [('eval_quick', 'residual', 25, 0), ('launch', 'standard_xhat', 1)]   # no eval on the new run's GPU
     assert "REPLAN [('eval_full', 'standard', 100, 1)]" in events(driver_root)
+
+
+def test_launch_refusals_in_an_evals_polls_are_throttled_and_not_counted(driver_root, monkeypatch):
+    """launch_run.sh may refuse a launch for a while (e.g. the finishing run's CUDA context is still visible). From an
+    evaluation's polls a launch is tried at most once per TICK_RETRY_S and a refusal there (TICK-REFUSED) never counts
+    toward MAX_ACTION_FAILURES, so the next pass still launches it."""
+    assert pilot_driver.TICK_RETRY_S == 600
+    mk_run(driver_root, 'residual', epochs=(100,), done=100, log_epochs=100)              # B DONE: its full eval goes to GPU 0
+    mk_run(driver_root, 'standard', epochs=(90,), alive=True, log_epochs=99)              # A still training on GPU 1
+    gpus = {0: 'free', 1: 'busy'}
+    monkeypatch.setattr(pilot_driver, 'gpu_status', lambda: dict(gpus))
+    clock = [1000.0]
+    monkeypatch.setattr(pilot_driver, 'monotonic', lambda: clock[0])
+    refuse, calls = [True], []
+    xhat = ('launch', 'standard_xhat', 1)
+
+    def fake_run_cmd(cmd, timeout, on_tick=None):
+        name, args = cmd[1].rsplit('/', 1)[-1], cmd[2:]
+        calls.append((name, args, clock[0]))
+        if name == 'launch_run.sh':
+            if refuse[0]:
+                return 1                                                                  # refused: nothing launched
+            mk_run(driver_root, args[0], alive=True)
+            return 0
+        if on_tick is not None and args[0] == 'residual':
+            (driver_root / 'runs' / 'standard_d4_b64' / 'DONE').write_text('100\n')     # A finishes during B's eval ...
+            os.remove(driver_root / 'runs' / 'standard_d4_b64' / 'pid')
+            gpus[1] = 'free'                                                              # ... and A' becomes launchable
+            t0 = clock[0]
+            for k in range(1, 16):                                                        # 15 polls, 60 s apart
+                clock[0] = t0 + 60.0 * k
+                on_tick(60.0 * k)
+            mk_eval(driver_root, 'residual', 'residual_d4_b64', 100)
+        return 0
+    monkeypatch.setattr(pilot_driver, 'run_cmd', fake_run_cmd)
+    st, executed = pilot_driver.one_pass()
+    assert [c[2] - 1000.0 for c in calls if c[0] == 'launch_run.sh'] == [60.0, 660.0]   # 15 polls, 2 attempts 600 s apart
+    assert repr(xhat) not in load_failures(pilot_driver.failures_path())                  # never counted
+    log = events(driver_root)
+    assert log.count('TICK-REFUSED') == 2 and f'TICK-REFUSED {xhat} rc=1' in log
+    assert executed == [('eval_full', 'residual', 100, 0), xhat, xhat] and not st['standard_xhat']['alive']
+    refuse[0] = False                                                                     # the refusal was transient
+    calls.clear()
+    st, executed = pilot_driver.one_pass()                                                # a pass-level launch still runs
+    assert executed[0] == xhat and calls[0][:2] == ('launch_run.sh', ['standard_xhat', '1'])
+    assert st['standard_xhat']['alive'] and load_failures(pilot_driver.failures_path()) == {}
 
 
 def test_a_second_driver_exits_nonzero_while_the_lock_is_held(driver_root, monkeypatch):
@@ -507,12 +556,31 @@ def test_the_driver_gate_path_is_the_name_gate_1a_writes(tmp_path, monkeypatch):
     p = pilot_driver.gate_path(str(tmp_path / 'eval'))
     assert os.path.basename(p) == gate_1a.default_out_name(pilot_driver.run_name('residual')) == 'gate_1a__residual_d4_b64.json'
     assert p == str(tmp_path / 'eval' / 'residual' / 'd4' / 'gate_1a__residual_d4_b64.json')
-    # the contract, not a copy of the string: if gate_1a renames its output, run_state follows
-    monkeypatch.setattr(gate_1a, 'default_out_name', lambda run, *a, **k: f'renamed__{run}.json')
+    # the contract, not a copy of the string: gate_1a's name is the stdlib-only warmstart_paths.gate_out_name, and if that
+    # renames the output, run_state follows
+    assert gate_1a.default_out_name is warmstart_paths.gate_out_name
+    monkeypatch.setattr(warmstart_paths, 'gate_out_name', lambda run, *a, **k: f'renamed__{run}.json')
     (tmp_path / 'eval' / 'residual' / 'd4').mkdir(parents=True)
     assert states(tmp_path)['residual']['gate'] is False
     (tmp_path / 'eval' / 'residual' / 'd4' / 'renamed__residual_d4_b64.json').write_text('{}')
     assert states(tmp_path)['residual']['gate'] is True
+
+
+def test_the_driver_and_status_import_without_numpy(tmp_path):
+    """The driver runs under a plain `python` (nohup, plan Task 6): it and status.py import with the standard library only.
+    numpy and torch are blocked in the child (an import of either raises)."""
+    mk_run(tmp_path, 'residual', log_epochs=2)
+    code = ('import runpy, sys\n'
+            'sys.modules["numpy"] = None; sys.modules["torch"] = None\n'
+            'from scripts.pilot import pilot_driver\n'
+            'print(pilot_driver.gate_path("/r/eval"))\n'
+            'runpy.run_path("scripts/pilot/status.py", run_name="__main__")\n')
+    env = dict(os.environ, RESIDUAL_WARMSTART_RESULTS=str(tmp_path), CUDA_VISIBLE_DEVICES='')
+    out = subprocess.run([sys.executable, '-c', code], cwd=pilot_driver.REPO, env=env, capture_output=True, text=True, timeout=120)
+    assert out.returncode == 0, out.stderr
+    lines = out.stdout.splitlines()
+    assert lines[0] == '/r/eval/residual/d4/gate_1a__residual_d4_b64.json'
+    assert lines[1].startswith('residual_d4_b64') and 'epoch   2/100' in lines[1]
 
 
 def test_a_root_that_already_has_the_gate_file_is_refused(driver_root, monkeypatch):

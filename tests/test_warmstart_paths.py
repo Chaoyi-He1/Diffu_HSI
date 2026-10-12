@@ -37,6 +37,15 @@ def test_shared_helpers_are_defined_once():
     assert tr.file_sha256 is wp.file_sha256 and tr.git_head is wp.git_head
 
 
+def test_gate_output_name_is_defined_once():
+    """The gate writes, and the pilot driver looks for, the one name defined here (stdlib only, so the driver needs no numpy)."""
+    from scripts import gate_1a
+    assert gate_1a.default_out_name is wp.gate_out_name
+    assert (gate_1a.DEFAULT_MAX_NFE, gate_1a.DEFAULT_K) == (wp.GATE_DEFAULT_MAX_NFE, wp.GATE_DEFAULT_K) == (10, 2.0)
+    assert wp.gate_out_name('residual_d4_b64') == 'gate_1a__residual_d4_b64.json'
+    assert wp.gate_out_name('residual_d4_b64', False, 20, 1.0, True) == 'gate_1a__residual_d4_b64__nodone__nfe20__k1__1seed.json'
+
+
 def test_results_root_honours_the_environment(tmp_path):
     """Every consumer follows $RESIDUAL_WARMSTART_RESULTS (read at import time) to the same prior."""
     code = ('import json, main_2d_residual_fsdp as tr\n'

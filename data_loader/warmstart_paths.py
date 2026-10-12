@@ -9,6 +9,8 @@ prior or a new d writes exactly the file that training and evaluation read.
   EVAL_DIR      RESULTS_ROOT/eval
   SUBSET        tests/data/val_subset_200.json of this checkout (the 200 gate cubes; tracked in git)
   DATA_ROOT     $HFD_DATA_ROOT, default the HFD100 .mat dataset
+  gate_out_name the Phase 1a gate's output file name (scripts/gate_1a.py writes it as default_out_name; the pilot
+                driver looks for it), with the gate's default thresholds GATE_DEFAULT_MAX_NFE and GATE_DEFAULT_K
 
 Standard library only: importing this module must not pull in torch or numpy.
 """
@@ -22,6 +24,14 @@ RESULTS_ROOT = os.environ.get('RESIDUAL_WARMSTART_RESULTS', '/data/chaoyi_he/HSI
 PRIOR = os.path.join(RESULTS_ROOT, 'linear_prior_R1.npz')
 EVAL_DIR = os.path.join(RESULTS_ROOT, 'eval')
 SUBSET = os.path.join(REPO, 'tests', 'data', 'val_subset_200.json')
+GATE_DEFAULT_MAX_NFE, GATE_DEFAULT_K = 10, 2.0
+
+
+def gate_out_name(run_name_b, require_done=True, max_nfe=GATE_DEFAULT_MAX_NFE, k=GATE_DEFAULT_K, allow_single_seed=False):
+    """The gate file's name next to B's evaluation. A run that peeks (no DONE required), uses other thresholds or allows a
+    single seed must not overwrite the official gate file."""
+    return (f'gate_1a__{run_name_b}' + ('' if require_done else '__nodone') + ('' if max_nfe == GATE_DEFAULT_MAX_NFE else f'__nfe{max_nfe}')
+            + ('' if k == GATE_DEFAULT_K else f'__k{k:g}') + ('__1seed' if allow_single_seed else '') + '.json')
 
 
 def file_sha256(path):

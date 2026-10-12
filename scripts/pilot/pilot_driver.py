@@ -6,10 +6,13 @@ quick evals of epochs 25/50 on the run's own GPU; full eval of the final checkpo
 A run that is still alive gets no full eval and holds back the gate, even with a DONE file.
 Evaluations run synchronously and one at a time. While one runs, the driver polls it every POLL_S s. Each poll re-reads
 the state and executes any launch that has become possible, counting the eval's GPU as busy, and logs a BUSY heartbeat
-every BUSY_EVERY_S s. A pass whose evaluation saw such a launch leaves the rest of its plan to the next pass (REPLAN).
+every BUSY_EVERY_S s. Polls try a given launch at most once per TICK_RETRY_S s (across evaluations), and a launch that
+fails there is logged TICK-REFUSED and not counted toward MAX_ACTION_FAILURES: launch_run.sh may refuse for a while (e.g.
+a finishing run's CUDA context is still visible), and the next pass retries it, counted. A pass whose evaluation saw a
+launch attempt leaves the rest of its plan to the next pass (REPLAN).
 Unattended safety: one driver per results root (flock on runs/pilot_driver.lock; a second one exits 3); a root whose
 official gate file already exists is refused before anything runs (exit 4: use a fresh RESIDUAL_WARMSTART_RESULTS);
-every launch is counted (a run gets 1 + MAX_RELAUNCHES launches); an action that fails (non-zero rc or timeout)
+every launch is counted (a run gets 1 + MAX_RELAUNCHES launches); an action of a pass that fails (non-zero rc or timeout)
 MAX_ACTION_FAILURES times is dropped (runs/action_failures.json -- delete the entry to retry); a pass never raises (it
 logs ERROR); the loop exits 2 with STUCK when nothing is executable, no run is alive and nvidia-smi answered (e.g. foreign
 jobs hold the GPUs) -- a failed nvidia-smi means wait, logged as SMI-FAIL on every pass -- and 0 as soon as the gate has run.
@@ -30,7 +33,7 @@ from time import monotonic
 
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, REPO)
-from scripts import gate_1a  # noqa: E402  (the gate's output-name contract: gate_path)
+from data_loader import warmstart_paths  # noqa: E402  (gate_out_name, the gate's output-name contract: stdlib only)
 
 ROOT = os.environ.get('RESIDUAL_WARMSTART_RESULTS', '/data/chaoyi_he/HSI/Diffu/results/residual_warmstart')
 PY = '/home/grads/c/chaoyi_he/Desktop/conda/envs/hsi/bin/python'
@@ -38,11 +41,13 @@ MODES = ('residual', 'standard', 'standard_xhat')
 HOME_GPU = {'residual': 0, 'standard': 1, 'standard_xhat': 1}
 MILESTONES = (25, 50)
 MAX_RELAUNCHES = 3            # a run that keeps dying (e.g. the non-finite abort) is left for a human: 1 + 3 launches in total
-MAX_ACTION_FAILURES = 2       # an action that failed this many times (rc != 0 or timeout) is no longer retried
+MAX_ACTION_FAILURES = 2       # an action of a pass that failed this many times (rc != 0 or timeout) is no longer retried
 TIMEOUT_S = {'launch': 3600, 'eval_quick': 2 * 3600, 'eval_full': 8 * 3600, 'gate': 3600}
 POLL_S = 60                   # a running action is polled this often; an evaluation's poll may launch a run (eval_tick)
 BUSY_EVERY_S = 600            # BUSY heartbeat while an evaluation runs: a silent log no longer means a hung driver
+TICK_RETRY_S = 600            # polls try a given launch at most this often; a failure there is TICK-REFUSED, not counted
 _SMI_FAILING = False          # nvidia-smi failure is logged once per failure episode, not once per pass
+_TICK_TRIED = {}              # repr(launch) -> monotonic() of its last try from an evaluation's poll (TICK_RETRY_S)
 
 
 def run_name(mode):
@@ -68,9 +73,9 @@ def pid_alive(path):
 
 
 def gate_path(eval_dir):
-    """The OFFICIAL gate file, named by gate_1a.default_out_name next to B's evaluation; --no_require_done / --max_nfe / --k
-    peeks write gate_1a__<run>__nodone... .json beside it and do not count."""
-    return os.path.join(eval_dir, 'residual', 'd4', gate_1a.default_out_name(run_name('residual')))
+    """The OFFICIAL gate file, named by warmstart_paths.gate_out_name (gate_1a.default_out_name) next to B's evaluation;
+    --no_require_done / --max_nfe / --k peeks write gate_1a__<run>__nodone... .json beside it and do not count."""
+    return os.path.join(eval_dir, 'residual', 'd4', warmstart_paths.gate_out_name(run_name('residual')))
 
 
 def run_state(run_dir, eval_dir):
@@ -238,8 +243,9 @@ def run_cmd(cmd, timeout, on_tick=None):
     return 'timeout'
 
 
-def execute(action, on_tick=None):
-    """Run one action synchronously; a non-zero rc or a timeout is counted in runs/action_failures.json, a success clears the count.
+def execute(action, on_tick=None, count_failure=True):
+    """Run one action synchronously; a non-zero rc or a timeout is counted in runs/action_failures.json (not with
+    count_failure=False: a launch tried from an evaluation's poll), a success clears the count.
     on_tick is passed to run_cmd (one_pass gives evaluations eval_tick)."""
     kind = action[0]
     sh = os.path.join(REPO, 'scripts', 'pilot')
@@ -260,8 +266,9 @@ def execute(action, on_tick=None):
     log_event(f'END   {action} rc={rc}')
     path = failures_path(); failures = load_failures(path); key = repr(action)
     if rc != 0:
-        failures[key] = failures.get(key, 0) + 1
-        save_failures(path, failures)
+        if count_failure:
+            failures[key] = failures.get(key, 0) + 1
+            save_failures(path, failures)
     elif key in failures:
         del failures[key]
         save_failures(path, failures)
@@ -274,8 +281,11 @@ def read_states():
 
 def eval_tick(action, executed):
     """on_tick for a running evaluation `action`: a BUSY heartbeat every BUSY_EVERY_S s, then re-read the state and execute
-    (through execute(), so they are counted) the launches that became possible -- launches only, evaluations stay serial.
-    The evaluation's own GPU counts as busy: nvidia-smi may not list its CUDA context yet. Executed launches go to `executed`."""
+    the launches that became possible -- launches only, evaluations stay serial. The evaluation's own GPU counts as busy:
+    nvidia-smi may not list its CUDA context yet. Polls come every POLL_S s, so a given launch is tried from them at most
+    once per TICK_RETRY_S s (across evaluations), and a failure there is logged TICK-REFUSED and not counted toward
+    MAX_ACTION_FAILURES (a launch_run.sh refusal may be transient); the next pass retries it, counted. Tried launches go
+    to `executed`."""
     gpu, next_busy = action[3], [BUSY_EVERY_S]
 
     def tick(elapsed_s):
@@ -288,8 +298,15 @@ def eval_tick(action, executed):
             gpus[gpu] = 'busy'
         launches = [a for a in next_actions(read_states(), gpus) if a[0] == 'launch']
         for a in executable(launches, load_failures(failures_path())):
-            execute(a)
+            last = _TICK_TRIED.get(repr(a))
+            if last is not None and monotonic() - last < TICK_RETRY_S:
+                continue                                               # tried from a poll less than TICK_RETRY_S s ago
+            _TICK_TRIED[repr(a)] = monotonic()
+            rc = execute(a, count_failure=False)
             executed.append(a)
+            if rc != 0:
+                log_event(f'TICK-REFUSED {a} rc={rc} (not counted toward MAX_ACTION_FAILURES; polls try it again in '
+                          f'{TICK_RETRY_S / 60:.0f} min at the earliest, the next pass retries it, counted)')
     return tick
 
 

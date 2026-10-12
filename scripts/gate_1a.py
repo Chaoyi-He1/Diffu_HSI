@@ -23,11 +23,14 @@ import numpy as np
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO)
 from scripts.paired_stats import cluster_se  # noqa: E402
+# the output name and its default thresholds are defined once, stdlib only, so the pilot driver imports them without numpy;
+# default_out_name is re-exported under its old name
+from data_loader.warmstart_paths import GATE_DEFAULT_K as DEFAULT_K, GATE_DEFAULT_MAX_NFE as DEFAULT_MAX_NFE  # noqa: E402
+from data_loader.warmstart_paths import gate_out_name as default_out_name  # noqa: E402
 
 EXPECTED = {'b': 'residual', 'a': 'standard', 'aprime': 'standard_xhat'}
 PREREG = 'ddim10'
 REQUIRED_ROWS = (PREREG, 'ddpm1000')          # a full-grid evaluation always has both
-DEFAULT_MAX_NFE, DEFAULT_K = 10, 2.0
 YSWAP_THRESHOLD = 0.9         # spec §7, the same constant as eval_warmstart.YSWAP_RATIO (a test pins them equal)
 K_SE = ('se: the iid paired SE over cubes (std ddof=1 / sqrt(n)), as the spec §8 rule states; se_cluster (CR1 over '
         'source images, n_clusters images) is reported alongside and is not used by the rule')
@@ -161,13 +164,6 @@ def yswap_ratios(ys):
     ts = sorted((key for key, v in ys.items() if re.fullmatch(r't\d+', key) and isinstance(v, dict)
                  and 'true' in v and 'swap_full' in v), key=lambda key: int(key[1:]))
     return dict({key: ys[key]['true'] / ys[key]['swap_full'] for key in ts}, threshold=YSWAP_THRESHOLD)
-
-
-def default_out_name(run_name_b, require_done=True, max_nfe=DEFAULT_MAX_NFE, k=DEFAULT_K, allow_single_seed=False):
-    """A run that peeks (no DONE required), uses other thresholds or allows a single seed must not overwrite the
-    official gate file."""
-    return (f'gate_1a__{run_name_b}' + ('' if require_done else '__nodone') + ('' if max_nfe == DEFAULT_MAX_NFE else f'__nfe{max_nfe}')
-            + ('' if k == DEFAULT_K else f'__k{k:g}') + ('__1seed' if allow_single_seed else '') + '.json')
 
 
 def gate(ev_b, ev_a, ev_aprime, max_nfe=DEFAULT_MAX_NFE, k=DEFAULT_K, require_done=True, allow_unequal_epochs=False,
