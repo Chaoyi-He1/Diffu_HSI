@@ -106,7 +106,8 @@ def test_save_load_roundtrip_meta_and_harness_check(tmp_path):
     assert set(ck) >= {'epoch', 'loss', 'model_state_dict', 'optimizer_state_dict', 'scheduler_state_dict', 'meta', 'elapsed_hours'}
     assert all(k.startswith('net.') for k in ck['model_state_dict'])
     assert ck['meta'] == dict(mode='residual', d=4, base_channels=8, prediction_type='v', n_timesteps=1000,
-                              sigma_d=ds.sigma_d, prior_s=3e-7, prior_sha256='deadbeef' * 8, args=vars(args))
+                              sigma_d=ds.sigma_d, prior_s=3e-7, prior_sha256='deadbeef' * 8, args=vars(args),
+                              git_head=tr.git_head(), torch=torch.__version__)
     fresh = build_residual_model('residual', 8)
     fresh.load_state_dict(ck['model_state_dict'], strict=True)
     assert all(torch.equal(a, b) for a, b in zip(fresh.parameters(), model.parameters()))
@@ -457,3 +458,106 @@ def test_wallclock_stop_is_rank_zeros_decision(tmp_path, monkeypatch):
         assert tr.run_epochs(args, make_parts(args), fake_ctx, CPU) == want
     assert saves == [1, 3]
     assert not (tmp_path / 'run' / 'DONE').exists() and not (tmp_path / 'run' / 'STOPPED').exists()   # rank 1 writes neither
+
+
+# ----------------------------------------------------------------------------- hardening (final-review fix item 13)
+def poison_first_gradients(model, n_poisoned=1):
+    """A backward hook that writes inf into one gradient element on the first `n_poisoned` backward passes."""
+    p0, calls = next(model.parameters()), {'n': 0}
+
+    def hook(g):
+        calls['n'] += 1
+        if calls['n'] <= n_poisoned:
+            g = g.clone(); g.view(-1)[0] = float('inf')
+        return g
+    p0.register_hook(hook)
+    return calls
+
+
+def test_nonfinite_grad_norm_is_skipped_without_a_step(tmp_path):
+    import math
+    args = tiny_args(tmp_path)
+    parts = make_parts(args); model = parts[2]
+    poison_first_gradients(model, 1)
+    rec = one_epoch(parts, args)
+    assert rec['skipped_nonfinite'] == 1 and rec['skipped_nonfinite_grad'] == 1 and rec['steps'] == 3
+    assert all(torch.isfinite(p).all() for p in model.parameters())
+    assert math.isfinite(rec['grad_norm_mean']) and math.isfinite(rec['grad_norm_max']) and 0 < rec['grad_norm_mean'] <= rec['grad_norm_max']
+
+
+def test_consecutive_nonfinite_grad_norms_abort(tmp_path):
+    args = tiny_args(tmp_path, max_nonfinite=2)
+    parts = make_parts(args)
+    poison_first_gradients(parts[2], 10)
+    with pytest.raises(RuntimeError, match='non-finite'):
+        one_epoch(parts, args)
+    assert all(torch.isfinite(p).all() for p in parts[2].parameters())              # aborted on the gradients, not on NaN weights
+
+
+def test_grad_norm_is_checked_and_logged_without_clipping(tmp_path):
+    """--grad_clip 0 still measures the norm (no clipping), so the guard and the log work there too."""
+    args = tiny_args(tmp_path, grad_clip=0.0)
+    parts = make_parts(args); model = parts[2]
+    poison_first_gradients(model, 1)
+    rec = one_epoch(parts, args)
+    assert rec['skipped_nonfinite_grad'] == 1 and rec['steps'] == 3 and rec['grad_norm_max'] > 0
+    assert all(torch.isfinite(p).all() for p in model.parameters())
+
+
+def test_setup_dist_uses_a_60_minute_nccl_timeout(tmp_path, monkeypatch):
+    import datetime
+    seen = {}
+    monkeypatch.setenv('WORLD_SIZE', '2'); monkeypatch.setenv('LOCAL_RANK', '1')
+    monkeypatch.setattr(tr.dist, 'init_process_group', lambda backend, **kw: seen.update(backend=backend, **kw))
+    monkeypatch.setattr(tr.dist, 'get_rank', lambda: 1); monkeypatch.setattr(tr.dist, 'get_world_size', lambda: 2)
+    monkeypatch.setattr(tr.torch.cuda, 'set_device', lambda d: None)
+    ctx, dev = tr.setup_dist(tiny_args(tmp_path))
+    assert seen == dict(backend='nccl', timeout=datetime.timedelta(minutes=60))
+    assert ctx.enabled and ctx.rank == 1 and ctx.world == 2 and dev == torch.device('cuda:1')
+
+
+def test_resume_rewrites_the_train_log_up_to_the_restored_epoch(tmp_path, monkeypatch):
+    tiny_datasets(monkeypatch)
+    monkeypatch.setattr(tr, 'file_sha256', lambda p: 'x' * 64)
+    args = tiny_args(tmp_path, num_epochs=3, save_every=100, keep_epochs=[1], val_every=0)
+    tr.run_epochs(args, tr.build_everything(args, tr.NO_DIST, CPU), tr.NO_DIST, CPU)
+    run = tmp_path / 'run'
+    assert sorted(f for f in os.listdir(run) if f.endswith('.pth')) == ['checkpoint_epoch_1.pth', 'checkpoint_epoch_3.pth']
+    os.remove(run / 'checkpoint_epoch_3.pth'); os.remove(run / 'DONE')      # as if it crashed after epoch 3's log line
+    with open(run / 'train_log.jsonl', 'a') as f:
+        f.write('{"epoch": 4, "lo')                                             # ... and mid-way through a later one
+    args.resume = 'auto'
+    parts = tr.build_everything(args, tr.NO_DIST, CPU)
+    assert parts.start_epoch == 1
+    tr.run_epochs(args, parts, tr.NO_DIST, CPU)
+    assert [r['epoch'] for r in log_records(run)] == [1, 2, 3]                  # not [1, 2, 3, 2, 3]
+    assert all('grad_norm_mean' in r and 'grad_norm_max' in r for r in log_records(run))
+
+
+def test_every_launch_keeps_its_own_args_file(tmp_path, monkeypatch):
+    import json
+    tiny_datasets(monkeypatch)
+    monkeypatch.setattr(tr, 'file_sha256', lambda p: 'x' * 64)
+    tr.main(tiny_args(tmp_path, num_epochs=1, save_every=1, keep_epochs=[], val_every=0))
+    tr.main(tiny_args(tmp_path, num_epochs=2, save_every=1, keep_epochs=[], val_every=0, resume='auto'))
+    run = tmp_path / 'run'
+    a1, a2 = json.load(open(run / 'args_launch1.json')), json.load(open(run / 'args_launch2.json'))
+    assert (a1['num_epochs'], a1['resume']) == (1, '') and (a2['num_epochs'], a2['resume']) == (2, 'auto')
+    assert json.load(open(run / 'args.json')) == a2                            # args.json stays the latest copy
+    assert (run / 'DONE').read_text() == '2\n'
+
+
+def test_checkpoint_meta_records_git_head_and_torch_version(tmp_path):
+    import re
+    from data_loader import warmstart_paths as wp
+    from scripts.eval_warmstart import check_meta
+    ck, path, args, ds = saved_checkpoint(tmp_path)
+    meta = ck['meta']
+    assert meta['torch'] == torch.__version__ and meta['git_head'] == wp.git_head()
+    if os.path.exists(os.path.join(tr.REPO, '.git')):
+        assert re.fullmatch(r'[0-9a-f]{40}', meta['git_head'])
+    assert not {'git_head', 'torch'} & set(tr.RESUME_META_KEYS)                   # additive: provenance, never compared
+    meta.update(git_head='0' * 40, torch='0.0')
+    assert tr.check_resume_meta(ck, args, ds.sigma_d, 'x' * 64, path=path) is True
+    harness_args = SimpleNamespace(ckpt=path, mode='residual', d=4, base_channels=8, prediction_type='v')
+    assert check_meta(ck, harness_args, ds.sigma_d, 'x' * 64) is True

@@ -23,10 +23,13 @@ launches: torchrun sets OMP_NUM_THREADS=1 only when it is unset and nproc_per_no
 scripts/pilot/launch_run.sh cover only the pilot. The main process keeps its default threads.
 """
 import argparse
+import datetime
 import functools
 import json
+import math
 import os
 import random
+import re
 import sys
 import time
 from types import SimpleNamespace
@@ -82,10 +85,13 @@ def get_parser():
 
 
 # ----------------------------------------------------------------------------- setup
+NCCL_TIMEOUT = datetime.timedelta(minutes=60)     # a full-size FULL_STATE_DICT gather + rank-0 save must fit inside it
+
+
 def setup_dist(args):
     """torchrun sets WORLD_SIZE; without it this is a single-process run on args.device."""
     if int(os.environ.get('WORLD_SIZE', '1')) > 1:
-        dist.init_process_group('nccl')
+        dist.init_process_group('nccl', timeout=NCCL_TIMEOUT)
         local = int(os.environ['LOCAL_RANK']); torch.cuda.set_device(local)
         return SimpleNamespace(enabled=True, rank=dist.get_rank(), world=dist.get_world_size(), local_rank=local), torch.device(f'cuda:{local}')
     dev = torch.device(args.device)
@@ -163,9 +169,11 @@ def make_scheduler(optimizer, args):
 # ----------------------------------------------------------------------------- checkpoints
 def checkpoint_meta(args, sigma_d, prior_s, prior_sha256):
     """What scripts/eval_warmstart.py::check_meta verifies (mode, d, base_channels, prediction_type, sigma_d, prior_sha256)
-    plus provenance."""
+    plus provenance: n_timesteps, prior_s, the arguments, the checkout's git HEAD (None without git; uncommitted changes
+    are not recorded) and the torch version. git_head and torch are never compared on resume or evaluation."""
     return dict(mode=args.mode, d=args.d, base_channels=args.base_channels, prediction_type=args.prediction_type,
-                n_timesteps=N_TIMESTEPS, sigma_d=float(sigma_d), prior_s=float(prior_s), prior_sha256=prior_sha256, args=vars(args))
+                n_timesteps=N_TIMESTEPS, sigma_d=float(sigma_d), prior_s=float(prior_s), prior_sha256=prior_sha256, args=vars(args),
+                git_head=git_head(), torch=torch.__version__)
 
 
 def save_checkpoint(model, optimizer, scheduler, epoch, train_loss, meta, path, elapsed_hours, dist_ctx):
@@ -266,6 +274,30 @@ def write_atomic(path, text):
             os.remove(tmp)
 
 
+def trim_train_log(path, last_epoch):
+    """Keep only the records of epochs <= last_epoch, the ones the restored weights went through, so the epochs a resume
+    retrains are not logged twice. A restart from scratch (last_epoch 0) empties it. Lines that do not parse (a
+    half-written last line) are dropped. Rewritten atomically, only when something is dropped; returns how many lines."""
+    if not os.path.exists(path):
+        return 0
+    keep, dropped = [], 0
+    with open(path) as f:
+        for line in f:
+            if not line.strip():
+                continue
+            try:
+                ok = int(json.loads(line)['epoch']) <= last_epoch
+            except (ValueError, KeyError, TypeError):
+                ok = False
+            if ok:
+                keep.append(line if line.endswith('\n') else line + '\n')
+            else:
+                dropped += 1
+    if dropped:
+        write_atomic(path, ''.join(keep))
+    return dropped
+
+
 def check_wallclock_budget(ck, args, path='<checkpoint>'):
     """Refuse to resume a checkpoint that already used the whole --max_hours budget (it would train one more epoch past
     the cap). --max_hours 0 means no cap."""
@@ -277,15 +309,20 @@ def check_wallclock_budget(ck, args, path='<checkpoint>'):
 
 # ----------------------------------------------------------------------------- loops
 def clip_grads(model, clip, dist_ctx):
-    if clip and clip > 0:
-        return float(model.clip_grad_norm_(clip)) if dist_ctx.enabled else float(torch.nn.utils.clip_grad_norm_(model.parameters(), clip))
-    return float('nan')
+    """Clip to `clip` (no clipping when clip <= 0) and return the total gradient norm before clipping. Under FSDP the norm
+    is all-reduced over the shards, so every rank gets the same value and makes the same skip decision."""
+    max_norm = clip if clip and clip > 0 else float('inf')                # inf: measure only (the factor clamps to 1)
+    return float(model.clip_grad_norm_(max_norm)) if dist_ctx.enabled else float(torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm))
 
 
 def train_one_epoch(model, trainer, loader, optimizer, args, device, dist_ctx, mode, sigma_d, log_prefix=''):
+    """One epoch. A step whose loss or total gradient norm is non-finite is skipped on every rank (no optimizer step);
+    `skipped_nonfinite` counts both kinds (`skipped_nonfinite_grad` the second), and max_nonfinite consecutive skips
+    abort. grad_norm_mean / grad_norm_max are over the steps taken (pre-clip norms; None when no step was taken)."""
     model.train()
     use_bf16 = not args.no_bf16 and device.type == 'cuda'
-    tot, n, skipped, run_skipped, t_data, t0 = 0.0, 0, 0, 0, 0.0, time.time()
+    tot, n, skipped, skipped_grad, run_skipped, t_data, t0 = 0.0, 0, 0, 0, 0, 0.0, time.time()
+    norms = []
     t_fetch = time.time()
     for step, (x, y_d, xh) in enumerate(loader):
         t_data += time.time() - t_fetch
@@ -298,13 +335,20 @@ def train_one_epoch(model, trainer, loader, optimizer, args, device, dist_ctx, m
             skipped += 1; run_skipped += 1
             optimizer.zero_grad(set_to_none=True)
             if run_skipped >= args.max_nonfinite:
-                raise RuntimeError(f'{run_skipped} consecutive non-finite losses at step {step}; aborting')
+                raise RuntimeError(f'{run_skipped} consecutive non-finite steps (loss or gradient norm) at step {step}; aborting')
             t_fetch = time.time(); continue
-        run_skipped = 0
         optimizer.zero_grad(set_to_none=True)
         loss.backward()
-        clip_grads(model, args.grad_clip, dist_ctx)
+        gn = clip_grads(model, args.grad_clip, dist_ctx)
+        if not math.isfinite(gn):                                     # the all-reduced norm: every rank skips together
+            skipped += 1; skipped_grad += 1; run_skipped += 1
+            optimizer.zero_grad(set_to_none=True)
+            if run_skipped >= args.max_nonfinite:
+                raise RuntimeError(f'{run_skipped} consecutive non-finite steps (loss or gradient norm) at step {step}; aborting')
+            t_fetch = time.time(); continue
+        run_skipped = 0
         optimizer.step()
+        norms.append(gn)
         tot += loss.item(); n += 1
         if dist_ctx.rank == 0 and args.log_interval and step % args.log_interval == 0:
             print(f'{log_prefix}step {step}/{len(loader)} loss {loss.item():.4f} lr {optimizer.param_groups[0]["lr"]:.2e}', flush=True)
@@ -313,7 +357,9 @@ def train_one_epoch(model, trainer, loader, optimizer, args, device, dist_ctx, m
     if dist_ctx.enabled:
         dist.all_reduce(agg, op=dist.ReduceOp.SUM)
     return dict(loss=(agg[0] / max(agg[1], 1)).item(), lr=optimizer.param_groups[0]['lr'], steps=n,
-                skipped_nonfinite=skipped, sec=time.time() - t0, data_sec=t_data)
+                skipped_nonfinite=skipped, skipped_nonfinite_grad=skipped_grad,
+                grad_norm_mean=float(np.mean(norms)) if norms else None, grad_norm_max=float(np.max(norms)) if norms else None,
+                sec=time.time() - t0, data_sec=t_data)
 
 
 @torch.no_grad()
@@ -359,7 +405,8 @@ def build_everything(args, dist_ctx, device):
 
 
 def run_epochs(args, parts, dist_ctx, device):
-    """The epoch loop. `parts` is either build_everything()'s namespace or the tests' tuple (ds, loader, model, trainer, opt, sched)."""
+    """The epoch loop. `parts` is either build_everything()'s namespace or the tests' tuple (ds, loader, model, trainer, opt, sched).
+    Before the first epoch rank 0 removes DONE / STOPPED and cuts train_log.jsonl back to the epochs <= start_epoch."""
     if isinstance(parts, tuple):
         ds, train_loader, model, trainer, optimizer, scheduler = parts
         val_loader, start_epoch, elapsed, sigma_d = None, 0, 0.0, ds.sigma_d
@@ -375,6 +422,9 @@ def run_epochs(args, parts, dist_ctx, device):
         for p in (done_path, stopped_path):
             if os.path.exists(p):
                 os.remove(p)
+        dropped = trim_train_log(os.path.join(args.save_dir, 'train_log.jsonl'), start_epoch)
+        if dropped:
+            print(f'train_log.jsonl: dropped {dropped} record(s) after epoch {start_epoch} (retrained from the checkpoint)', flush=True)
     if dist_ctx.enabled:
         dist.barrier()
     final_epoch, stopped = start_epoch, None
@@ -463,8 +513,11 @@ def main(args):
     parts = build_everything(args, dist_ctx, device)
     if dist_ctx.rank == 0:
         os.makedirs(args.save_dir, exist_ok=True)
-        with open(os.path.join(args.save_dir, 'args.json'), 'w') as f:
-            json.dump(vars(args), f, indent=1)
+        n_launch = 1 + max([int(m.group(1)) for f in os.listdir(args.save_dir) for m in [re.fullmatch(r'args_launch(\d+)\.json', f)] if m],
+                           default=0)
+        for name in (f'args_launch{n_launch}.json', 'args.json'):      # one record per launch; args.json = the latest
+            with open(os.path.join(args.save_dir, name), 'w') as f:
+                json.dump(vars(args), f, indent=1)
         print(f'mode={args.mode} d={args.d} base={args.base_channels} params={parts.n_params:,} sigma_d={parts.train_ds.sigma_d:.6f} '
               f'train={len(parts.train_ds)} val={len(parts.val_ds)} batch/gpu={args.batch_size} world={dist_ctx.world} workers={args.num_workers} '
               f'resume={parts.resume_path} start_epoch={parts.start_epoch} elapsed={parts.elapsed:.2f}h', flush=True)
