@@ -3,8 +3,14 @@
 Single GPU:  python main_2d_residual_fsdp.py --mode residual --ds 4 --base_channels 64 --batch_size 8 --device cuda:0 \
                  --save_dir /data/chaoyi_he/HSI/Diffu/results/residual_warmstart/runs/residual_d4_b64
 FSDP:        torchrun --standalone --nproc_per_node=2 main_2d_residual_fsdp.py --mode residual --ds 4 --base_channels 256 \
-                 --batch_size 4 --save_dir .../runs/residual_d4_b256
+                 --batch_size 4 --num_epochs 200 --max_hours 0 --save_dir .../runs/residual_d4_b256
 Timing only: add --dry_run_steps 200 (sec/step with and without data wait, peak memory; writes nothing).
+
+Wall clock: --max_hours 0 (the default) means no cap. With a cap > 0 the run stops after the epoch that crosses it,
+saves that epoch's checkpoint, marks its train_log record stopped_on_wallclock, and writes STOPPED (JSON: epoch, reason,
+max_hours, hours, num_epochs) next to DONE. DONE always holds the bare final epoch, so "DONE without STOPPED" is a
+finished schedule. Every launch first removes a stale DONE / STOPPED, and refuses (SystemExit) to resume a checkpoint
+that already used the whole --max_hours budget.
 
 Modes (model/residual_wrapper.py): residual (B), standard (A), standard_xhat (A'). --batch_size is PER GPU.
 Conventions taken from main_2d_fsdp.py (FSDP wrap, bf16, AdamW + cosine per epoch, FULL_STATE_DICT checkpoints) without
@@ -55,7 +61,8 @@ def get_parser():
     ap.add_argument('--batch_size', type=int, default=8, help='batch size PER GPU')
     ap.add_argument('--num_workers', type=int, default=8, help='DataLoader workers per process (>= 8 keeps the pilot compute-bound)')
     ap.add_argument('--num_epochs', type=int, default=100)
-    ap.add_argument('--max_hours', type=float, default=24.0, help='stop after the epoch that crosses this wall-clock budget')
+    ap.add_argument('--max_hours', type=float, default=0.0,
+                    help='stop after the epoch that crosses this wall-clock budget, counted over all launches (0 = no cap)')
     ap.add_argument('--lr', type=float, default=1e-4); ap.add_argument('--lrf', type=float, default=0.033, help='eta_min = lr * lrf')
     ap.add_argument('--weight_decay', type=float, default=0.0); ap.add_argument('--grad_clip', type=float, default=1.0)
     ap.add_argument('--prediction_type', choices=['eps', 'x0', 'v'], default='v')
@@ -247,6 +254,27 @@ def should_save(epoch1, args):
     return epoch1 % args.save_every == 0 or epoch1 in set(args.keep_epochs) or epoch1 == args.num_epochs
 
 
+def write_atomic(path, text):
+    """Write a small marker/log file via a temp file + os.replace: a reader never sees it half-written."""
+    tmp = path + '.tmp'
+    try:
+        with open(tmp, 'w') as f:
+            f.write(text)
+        os.replace(tmp, path)
+    finally:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+
+
+def check_wallclock_budget(ck, args, path='<checkpoint>'):
+    """Refuse to resume a checkpoint that already used the whole --max_hours budget (it would train one more epoch past
+    the cap). --max_hours 0 means no cap."""
+    used = float(ck.get('elapsed_hours', 0.0))
+    if args.max_hours > 0 and used >= args.max_hours:
+        raise SystemExit(f'checkpoint {path} has already used {used:.3f} h of the --max_hours {args.max_hours:g} budget; '
+                         f'refusing to train past it (raise --max_hours, or pass --max_hours 0 for no cap)')
+
+
 # ----------------------------------------------------------------------------- loops
 def clip_grads(model, clip, dist_ctx):
     if clip and clip > 0:
@@ -320,6 +348,7 @@ def build_everything(args, dist_ctx, device):
     ck = load_checkpoint(resume_path) if resume_path else None
     if ck is not None:
         check_resume_meta(ck, args, train_ds.sigma_d, file_sha256(args.prior), path=resume_path, warn=dist_ctx.rank == 0)
+        check_wallclock_budget(ck, args, resume_path)                    # before DONE / STOPPED are touched
         model.load_state_dict(ck['model_state_dict'], strict=True)          # before the wrap, on CPU
     model = wrap_fsdp(model, args, dist_ctx) if dist_ctx.enabled else model.to(device)
     trainer = make_trainer(args, device)
@@ -341,7 +370,14 @@ def run_epochs(args, parts, dist_ctx, device):
         val_loader = make_loader(parts.val_ds, args, args.batch_size, False, dist_ctx.rank, dist_ctx.world, device)
     meta = checkpoint_meta(args, sigma_d, getattr(parts, 'train_ds', parts[0] if isinstance(parts, tuple) else None).prior['s'], file_sha256(args.prior) if os.path.exists(args.prior) else '')
     t_start = time.time() - elapsed * 3600                           # before any rank-0-only work: the ranks' clocks agree
-    final_epoch = start_epoch
+    done_path, stopped_path = os.path.join(args.save_dir, 'DONE'), os.path.join(args.save_dir, 'STOPPED')
+    if dist_ctx.rank == 0:                                           # a live run never shows a stale DONE / STOPPED
+        for p in (done_path, stopped_path):
+            if os.path.exists(p):
+                os.remove(p)
+    if dist_ctx.enabled:
+        dist.barrier()
+    final_epoch, stopped = start_epoch, None
     for epoch in range(start_epoch, args.num_epochs):
         epoch_seed(args, epoch, dist_ctx.rank)
         train_loader.sampler.set_epoch(epoch)
@@ -351,11 +387,14 @@ def run_epochs(args, parts, dist_ctx, device):
         if val_loader is not None and args.val_every and epoch1 % args.val_every == 0:
             rec.update(validate(model, trainer, val_loader, args, device, dist_ctx, args.mode, sigma_d))
         hours = (time.time() - t_start) / 3600
-        stop = torch.tensor(float(hours >= args.max_hours), device=device)
+        stop = torch.tensor(float(args.max_hours > 0 and hours >= args.max_hours), device=device)
         if dist_ctx.enabled:
             dist.broadcast(stop, src=0)                               # one decision for every rank
         out_of_time = bool(stop.item())
         rec.update(epoch=epoch1, elapsed_hours=hours, peak_gb=torch.cuda.max_memory_allocated(device) / 2 ** 30 if device.type == 'cuda' else 0.0)
+        if out_of_time:
+            rec['stopped_on_wallclock'] = True
+            stopped = dict(epoch=epoch1, reason='max_hours', max_hours=args.max_hours, hours=hours, num_epochs=args.num_epochs)
         if should_save(epoch1, args) or out_of_time:
             save_checkpoint(model, optimizer, scheduler, epoch, rec['loss'], meta, os.path.join(args.save_dir, f'checkpoint_epoch_{epoch1}.pth'), hours, dist_ctx)
             if dist_ctx.rank == 0:
@@ -370,11 +409,13 @@ def run_epochs(args, parts, dist_ctx, device):
         final_epoch = epoch1
         if out_of_time:
             if dist_ctx.rank == 0:
-                print(f'wall-clock budget {args.max_hours} h reached after epoch {epoch1}; stopping', flush=True)
+                print(f'wall-clock budget {args.max_hours} h reached after epoch {epoch1} of {args.num_epochs}; stopping', flush=True)
             break
     if dist_ctx.rank == 0:
-        with open(os.path.join(args.save_dir, 'DONE'), 'w') as f:
-            f.write(f'{final_epoch}\n')
+        os.makedirs(args.save_dir, exist_ok=True)
+        if stopped is not None:                                       # before DONE: whoever sees DONE also sees STOPPED
+            write_atomic(stopped_path, json.dumps(stopped) + '\n')
+        write_atomic(done_path, f'{final_epoch}\n')                  # bare integer, as read_int / check_done expect
     return final_epoch
 
 

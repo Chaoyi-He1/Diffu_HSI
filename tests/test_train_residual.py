@@ -358,3 +358,102 @@ def test_build_everything_checks_resume_meta(tmp_path, monkeypatch):
     args.mode = 'standard_xhat'
     with pytest.raises(ValueError, match='mode'):
         tr.build_everything(args, tr.NO_DIST, CPU)
+
+
+# ----------------------------------------------------------------------------- wall-clock stop (final-review fix item 6)
+def tiny_datasets(monkeypatch):
+    monkeypatch.setattr(tr, 'make_datasets', lambda a: (TinyResidualSet(), TinyResidualSet()))
+
+
+def log_records(run):
+    import json
+    return [json.loads(line) for line in open(run / 'train_log.jsonl')]
+
+
+def test_default_max_hours_is_no_cap(tmp_path, monkeypatch):
+    assert tr.get_parser().parse_args(['--mode', 'residual', '--save_dir', 'x']).max_hours == 0
+    tiny_datasets(monkeypatch)
+    args = tiny_args(tmp_path, num_epochs=3, save_every=10, keep_epochs=[], val_every=0)
+    assert args.max_hours == 0
+    parts = tr.build_everything(args, tr.NO_DIST, CPU)
+    assert tr.run_epochs(args, parts, tr.NO_DIST, CPU) == 3
+    run = tmp_path / 'run'
+    assert (run / 'DONE').read_text() == '3\n' and not (run / 'STOPPED').exists()
+    assert [r['epoch'] for r in log_records(run)] == [1, 2, 3]
+    assert not any('stopped_on_wallclock' in r for r in log_records(run))
+
+
+def test_wallclock_cap_stops_with_checkpoint_done_and_stopped(tmp_path, monkeypatch):
+    import json
+    tiny_datasets(monkeypatch)
+    args = tiny_args(tmp_path, num_epochs=3, max_hours=1e-9, save_every=10, keep_epochs=[], val_every=0)
+    parts = tr.build_everything(args, tr.NO_DIST, CPU)
+    assert tr.run_epochs(args, parts, tr.NO_DIST, CPU) == 1
+    run = tmp_path / 'run'
+    assert (run / 'checkpoint_epoch_1.pth').exists()
+    assert (run / 'DONE').read_text() == '1\n'                         # bare integer: read_int / check_done / the driver
+    stopped = json.loads((run / 'STOPPED').read_text())
+    assert stopped['reason'] == 'max_hours' and stopped['epoch'] == 1 and stopped['num_epochs'] == 3
+    assert stopped['max_hours'] == 1e-9 and stopped['hours'] >= 1e-9
+    recs = log_records(run)
+    assert [r['epoch'] for r in recs] == [1] and recs[0]['stopped_on_wallclock'] is True
+    assert not [f for f in os.listdir(run) if f.endswith('.tmp')]
+
+
+def test_a_resumed_run_removes_a_stale_done_and_stopped_before_training(tmp_path, monkeypatch):
+    ck, path, args, ds = saved_checkpoint(tmp_path)                      # checkpoint_epoch_1.pth
+    run = tmp_path / 'run'
+    (run / 'DONE').write_text('1\n'); (run / 'STOPPED').write_text('{"reason": "max_hours"}')
+    tiny_datasets(monkeypatch)
+    monkeypatch.setattr(tr, 'file_sha256', lambda p: 'x' * 64)
+    seen, real = [], tr.train_one_epoch
+
+    def spy(*a, **k):
+        seen.append(((run / 'DONE').exists(), (run / 'STOPPED').exists()))
+        return real(*a, **k)
+    monkeypatch.setattr(tr, 'train_one_epoch', spy)
+    args.resume, args.num_epochs, args.val_every, args.keep_epochs = 'auto', 2, 0, []
+    parts = tr.build_everything(args, tr.NO_DIST, CPU)
+    assert parts.start_epoch == 1
+    assert tr.run_epochs(args, parts, tr.NO_DIST, CPU) == 2
+    assert seen == [(False, False)]                                     # a live run never shows a stale DONE
+    assert (run / 'DONE').read_text() == '2\n' and not (run / 'STOPPED').exists()
+
+
+def test_resume_refuses_a_checkpoint_that_used_the_whole_budget(tmp_path, monkeypatch):
+    args = tiny_args(tmp_path)
+    ds, _, model, _, opt, sched = make_parts(args)
+    run = tmp_path / 'run'
+    tr.save_checkpoint(model, opt, sched, 0, 0.5, tr.checkpoint_meta(args, ds.sigma_d, 3e-7, 'x' * 64),
+                       str(run / 'checkpoint_epoch_1.pth'), 2.0, tr.NO_DIST)        # 2.0 h already used
+    (run / 'DONE').write_text('1\n')
+    tiny_datasets(monkeypatch)
+    monkeypatch.setattr(tr, 'file_sha256', lambda p: 'x' * 64)
+    args.resume = 'auto'
+    for cap in (2.0, 1.5):
+        args.max_hours = cap
+        with pytest.raises(SystemExit, match='--max_hours'):
+            tr.build_everything(args, tr.NO_DIST, CPU)
+    assert (run / 'DONE').read_text() == '1\n'                          # the refused launch leaves the finished run alone
+    for cap in (0, 2.5):
+        args.max_hours = cap
+        assert tr.build_everything(args, tr.NO_DIST, CPU).start_epoch == 1
+
+
+@pytest.mark.filterwarnings('ignore:Detected call of `lr_scheduler.step\\(\\)` before:UserWarning')   # the stub never steps
+def test_wallclock_stop_is_rank_zeros_decision(tmp_path, monkeypatch):
+    """Rank 1 stops when rank 0's broadcast flag says stop, and trains on when it says go, whatever its own clock says."""
+    fake_ctx = SimpleNamespace(enabled=True, rank=1, world=2, local_rank=1)
+    monkeypatch.setattr(tr, 'train_one_epoch', lambda *a, **k: dict(loss=0.1, lr=1e-4, steps=1, skipped_nonfinite=0, sec=0.0, data_sec=0.0))
+    monkeypatch.setattr(tr.dist, 'barrier', lambda: None)
+    saves = []
+    monkeypatch.setattr(tr, 'save_checkpoint', lambda *a, **k: saves.append(a[3] + 1))
+    for flag, cap, want in ((1.0, 0, 1), (0.0, 1e-9, 3)):
+        def bcast(t, src, flag=flag):
+            assert src == 0
+            t.fill_(flag)
+        monkeypatch.setattr(tr.dist, 'broadcast', bcast)
+        args = tiny_args(tmp_path, num_epochs=3, max_hours=cap, save_every=10, keep_epochs=[], val_every=0)
+        assert tr.run_epochs(args, make_parts(args), fake_ctx, CPU) == want
+    assert saves == [1, 3]
+    assert not (tmp_path / 'run' / 'DONE').exists() and not (tmp_path / 'run' / 'STOPPED').exists()   # rank 1 writes neither
