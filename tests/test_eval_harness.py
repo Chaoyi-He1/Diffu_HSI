@@ -237,6 +237,67 @@ def test_yswap_files_is_stratified_by_class():
         yswap_files(sub['files'][:100], subset_class_counts())                     # counts do not describe the list
 
 
+def test_harness_uses_the_shared_paths_and_helpers():
+    """Fix item 15: the harness reads the prior, subset and results root from data_loader/warmstart_paths.py (defined
+    once) and still exports the names for its importers (scripts/make_baseline_record.py, the tests)."""
+    from data_loader import warmstart_paths as wp
+    from scripts import eval_warmstart as ew
+    assert (ew.DATA_ROOT, ew.RESULTS_ROOT, ew.PRIOR, ew.SUBSET, ew.EVAL_DIR) == \
+        (wp.DATA_ROOT, wp.RESULTS_ROOT, wp.PRIOR, wp.SUBSET, wp.EVAL_DIR)
+    assert ew.file_sha256 is wp.file_sha256 and ew.git_head is wp.git_head
+
+
+def _blas_threads():
+    from threadpoolctl import threadpool_info
+    return max(p['num_threads'] for p in threadpool_info() if p['user_api'] == 'blas')
+
+
+class BlasProbe(torch.utils.data.Dataset):
+    """Each item reports the BLAS thread count of the process that loads it as its x0_hat (x = 0), shaped like the
+    (x64, y_d, x0_hat) HWC arrays residual_collate_fn takes. The baseline RMSE of an item is then 50 x that count."""
+    def __init__(self, n=8):
+        self.img_list = [f'/r/MatFlower60/Train/P022/{i}_1.mat' for i in range(n)]
+
+    def __len__(self):
+        return len(self.img_list)
+
+    def __getitem__(self, i):
+        z = np.zeros((2, 2, 1), dtype=np.float32)
+        return z, z, np.full((2, 2, 1), float(_blas_threads()), dtype=np.float32)
+
+
+@pytest.fixture
+def parent_at_four_blas_threads():
+    """The parent runs 4 BLAS threads, so a worker that inherits the parent's setting reports 4 (fix item 5)."""
+    from threadpoolctl import threadpool_limits
+    with threadpool_limits(4, user_api='blas'):
+        if _blas_threads() != 4:
+            pytest.skip('this BLAS cannot run 4 threads, so inheritance cannot be told apart from the limit')
+        yield
+
+
+def test_eval_loader_workers_use_one_blas_thread(parent_at_four_blas_threads, monkeypatch):
+    from data_loader.hfd_residual import limit_worker_threads
+    from scripts import eval_warmstart as ew
+    loader = ew.make_eval_loader(BlasProbe(), batch_size=2, num_workers=2)
+    assert loader.worker_init_fn is limit_worker_threads
+    seen = [v for _, _, xh in loader for v in xh.flatten().tolist()]
+    assert set(seen) == {1.0}, f'workers reported BLAS thread counts {sorted(set(seen))}'
+    monkeypatch.setattr(ew, 'dataset_for', lambda *a, **k: BlasProbe())
+    out = ew.baseline_eval('/r', 'prior.npz', 4)                                  # the baseline's own loader
+    assert out['per_item']['rmse_pct'] == pytest.approx([50.0] * 8)               # 200 if its workers inherited 4 threads
+    assert _blas_threads() == 4                                                   # the limit applies in the workers only
+
+
+def test_every_harness_loader_goes_through_the_factory():
+    """The baseline loader and the per-row checkpoint loader both come from make_eval_loader, so neither can lose the
+    worker_init_fn: the module builds exactly one DataLoader, inside the factory."""
+    import inspect
+    from scripts import eval_warmstart as ew
+    src = inspect.getsource(ew)
+    assert src.count('DataLoader(') == 1 and 'DataLoader(' in inspect.getsource(ew.make_eval_loader)
+
+
 def test_file_sha256_hashes_the_bytes(tmp_path):
     import hashlib
     from scripts.eval_warmstart import file_sha256
@@ -278,7 +339,7 @@ def test_check_meta_names_every_mismatch():
 def test_baseline_eval_reproduces_recorded_numbers(data_root):
     from scripts.eval_warmstart import baseline_eval
     rec_path = os.path.join(REPO, 'tests', 'data', 'baseline_phase0.json')
-    prior = os.path.join(REPO, 'results', 'residual_warmstart', 'linear_prior_R1.npz')
+    from data_loader.warmstart_paths import PRIOR as prior                         # the prior training and the harness read
     if not (os.path.exists(rec_path) and os.path.exists(prior)):
         pytest.skip('baseline record or prior missing')
     rec = json.load(open(rec_path))
@@ -293,7 +354,7 @@ def test_baseline_eval_reproduces_recorded_numbers(data_root):
 @pytest.mark.dataset
 def test_dataset_for_rejects_files_outside_the_validation_split(data_root):
     from scripts.eval_warmstart import dataset_for
-    prior = os.path.join(REPO, 'results', 'residual_warmstart', 'linear_prior_R1.npz')
+    from data_loader.warmstart_paths import PRIOR as prior                         # the prior training and the harness read
     if not os.path.exists(prior):
         pytest.skip('prior missing')
     sub = json.load(open(os.path.join(REPO, 'tests', 'data', 'val_subset_200.json')))
@@ -308,7 +369,7 @@ def test_checkpoint_eval_records_per_cube_values(data_root, tmp_path, monkeypatc
     """Runs the real checkpoint_eval on 8 cubes with a tiny random-weight model and a 2-row sampler grid."""
     import argparse
     from scripts import eval_warmstart as ew
-    prior = os.path.join(REPO, 'results', 'residual_warmstart', 'linear_prior_R1.npz')
+    from data_loader.warmstart_paths import PRIOR as prior                         # the prior training and the harness read
     if not os.path.exists(prior):
         pytest.skip('prior missing')
     from data_loader.linear_estimate import load_prior
@@ -329,11 +390,15 @@ def test_checkpoint_eval_records_per_cube_values(data_root, tmp_path, monkeypatc
     monkeypatch.setattr(ew, 'sampler_grid', lambda which='full': [dict(name='ddim2', method='ddim', n_steps=2),
                                                                   dict(name='warm50_ddim', method='ddim', n_steps=2, t_start=50)])
     monkeypatch.setattr(ew, 'EVAL_DIR', str(tmp_path))
+    made, real_factory = [], ew.make_eval_loader
+    monkeypatch.setattr(ew, 'make_eval_loader', lambda ds, *a, **k: made.append(len(ds)) or real_factory(ds, *a, **k))
     args = argparse.Namespace(d=4, ckpt=str(ckpt), mode='residual', base_channels=8, prediction_type='v', seeds=[0, 1],
                               batch_size=4, device='cpu', data_root=data_root, prior=prior, grid='full', run_name='tiny_run')
     with pytest.raises(ValueError, match=r'\bd: checkpoint 2 vs args 4'):
         ew.checkpoint_eval(argparse.Namespace(**dict(vars(args), ckpt=str(bad))))
+    assert made == []                                                                   # refused before any loader
     ew.checkpoint_eval(args)
+    assert made == [8, 8, 8]                                    # baseline + one per grid row, all via the factory (fix item 5)
     out = json.load(open(tmp_path / 'residual' / 'd4' / 'tiny_run__tiny.json'))       # eval/<mode>/d<d>/<run_name>__<ckpt>.json
     assert out['grid'] == 'full' and out['run_name'] == 'tiny_run'
     prov = out['provenance']

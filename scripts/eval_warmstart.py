@@ -11,11 +11,9 @@ a `meta` dict must agree with the CLI args, the prior's sigma_d and the prior fi
 Metrics are on the [0, 1] display scale of (x + 1) / 2: RMSE in % of range, PSNR with peak 1, SAM in degrees.
 """
 import argparse
-import hashlib
 import json
 import math
 import os
-import subprocess
 import sys
 import time
 
@@ -24,15 +22,13 @@ import torch
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO)
-from data_loader.hfd_residual import HFDResidualData, residual_collate_fn  # noqa: E402
+from data_loader.hfd_residual import HFDResidualData, limit_worker_threads, residual_collate_fn  # noqa: E402
 from model.diffusion_trainer import DiffusionTrainer  # noqa: E402
 from model.residual_wrapper import MODES, build_residual_model  # noqa: E402
-
-DATA_ROOT = os.environ.get('HFD_DATA_ROOT', '/data/chaoyi_he/HSI/Diffu/dataset/HFD100 Mat dataset')
-RESULTS_ROOT = os.environ.get('RESIDUAL_WARMSTART_RESULTS', '/data/chaoyi_he/HSI/Diffu/results/residual_warmstart')
-PRIOR = os.path.join(RESULTS_ROOT, 'linear_prior_R1.npz')
-SUBSET = os.path.join(REPO, 'tests', 'data', 'val_subset_200.json')
-EVAL_DIR = os.path.join(RESULTS_ROOT, 'eval')
+# Defined once (fix item 15) and re-exported from here: scripts/make_baseline_record.py and the tests import them from
+# this module, and check_meta / checkpoint_eval use file_sha256 and git_head.
+from data_loader.warmstart_paths import (DATA_ROOT, EVAL_DIR, PRIOR, RESULTS_ROOT, SUBSET,  # noqa: E402,F401
+                                         file_sha256, git_head)
 
 
 # ----------------------------------------------------------------------------- metrics
@@ -116,13 +112,11 @@ def aggregate_row(per_item, base_rmse, classes, n_seeds):
 
 
 # ----------------------------------------------------------------------------- data
-def file_sha256(path):
-    """sha256 of a file's bytes (provenance of the prior npz)."""
-    h = hashlib.sha256()
-    with open(path, 'rb') as f:
-        for block in iter(lambda: f.read(1 << 20), b''):
-            h.update(block)
-    return h.hexdigest()
+def make_eval_loader(ds, batch_size, num_workers=4):
+    """The harness's only DataLoader factory: in order, no shuffling, residual_collate_fn, and one BLAS thread per
+    worker (limit_worker_threads; fix item 5) whatever the launching shell exported."""
+    return torch.utils.data.DataLoader(ds, batch_size=batch_size, shuffle=False, num_workers=num_workers,
+                                       collate_fn=residual_collate_fn, worker_init_fn=limit_worker_threads)
 
 
 def load_subset(data_root, which='files'):
@@ -171,7 +165,7 @@ def class_of(path):
 # ----------------------------------------------------------------------------- baseline
 def baseline_eval(data_root, prior_path, d, files=None, batch_size=16):
     ds = dataset_for(data_root, prior_path, d, files)
-    loader = torch.utils.data.DataLoader(ds, batch_size=batch_size, shuffle=False, num_workers=4, collate_fn=residual_collate_fn)
+    loader = make_eval_loader(ds, batch_size)
     per = {k: [] for k in ('rmse_pct', 'psnr', 'sam_deg')}
     for x, _, xh in loader:
         m = metrics(xh, x)
@@ -299,15 +293,6 @@ def check_meta(ck, args, sigma_d, prior_sha256):
     return True
 
 
-def git_head():
-    """The repo's HEAD commit, or None when git is unavailable (best effort)."""
-    try:
-        r = subprocess.run(['git', '-C', REPO, 'rev-parse', 'HEAD'], capture_output=True, text=True, timeout=10)
-        return r.stdout.strip() if r.returncode == 0 and r.stdout.strip() else None
-    except (OSError, subprocess.SubprocessError):
-        return None
-
-
 def checkpoint_eval(args):
     device = torch.device(args.device)
     grid = getattr(args, 'grid', 'full')
@@ -331,7 +316,7 @@ def checkpoint_eval(args):
     rows = []
     for cfg in sampler_grid(grid):
         ds = ds_ddpm if cfg['name'] == 'ddpm1000' else ds_all
-        loader = torch.utils.data.DataLoader(ds, batch_size=args.batch_size, shuffle=False, num_workers=4, collate_fn=residual_collate_fn)
+        loader = make_eval_loader(ds, args.batch_size)
         per = {k: [] for k in ('rmse_pct', 'psnr', 'sam_deg')}; base_r = []; secs = 0.0; nfe = None
         for si, seed in enumerate(args.seeds):
             for bi, batch in enumerate(loader):
