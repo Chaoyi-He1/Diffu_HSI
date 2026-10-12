@@ -8,10 +8,10 @@ Evaluations run synchronously and one at a time. While one runs, the driver poll
 the state and executes any launch that has become possible, counting the eval's GPU as busy, and logs a BUSY heartbeat
 every BUSY_EVERY_S s. A pass whose evaluation saw such a launch leaves the rest of its plan to the next pass (REPLAN).
 Unattended safety: one driver per results root (flock on runs/pilot_driver.lock; a second one exits 3); a root whose
-official gate file already exists is refused before anything runs (exit 4: use a fresh RESIDUAL_WARMSTART_RESULTS); every launch is
-counted (a run gets 1 + MAX_RELAUNCHES launches); an action that fails (non-zero rc or timeout) MAX_ACTION_FAILURES times
-is dropped (runs/action_failures.json -- delete the entry to retry); a pass never raises
-(it logs ERROR); the loop exits 2 with STUCK when nothing is executable, no run is alive and nvidia-smi answered (e.g. foreign
+official gate file already exists is refused before anything runs (exit 4: use a fresh RESIDUAL_WARMSTART_RESULTS);
+every launch is counted (a run gets 1 + MAX_RELAUNCHES launches); an action that fails (non-zero rc or timeout)
+MAX_ACTION_FAILURES times is dropped (runs/action_failures.json -- delete the entry to retry); a pass never raises (it
+logs ERROR); the loop exits 2 with STUCK when nothing is executable, no run is alive and nvidia-smi answered (e.g. foreign
 jobs hold the GPUs) -- a failed nvidia-smi means wait, logged as SMI-FAIL on every pass -- and 0 as soon as the gate has run.
 """
 import argparse
@@ -32,7 +32,7 @@ REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 sys.path.insert(0, REPO)
 from scripts import gate_1a  # noqa: E402  (the gate's output-name contract: gate_path)
 
-ROOT =os.environ.get('RESIDUAL_WARMSTART_RESULTS', '/data/chaoyi_he/HSI/Diffu/results/residual_warmstart')
+ROOT = os.environ.get('RESIDUAL_WARMSTART_RESULTS', '/data/chaoyi_he/HSI/Diffu/results/residual_warmstart')
 PY = '/home/grads/c/chaoyi_he/Desktop/conda/envs/hsi/bin/python'
 MODES = ('residual', 'standard', 'standard_xhat')
 HOME_GPU = {'residual': 0, 'standard': 1, 'standard_xhat': 1}
