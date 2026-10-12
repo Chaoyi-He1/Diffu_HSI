@@ -260,3 +260,106 @@ def test_cli_records_the_decision_context(tmp_path, capsys):
     g = json.load(open(tmp_path / 'gate_1a__run_b__nodone__nfe20__k1.5.json'))
     assert g['require_done'] is False and g['max_nfe'] == 20 and g['k'] == 1.5
     assert json.load(open(tmp_path / 'gate_1a__run_b.json'))['require_done'] is True       # the official file was not touched
+
+
+def run_cli(tmp_path, evs, *extra):
+    """Write the three evaluations, run the CLI without DONE checks, return (printed text, gate record)."""
+    paths = {}
+    for slot, e in zip(('b', 'a', 'aprime'), evs):
+        paths[slot] = str(tmp_path / f'{slot}.json')
+        with open(paths[slot], 'w') as f:
+            json.dump(dict(e, run_name=f'run_{slot}'), f)
+    out = str(tmp_path / 'gate.json')
+    main(['--b', paths['b'], '--a', paths['a'], '--aprime', paths['aprime'], '--no_require_done', '--out', out, *extra])
+    return out, json.load(open(out))
+
+
+# ----------------------------------------------------------------------------- fix item 11: ablations worse than the baseline
+def test_ablation_worse_than_baseline_is_flagged(tmp_path, capsys):
+    """A (2.6) and A' (2.4) are worse than the 2.3 baseline by more than k SE: both flags are set, each comparison
+    line carries the tag and the PASS verdict line says so; the verdict value itself is unchanged."""
+    _, g = run_cli(tmp_path, trio())
+    printed = capsys.readouterr().out
+    assert g['verdict'] == 'PASS'
+    assert g['vs_a']['ablation_worse_than_baseline'] is True and g['vs_aprime']['ablation_worse_than_baseline'] is True
+    assert g['vs_a']['ablation_vs_baseline'] == dict(diff=pytest.approx(0.3), se=pytest.approx(0.0, abs=1e-12))
+    assert g['prereg']['vs_a']['ablation_worse_than_baseline'] is True
+    assert 'vs_baseline' in g and 'ablation_worse_than_baseline' not in g['vs_baseline']
+    verdict_line = printed.splitlines()[0]
+    assert verdict_line.endswith(': PASS (ablations below baseline)')
+    assert sum('[ablation worse than baseline]' in l for l in printed.splitlines()) == 4    # B - A, B - A' in both blocks
+
+
+def test_ablation_better_than_baseline_is_not_flagged(tmp_path, capsys):
+    _, g = run_cli(tmp_path, trio(vals=(1.8, 2.0, 2.4)))                     # A beats the baseline, A' does not
+    printed = capsys.readouterr().out
+    assert g['verdict'] == 'PASS'
+    assert g['vs_a']['ablation_worse_than_baseline'] is False and g['vs_aprime']['ablation_worse_than_baseline'] is True
+    assert printed.splitlines()[0].endswith(': PASS (ablations below baseline)')
+    (tmp_path / 'x').mkdir()
+    _, g = run_cli(tmp_path / 'x', trio(vals=(1.8, 2.0, 2.1)))               # neither is worse: no tag
+    assert not g['vs_a']['ablation_worse_than_baseline'] and not g['vs_aprime']['ablation_worse_than_baseline']
+    assert capsys.readouterr().out.splitlines()[0].endswith(': PASS')
+
+
+def test_ablation_flag_uses_k_se():
+    """Worse than the baseline means the arm's own paired diff to the baseline minus k SE is above 0."""
+    base = np.full(6, 2.3); n = np.array([-0.3, 0.3, -0.2, 0.2, -0.1, 0.1])
+    b = ev('residual', [row('ddim10', 10, [[1.8] * 6] * 2, base)])
+    a = ev('standard', [row('ddim10', 10, [2.4 + n, 2.4 + n], base)])        # +0.1 +- 0.0966: 1.04 SE above the baseline
+    ap = ev('standard_xhat', [row('ddim10', 10, [[2.6] * 6] * 2, base)])
+    assert gate(b, a, ap, require_done=False, k=2.0)['vs_a']['ablation_worse_than_baseline'] is False
+    assert gate(b, a, ap, require_done=False, k=1.0)['vs_a']['ablation_worse_than_baseline'] is True
+
+
+# ----------------------------------------------------------------------------- fix item 12: self-explaining INVALID, two seeds
+YSWAP_FAIL = {'t100': dict(true=0.7273876667022705, swap_full=0.7310930490493774, swap_sensor_only=0.7287, zero=0.828),
+              't300': dict(true=1.241886019706726, swap_full=1.2610890865325928, swap_sensor_only=1.2531, zero=2.622),
+              'passes': False, 'per_cube': {'100': {}, '300': {}}, 'files': None, 'baseline_per_cube': []}
+
+
+def test_invalid_record_explains_itself(tmp_path, capsys):
+    b, a, ap = trio()
+    _, g = run_cli(tmp_path, [dict(b, yswap=YSWAP_FAIL), a, ap])
+    printed = capsys.readouterr().out
+    assert g['verdict'] == 'INVALID' and g['verdict_if_valid'] == 'PASS'
+    r = g['invalid_reason']['yswap_b']
+    assert r['t100'] == pytest.approx(0.7273876667022705 / 0.7310930490493774) and r['t300'] == pytest.approx(1.241886019706726 / 1.2610890865325928)
+    assert r['threshold'] == 0.9 and set(r) == {'t100', 't300', 'threshold'}
+    assert 'INVALID: B y-swap failed (t100 0.995, t300 0.985 > 0.9); comparisons below are NOT a pass' in printed
+    lines = [l for l in printed.splitlines() if l.lstrip().startswith(('B - baseline', 'B - A'))]
+    assert len(lines) == 6 and all('below threshold' in l and ' pass' not in l for l in lines)
+
+
+def test_valid_record_has_no_invalid_reason():
+    g = gate(*trio(), require_done=False)
+    assert g['verdict'] == g['verdict_if_valid'] == 'PASS' and g['invalid_reason'] is None
+    b, a, ap = trio(vals=(2.5, 2.6, 2.4))
+    g = gate(dict(b, yswap=YSWAP_FAIL), a, ap, require_done=False)
+    assert g['verdict'] == 'INVALID' and g['verdict_if_valid'] == 'FAIL'
+
+
+def test_gate_threshold_constant_matches_the_harness():
+    from scripts.eval_warmstart import YSWAP_RATIO
+    from scripts.gate_1a import YSWAP_THRESHOLD
+    assert YSWAP_THRESHOLD == YSWAP_RATIO == 0.9
+
+
+def test_gate_requires_two_noise_seeds(tmp_path, capsys):
+    """Spec §7: two noise seeds. A single seed (or a repeated one) is refused unless --allow_single_seed, which the
+    record keeps and which never writes the official gate file."""
+    one = [dict(e, seeds=[0]) for e in trio()]
+    with pytest.raises(ValueError, match='2 distinct noise seeds'):
+        gate(*one, require_done=False)
+    with pytest.raises(ValueError, match='2 distinct noise seeds'):
+        gate(*[dict(e, seeds=[3, 3]) for e in trio()], require_done=False)
+    g = gate(*one, require_done=False, allow_single_seed=True)
+    assert g['verdict'] == 'PASS' and g['allow_single_seed'] is True and g['seeds'] == [0]
+    g = gate(*trio(), require_done=False)
+    assert g['verdict'] == 'PASS' and g['allow_single_seed'] is False and g['seeds'] == [0, 1]
+    with pytest.raises(ValueError, match='allow_single_seed'):
+        run_cli(tmp_path, one)
+    _, g = run_cli(tmp_path, one, '--allow_single_seed')
+    assert g['allow_single_seed'] is True
+    assert default_out_name('res_d4_b64', True, 10, 2.0, allow_single_seed=True) == 'gate_1a__res_d4_b64__1seed.json'
+    assert default_out_name('res_d4_b64', True, 10, 2.0, allow_single_seed=False) == 'gate_1a__res_d4_b64.json'
