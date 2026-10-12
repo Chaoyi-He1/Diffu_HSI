@@ -7,7 +7,8 @@ A run that is still alive gets no full eval and holds back the gate, even with a
 Evaluations run synchronously and one at a time. While one runs, the driver polls it every POLL_S s. Each poll re-reads
 the state and executes any launch that has become possible, counting the eval's GPU as busy, and logs a BUSY heartbeat
 every BUSY_EVERY_S s. A pass whose evaluation saw such a launch leaves the rest of its plan to the next pass (REPLAN).
-Unattended safety: one driver per results root (flock on runs/pilot_driver.lock; a second one exits 3); every launch is
+Unattended safety: one driver per results root (flock on runs/pilot_driver.lock; a second one exits 3); a root whose
+official gate file already exists is refused before anything runs (exit 4: use a fresh RESIDUAL_WARMSTART_RESULTS); every launch is
 counted (a run gets 1 + MAX_RELAUNCHES launches); an action that fails (non-zero rc or timeout) MAX_ACTION_FAILURES times
 is dropped (runs/action_failures.json -- delete the entry to retry); a pass never raises
 (it logs ERROR); the loop exits 2 with STUCK when nothing is executable, no run is alive and nvidia-smi answered (e.g. foreign
@@ -29,7 +30,9 @@ from time import monotonic
 
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, REPO)
-ROOT = os.environ.get('RESIDUAL_WARMSTART_RESULTS', '/data/chaoyi_he/HSI/Diffu/results/residual_warmstart')
+from scripts import gate_1a  # noqa: E402  (the gate's output-name contract: gate_path)
+
+ROOT =os.environ.get('RESIDUAL_WARMSTART_RESULTS', '/data/chaoyi_he/HSI/Diffu/results/residual_warmstart')
 PY = '/home/grads/c/chaoyi_he/Desktop/conda/envs/hsi/bin/python'
 MODES = ('residual', 'standard', 'standard_xhat')
 HOME_GPU = {'residual': 0, 'standard': 1, 'standard_xhat': 1}
@@ -64,12 +67,17 @@ def pid_alive(path):
         return False
 
 
+def gate_path(eval_dir):
+    """The OFFICIAL gate file, named by gate_1a.default_out_name next to B's evaluation; --no_require_done / --max_nfe / --k
+    peeks write gate_1a__<run>__nodone... .json beside it and do not count."""
+    return os.path.join(eval_dir, 'residual', 'd4', gate_1a.default_out_name(run_name('residual')))
+
+
 def run_state(run_dir, eval_dir):
     """Everything the policy needs, read from the filesystem."""
     name = os.path.basename(run_dir)
     mode = re.sub(r'_d\d+_b\d+$', '', name)                            # works for *_d4_b64, *_d4_b256 and smoke runs
-    # the OFFICIAL gate file only: gate_1a.py writes --no_require_done / --max_nfe / --k peeks next to it as gate_1a__<run>__nodone... .json
-    gate = os.path.exists(os.path.join(eval_dir, 'residual', 'd4', f'gate_1a__{run_name("residual")}.json'))
+    gate = os.path.exists(gate_path(eval_dir))
     if not os.path.isdir(run_dir):
         return dict(mode=mode, exists=False, alive=False, done=None, last_epoch=0, checkpoints=[], quick_evals=[], full_evals=[], launches=0, gate=gate)
     cks = sorted(int(m.group(1)) for f in os.listdir(run_dir) for m in [re.match(r'checkpoint_epoch_(\d+)\.pth$', f)] if m)
@@ -329,9 +337,14 @@ def main(argv=None):
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except OSError:
             lock.seek(0)
-            log_event(f'LOCKED another pilot driver (pid {lock.read().strip() or "?"}) holds {lock.name}; exiting')
+            log_event(f'LOCKED another pilot driver holds {lock.name} (last recorded pid {lock.read().strip() or "?"}); exiting')
             return 3
         lock.seek(0); lock.truncate(); lock.write(f'{os.getpid()}\n'); lock.flush()
+        gate = gate_path(os.path.join(ROOT, 'eval'))
+        if os.path.exists(gate):                                       # a finished campaign: its evals would be reused by name
+            log_event(f'USED ROOT {gate} exists before the first pass; not launching anything '
+                      '(start a new campaign under a fresh RESIDUAL_WARMSTART_RESULTS root)')
+            return 4
         while True:
             observed = {}
             states, todo = one_pass(observed)

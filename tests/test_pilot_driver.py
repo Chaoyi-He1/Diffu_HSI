@@ -1,10 +1,13 @@
 import fcntl
 import json
 import os
+import subprocess
+import time
 import types
 
 import pytest
 
+from scripts import gate_1a
 from scripts.pilot import pilot_driver
 from scripts.pilot.pilot_driver import (MAX_ACTION_FAILURES, executable, is_stuck, load_failures, next_actions,
                                         parse_gpu_status, run_cmd, run_state)
@@ -245,9 +248,26 @@ def test_execute_timeouts_per_action_kind(driver_root, monkeypatch):
     assert seen == [('launch_run.sh', 3600), ('eval_milestone.sh', 2 * 3600), ('eval_milestone.sh', 8 * 3600), ('gate_1a.py', 3600)]
 
 
-def test_run_cmd_returns_rc_and_kills_a_timed_out_group():
+def test_run_cmd_returns_rc_and_kills_a_timed_out_group(monkeypatch):
     assert run_cmd(['true'], 30) == 0 and run_cmd(['false'], 30) == 1
+    made = []
+
+    class Recorded(subprocess.Popen):
+        def __init__(self, *a, **k):
+            super().__init__(*a, **k)
+            made.append(self)
+    monkeypatch.setattr(pilot_driver.subprocess, 'Popen', Recorded)
     assert run_cmd(['bash', '-c', 'sleep 60 | cat'], 0.5) == 'timeout'                       # the whole pipeline is killed, not just bash
+    pgid = made[0].pid                                                                        # its own session: pgid == pid
+    deadline = time.monotonic() + 10                                                          # killed members may linger as zombies
+    while time.monotonic() < deadline:                                                        # until init reaps them
+        try:
+            os.killpg(pgid, 0)
+        except ProcessLookupError:
+            break
+        time.sleep(0.05)
+    with pytest.raises(ProcessLookupError):
+        os.killpg(pgid, 0)
 
 
 def test_run_cmd_polls_and_calls_on_tick_between_polls(monkeypatch):
@@ -481,3 +501,93 @@ def test_a_failing_gate_is_retried_once_then_the_loop_reports_stuck(driver_root,
     monkeypatch.setattr(pilot_driver, 'time', types.SimpleNamespace(sleep=lambda s: None))
     assert pilot_driver.main(['--loop', '5']) == 2
     assert len(ran) == MAX_ACTION_FAILURES and 'STUCK' in events(driver_root) and 'SKIP' in events(driver_root)
+
+
+def test_the_driver_gate_path_is_the_name_gate_1a_writes(tmp_path, monkeypatch):
+    p = pilot_driver.gate_path(str(tmp_path / 'eval'))
+    assert os.path.basename(p) == gate_1a.default_out_name(pilot_driver.run_name('residual')) == 'gate_1a__residual_d4_b64.json'
+    assert p == str(tmp_path / 'eval' / 'residual' / 'd4' / 'gate_1a__residual_d4_b64.json')
+    # the contract, not a copy of the string: if gate_1a renames its output, run_state follows
+    monkeypatch.setattr(gate_1a, 'default_out_name', lambda run, *a, **k: f'renamed__{run}.json')
+    (tmp_path / 'eval' / 'residual' / 'd4').mkdir(parents=True)
+    assert states(tmp_path)['residual']['gate'] is False
+    (tmp_path / 'eval' / 'residual' / 'd4' / 'renamed__residual_d4_b64.json').write_text('{}')
+    assert states(tmp_path)['residual']['gate'] is True
+
+
+def test_a_root_that_already_has_the_gate_file_is_refused(driver_root, monkeypatch):
+    ran = []
+    monkeypatch.setattr(pilot_driver, 'execute', lambda a, **k: ran.append(a) or 0)
+    mk_gate(driver_root, '__nodone')                                                      # a peek does not make the root used ...
+    assert pilot_driver.main(['--once']) == 0 and ran                                     # ... (control: this pass launches)
+    ran.clear()
+    mk_gate(driver_root)                                                                  # the official gate file: a used root
+    assert pilot_driver.main(['--once']) not in (0, None)
+    assert pilot_driver.main(['--loop', '5']) not in (0, None)
+    assert ran == [] and 'RESIDUAL_WARMSTART_RESULTS' in events(driver_root)
+
+
+LAUNCH = os.path.join(pilot_driver.REPO, 'scripts', 'pilot', 'launch_run.sh')
+
+
+@pytest.fixture
+def launcher(tmp_path):
+    """launch_run.sh against a tmp results root, with stub nvidia-smi (GPU free) and python (records its args) on PATH."""
+    stub = tmp_path / 'stub'
+    stub.mkdir()
+    (stub / 'nvidia-smi').write_text('#!/bin/bash\ncase "$*" in *memory.free*) echo 20000 ;; esac\n')
+    (stub / 'python').write_text('#!/bin/bash\necho "$*" >> "$STUB_ARGS"\n')
+    for f in ('nvidia-smi', 'python'):
+        os.chmod(stub / f, 0o755)
+    env = dict(os.environ, PATH=f'{stub}:{os.environ["PATH"]}', RESIDUAL_WARMSTART_RESULTS=str(tmp_path / 'root'),
+               PILOT_PY=str(stub / 'python'), STUB_ARGS=str(tmp_path / 'stub_args'))
+    run = tmp_path / 'root' / 'runs' / 'residual_d4_b64'
+
+    def launch():
+        return subprocess.run(['bash', LAUNCH, 'residual', '0'], env=env, capture_output=True, text=True, timeout=60)
+    return types.SimpleNamespace(launch=launch, run=run, args=tmp_path / 'stub_args')
+
+
+def wait_for(path, timeout=10):
+    deadline = time.monotonic() + timeout
+    while not path.exists() and time.monotonic() < deadline:
+        time.sleep(0.05)
+    return path.exists()
+
+
+def test_launch_run_starts_a_fresh_run_and_relaunches_a_dead_one(launcher):
+    r = launcher.launch()
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert (launcher.run / 'pid').read_text().strip().isdigit() and (launcher.run / 'launches').read_text().strip() == '1'
+    assert wait_for(launcher.args) and '--mode residual' in launcher.args.read_text() and '--max_hours 24' in launcher.args.read_text()
+    p = subprocess.Popen(['true']); p.wait()
+    (launcher.run / 'pid').write_text(f'{p.pid}\n')                                       # a stale pid: the process is gone
+    r = launcher.launch()
+    assert r.returncode == 0 and (launcher.run / 'launches').read_text().strip() == '2'
+
+
+def test_launch_run_refuses_a_done_run(launcher):
+    launcher.run.mkdir(parents=True)
+    (launcher.run / 'DONE').write_text('100\n')
+    r = launcher.launch()
+    assert r.returncode != 0 and 'DONE' in r.stdout
+    assert not (launcher.run / 'pid').exists() and not (launcher.run / 'launches').exists() and not launcher.args.exists()
+
+
+def test_launch_run_refuses_a_run_whose_pid_is_alive(launcher):
+    launcher.run.mkdir(parents=True)
+    (launcher.run / 'pid').write_text(f'{os.getpid()}\n')                                 # this process: alive
+    r = launcher.launch()
+    assert r.returncode != 0
+    assert (launcher.run / 'pid').read_text().strip() == str(os.getpid())                 # no new pid
+    assert not (launcher.run / 'launches').exists() and not launcher.args.exists()
+
+
+def test_launch_run_refuses_while_another_launcher_holds_the_lock(launcher):
+    launcher.run.mkdir(parents=True)
+    with open(launcher.run / '.launch.lock', 'a') as held:
+        fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        r = launcher.launch()
+    assert r.returncode != 0
+    assert not (launcher.run / 'pid').exists() and not (launcher.run / 'launches').exists() and not launcher.args.exists()
+    assert launcher.launch().returncode == 0                                              # released: the next launch goes ahead
