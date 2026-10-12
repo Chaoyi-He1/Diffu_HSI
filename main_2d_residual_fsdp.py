@@ -73,7 +73,7 @@ def get_parser():
     ap.add_argument('--val_every', type=int, default=5, help='loss-only validation on the non-gate validation files every N epochs (0 = never)')
     ap.add_argument('--save_every', type=int, default=10); ap.add_argument('--keep_last', type=int, default=2)
     ap.add_argument('--keep_epochs', type=int, nargs='*', default=[25, 50, 100], help='milestone checkpoints exempt from pruning')
-    ap.add_argument('--max_nonfinite', type=int, default=10, help='abort after this many consecutive non-finite losses')
+    ap.add_argument('--max_nonfinite', type=int, default=10, help='abort after this many consecutive skipped steps (non-finite loss or gradient norm)')
     ap.add_argument('--log_interval', type=int, default=200)
     ap.add_argument('--save_dir', required=True); ap.add_argument('--resume', default='', help='checkpoint path; "auto" = latest in --save_dir')
     ap.add_argument('--device', default='cuda:0', help='single-process device; ignored under torchrun')
