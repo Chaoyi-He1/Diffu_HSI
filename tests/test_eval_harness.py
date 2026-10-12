@@ -92,6 +92,47 @@ def test_yswap_fails_for_condition_blind_model():
         assert row['zero'] == pytest.approx(row['true'], rel=1e-6)
 
 
+VARIANTS = {'true', 'swap_full', 'swap_sensor_only', 'zero'}
+
+
+class BlindHalf(torch.nn.Module):
+    def forward(self, x_t, cond, t):
+        return 0.5 * x_t                                       # never reads cond
+
+
+def _blind_batch():
+    torch.manual_seed(0)
+    x = torch.rand(4, 4, 8, 8) * 2 - 1
+    return x, torch.rand(4, 3, 2, 2), x + 0.05 * torch.randn_like(x)
+
+
+def test_yswap_check_returns_per_cube_values_at_any_t():
+    """Fix item 1 (a), additive: per-cube RMSE per t and variant, the per-cube baseline and the files in batch order;
+    the summary rows and `passes` are unchanged. A condition-blind net scores exactly 1.000 at t = 999 too."""
+    from scripts.eval_warmstart import metrics
+    x, y, x0_hat = _blind_batch()
+    files = [f'MatFlower60/Train/P023/{i}_1.mat' for i in range(4)]
+    res = yswap_check(BlindHalf(), _cpu_trainer(), 'residual', (x, y, x0_hat), t_values=(999,), sigma_d=0.05, files=files)
+    assert set(res) == {'t999', 'passes', 'files', 'per_cube', 'baseline_per_cube'}
+    assert set(res['t999']) == VARIANTS and res['passes'] is False and res['files'] == files
+    pc = res['per_cube']
+    assert set(pc) == {'999'} and set(pc['999']) == VARIANTS and all(len(v) == 4 for v in pc['999'].values())
+    assert pc['999']['true'] == pc['999']['swap_full']                                   # elementwise, exactly
+    assert res['t999']['true'] / res['t999']['swap_full'] == 1.0
+    for v in VARIANTS:
+        assert res['t999'][v] == pytest.approx(np.mean(pc['999'][v]), rel=1e-6)          # the summary is the per-cube mean
+    assert res['baseline_per_cube'] == pytest.approx(metrics(x0_hat, x)['rmse_pct'].tolist())   # as baseline_eval scores it
+
+
+def test_yswap_check_default_keeps_the_spec_t_values_and_rule():
+    """Without `files` the record is the old one plus per-cube values; t = 100 and 300 and the 0.9 rule are spec §7."""
+    from scripts.eval_warmstart import YSWAP_RATIO
+    res = yswap_check(BlindHalf(), _cpu_trainer(), 'residual', _blind_batch(), sigma_d=0.05)
+    assert YSWAP_RATIO == 0.9
+    assert {k for k in res if k.startswith('t')} == {'t100', 't300'} and set(res['per_cube']) == {'100', '300'}
+    assert res['files'] is None and res['passes'] is False
+
+
 def test_yswap_passes_for_oracle_model():
     """A model that genuinely reads cond passes. x0_hat_true = 0.9 x and sigma_d = 0.1 give the residual r = x.
     The stub returns cond['x0_hat'] / 0.9: that is r exactly under the true condition and another cube's spectrum
@@ -455,6 +496,9 @@ def test_checkpoint_eval_records_per_cube_values(data_root, tmp_path, monkeypatc
     assert prov['prior_path'] == os.path.abspath(prior) and prov['ckpt'] == os.path.abspath(ckpt)
     assert prov['git_head'] is None or len(prov['git_head']) == 40
     assert len(out['yswap_files']) == 8 and 'passes' in out['yswap']
+    assert out['yswap']['files'] == out['yswap_files']                                 # fix item 1 (a): batch order
+    assert all(len(v) == 8 for t in ('100', '300') for v in out['yswap']['per_cube'][t].values())
+    assert len(out['yswap']['baseline_per_cube']) == 8
     assert [f.split('/')[2] for f in out['yswap_files']].count('P024') == 2          # the stratified pick reached P024
     assert len(out['baseline_files']) == 8 and len(out['baseline_per_item']['rmse_pct']) == 8
     assert len(out['rows']) == 2
@@ -508,3 +552,72 @@ def test_eval_output_path_separates_runs_and_grids():
     assert q.endswith('eval/standard/d4/standard_d4_b64__checkpoint_epoch_100__quick.json')
     assert eval_output_path('standard_xhat', 4, None, '/x/runs/standard_xhat_d4_b64/checkpoint_epoch_100.pth') \
         .endswith('eval/standard_xhat/d4/standard_xhat_d4_b64__checkpoint_epoch_100.json')
+
+
+# ----------------------------------------------------------------------------- scripts/yswap_one_step.py (fix item 1 (b))
+def test_yswap_one_step_defaults_and_refuses_the_results_tree(tmp_path):
+    from data_loader.warmstart_paths import RESULTS_ROOT
+    from scripts import yswap_one_step as yo
+    a = yo.get_parser().parse_args(['--checkpoint', 'c.pth', '--mode', 'residual', '--out', 'o.json'])
+    assert (a.t, a.n, a.device) == ([100, 300, 999], 32, 'cpu')
+    for out in (os.path.join(RESULTS_ROOT, 'eval', 'residual', 'd4', 'x.json'), RESULTS_ROOT):
+        with pytest.raises(SystemExit, match='results tree'):                       # before the checkpoint is even opened
+            yo.main(['--checkpoint', str(tmp_path / 'missing.pth'), '--mode', 'residual', '--out', out])
+    with pytest.raises(SystemExit):
+        yo.get_parser().parse_args(['--checkpoint', 'c.pth', '--mode', 'residual'])     # --out is required
+
+
+def test_yswap_one_step_paired_contrasts():
+    """Per t: the variant means, the baseline, true / swap_full, and paired per-cube mean +- SE (iid and clustered by
+    source image) of swap_full - true, true - baseline, swap_full - baseline, swap_sensor_only - true."""
+    from scripts.paired_stats import cluster_se
+    from scripts.yswap_one_step import summarize_t
+    files = ['P023/1_1.mat', 'P023/1_2.mat', 'P023/2_1.mat', 'P024/3_1.mat']
+    true, full, sens, zero, base = [1.0, 2.0, 3.0, 4.0], [1.5, 2.1, 3.6, 3.9], [1.1, 2.0, 3.1, 4.2], [5.0] * 4, [1.2, 2.4, 3.1, 4.5]
+    res = {'t999': dict(true=2.5, swap_full=2.775, swap_sensor_only=2.6, zero=5.0), 'passes': False, 'files': files,
+           'per_cube': {'999': dict(true=true, swap_full=full, swap_sensor_only=sens, zero=zero)}, 'baseline_per_cube': base}
+    s = summarize_t(res)['999']
+    assert s['means'] == dict(true=2.5, swap_full=2.775, swap_sensor_only=2.6, zero=5.0, baseline=pytest.approx(2.8))
+    assert s['ratio_true_over_swap_full'] == pytest.approx(2.5 / 2.775)
+    assert s['ratio_true_over_baseline'] == pytest.approx(2.5 / 2.8)
+    for name, a, b in (('swap_full_minus_true', full, true), ('true_minus_baseline', true, base),
+                       ('swap_full_minus_baseline', full, base), ('swap_sensor_only_minus_true', sens, true)):
+        d = np.subtract(a, b)
+        c = s['paired'][name]
+        assert c['mean'] == pytest.approx(d.mean()) and c['se'] == pytest.approx(d.std(ddof=1) / 2) and c['n'] == 4
+        assert (c['se_cluster'], c['n_clusters']) == pytest.approx(cluster_se(d, files)) and c['n_positive'] == int((d > 0).sum())
+    assert s['n_true_beats_swap_full'] == 3                                             # cube 4: swap_full 3.9 < true 4.0
+
+
+@pytest.mark.dataset
+def test_yswap_one_step_end_to_end_on_cpu(data_root, tmp_path):
+    """The script on a tiny random-weight checkpoint: the batch is the harness's stratified pick, every t is scored,
+    and the summary agrees with the per-cube values it stores."""
+    from data_loader.linear_estimate import load_prior
+    from data_loader.warmstart_paths import PRIOR
+    from scripts import eval_warmstart as ew
+    from scripts import yswap_one_step as yo
+    if not os.path.exists(PRIOR):
+        pytest.skip('prior missing')
+    torch.manual_seed(0)
+    p = load_prior(PRIOR)
+    meta = dict(mode='residual', d=4, base_channels=8, prediction_type='v',
+                sigma_d=float(p['sigma_d'][list(p['d_values']).index(4)]), prior_sha256=ew.file_sha256(PRIOR))
+    ckpt = tmp_path / 'checkpoint_epoch_1.pth'
+    torch.save({'model_state_dict': ew.build_model('residual', 8, torch.device('cpu')).state_dict(), 'meta': meta}, ckpt)
+    out = tmp_path / 'ys.json'
+    with pytest.raises(ValueError, match='base_channels'):                              # the checkpoint's meta is checked
+        yo.main(['--checkpoint', str(ckpt), '--mode', 'residual', '--n', '4', '--t', '999', '--out', str(out)])
+    yo.main(['--checkpoint', str(ckpt), '--mode', 'residual', '--base_channels', '8', '--n', '4', '--t', '300', '999',
+             '--out', str(out)])
+    r = json.load(open(out))
+    sub = json.load(open(os.path.join(REPO, 'tests', 'data', 'val_subset_200.json')))
+    want = sorted(ew.yswap_files(sub['files'], sub['classes'], 4))
+    assert r['files'] == r['yswap']['files'] and sorted(r['files']) == want and r['n'] == 5        # 1 + 3 + 1 cubes
+    assert r['t_values'] == [300, 999] and set(r['summary']) == {'300', '999'}
+    assert r['provenance']['meta_checked'] is True and r['provenance']['device'] == 'cpu'
+    for t in ('300', '999'):
+        pc, s = r['yswap']['per_cube'][t], r['summary'][t]
+        assert s['means']['true'] == r['yswap'][f't{t}']['true']
+        d = np.subtract(pc['swap_full'], pc['true'])
+        assert s['paired']['swap_full_minus_true']['mean'] == pytest.approx(d.mean())

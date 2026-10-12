@@ -174,6 +174,13 @@ def class_of(path):
     return os.path.basename(os.path.dirname(path))
 
 
+def yswap_batch(data_root, prior_path, d, n=8):
+    """The y-swap batch: yswap_files(n) over the 200-cube subset, collated in the dataset's (sorted) order. Returns
+    (dataset, batch); dataset.img_list is the batch order. Shared by checkpoint_eval and scripts/yswap_one_step.py."""
+    ds = dataset_for(data_root, prior_path, d, yswap_files(load_subset(data_root, 'files'), subset_class_counts(), n))
+    return ds, residual_collate_fn([ds[i] for i in range(len(ds))])
+
+
 # ----------------------------------------------------------------------------- baseline
 def baseline_eval(data_root, prior_path, d, files=None, batch_size=16):
     ds = dataset_for(data_root, prior_path, d, files)
@@ -233,13 +240,21 @@ def _one_step_x0(model, trainer, mode, x_target, cond, t_val):
     return x0_pred
 
 
-def yswap_check(model, trainer, mode, batch, t_values=(100, 300), sigma_d=None):
+YSWAP_RATIO = 0.9          # spec §7: the true condition must score <= 0.9 x swap_full at every t of the check
+
+
+def yswap_check(model, trainer, mode, batch, t_values=(100, 300), sigma_d=None, files=None):
     """One-step x0 error of `model` under the true condition and under swapped / zeroed conditions.
 
     Only the network's inputs (`cond`) are swapped; every variant is composed with the TRUE x0_hat
     (x_hat = x0_hat_true + sigma_d * pred in residual mode, x_hat = pred in standard mode), so the score measures
     what the network does with its condition and not the gap between two cubes' priors. Pairs are formed by rolling
-    the batch by B // 2. `sigma_d` is required in residual mode."""
+    the batch by B // 2. `sigma_d` is required in residual mode.
+
+    Returns `t<t>` -> {variant: mean RMSE %} and `passes` (true <= YSWAP_RATIO x swap_full at every t; spec §7 uses
+    t = 100 and 300, the default), plus, additively (fix item 1): `per_cube` -> {str(t): {variant: [RMSE % per cube]}},
+    `baseline_per_cube` (the prior x0_hat's RMSE %, as baseline_eval scores it) and `files` (the cubes in batch
+    order, None when not given)."""
     x, y_d, x0_hat = [b.to(trainer.device) for b in batch]
     if x.shape[0] < 2:
         raise ValueError('y-swap check needs a batch of at least 2 items')
@@ -253,16 +268,22 @@ def yswap_check(model, trainer, mode, batch, t_values=(100, 300), sigma_d=None):
         'swap_sensor_only': {'sensor': y_d.roll(k, 0), 'x0_hat': x0_hat},
         'zero': {'sensor': torch.zeros_like(y_d), 'x0_hat': torch.zeros_like(x0_hat)},
     }
-    res, ok = {}, True
+    if files is not None and len(files) != x.shape[0]:
+        raise ValueError(f'{len(files)} files for a batch of {x.shape[0]}')
+    res, per_cube, ok = {}, {}, True
     for tv in t_values:
-        row = {}
+        row, cubes = {}, {}
         for name, c in conds.items():
             pred = _one_step_x0(model, trainer, mode, target, c, tv)
             x_hat = (x0_hat + sigma_d * pred) if mode == 'residual' else pred
-            row[name] = float(metrics(x_hat.clamp(-1, 1), x)['rmse_pct'].mean())
-        res[f't{tv}'] = row
-        ok = ok and (row['true'] <= 0.9 * row['swap_full'])
+            rmse = metrics(x_hat.clamp(-1, 1), x)['rmse_pct']
+            row[name], cubes[name] = float(rmse.mean()), rmse.tolist()
+        res[f't{tv}'], per_cube[str(tv)] = row, cubes
+        ok = ok and (row['true'] <= YSWAP_RATIO * row['swap_full'])
     res['passes'] = bool(ok)
+    res['per_cube'] = per_cube
+    res['baseline_per_cube'] = metrics(x0_hat, x)['rmse_pct'].tolist()
+    res['files'] = None if files is None else list(files)
     return res
 
 
@@ -351,9 +372,9 @@ def checkpoint_eval(args):
         print(f"{cfg['name']:>14} nfe={nfe:5d} rmse={agg['rmse_pct']:.3f}±{agg['rmse_pct_se']:.3f} "
               f"(baseline {np.mean(base_r):.3f}, paired {agg['paired_rmse_diff']:+.3f}±{agg['paired_rmse_se']:.3f}) "
               f"seed-std {agg['rmse_pct_seed_std']:.3f} sam={agg['sam_deg']:.2f}")
-    ds_ys = dataset_for(args.data_root, args.prior, args.d, yswap_files(load_subset(args.data_root, 'files'), subset_class_counts()))
-    batch = residual_collate_fn([ds_ys[i] for i in range(len(ds_ys))])
-    ys = yswap_check(model, trainer, args.mode, batch, sigma_d=sigma_d)
+    ds_ys, batch = yswap_batch(args.data_root, args.prior, args.d)
+    ys = yswap_check(model, trainer, args.mode, batch, sigma_d=sigma_d,
+                     files=[os.path.relpath(f, args.data_root) for f in ds_ys.img_list])
     print('y-swap:', json.dumps(ys))
     out = dict(provenance=provenance, ckpt=args.ckpt, mode=args.mode, d=args.d, sigma_d=sigma_d, seeds=args.seeds,
                grid=grid, run_name=run_name,
