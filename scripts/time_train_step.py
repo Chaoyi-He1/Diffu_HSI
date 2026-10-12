@@ -16,12 +16,12 @@ import torch
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO)
 from data_loader.hfd_residual import HFDResidualData, limit_worker_threads, residual_collate_fn  # noqa: E402
+from data_loader.warmstart_paths import DATA_ROOT, PRIOR, RESULTS_ROOT  # noqa: E402
 from model.diffusion_trainer import DiffusionTrainer  # noqa: E402
 from model.residual_wrapper import ResidualWrapper  # noqa: E402
 from model.u2net_hyperspectral import U2NetHyperspectral  # noqa: E402
 
-DATA_ROOT = os.environ.get('HFD_DATA_ROOT', '/data/chaoyi_he/HSI/Diffu/dataset/HFD100 Mat dataset')
-PRIOR = os.path.join(REPO, 'results', 'residual_warmstart', 'linear_prior_R1.npz')
+TIMING = os.path.join(RESULTS_ROOT, 'timing.json')
 
 
 def make_loader(ds, batch_size, num_workers=4):
@@ -91,9 +91,8 @@ def main():
         rec = dict(base_channels=args.base_channels, batch_size=args.batch_size, fsdp=args.fsdp, world=world, params=n_params,
                    sec_per_step=sec, peak_gb=peak, sec_per_epoch=epoch_sec, loss=float(loss))
         print(json.dumps(rec, indent=1))
-        path = os.path.join(REPO, 'results', 'residual_warmstart', 'timing.json')
-        allrec = json.load(open(path)) if os.path.exists(path) else []
-        allrec.append(rec); json.dump(allrec, open(path, 'w'), indent=1)
+        allrec = json.load(open(TIMING)) if os.path.exists(TIMING) else []
+        allrec.append(rec); json.dump(allrec, open(TIMING, 'w'), indent=1)
     if args.fsdp:
         torch.distributed.destroy_process_group()
 

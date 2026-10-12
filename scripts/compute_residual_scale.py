@@ -2,6 +2,9 @@
 Run from the repo root after scripts/fit_linear_prior.py:
     python scripts/compute_residual_scale.py [--d_values 1 2 4 8] [--n_files 500] [--seed 0]
 
+The default --prior is data_loader.warmstart_paths.PRIOR, the file training and evaluation read
+($RESIDUAL_WARMSTART_RESULTS/linear_prior_R1.npz).
+
 Each d draws its own files from a generator seeded by (seed, d), so sigma_d does not depend on which other d are
 requested or in which order. The new (d, sigma_d) pairs are merged into the prior's table (an existing d is
 replaced, the others are kept, sorted by d) and the npz is rewritten atomically.
@@ -15,10 +18,8 @@ import numpy as np
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO)
 from data_loader.hfd_residual import HFDResidualData  # noqa: E402
+from data_loader.warmstart_paths import DATA_ROOT, PRIOR  # noqa: E402
 from scripts.fit_linear_prior import atomic_savez  # noqa: E402
-
-DATA_ROOT = os.environ.get('HFD_DATA_ROOT', '/data/chaoyi_he/HSI/Diffu/dataset/HFD100 Mat dataset')
-PRIOR = os.path.join(REPO, 'results', 'residual_warmstart', 'linear_prior_R1.npz')
 
 
 def sample_indices(n_total, n_files, d, seed=0):
@@ -38,13 +39,17 @@ def merge_sigma(d_values, sigma_d, new_pairs):
     return np.array(ds, dtype=int), np.array([table[d] for d in ds], dtype=np.float64)
 
 
-def main():
+def get_parser():
     ap = argparse.ArgumentParser()
     ap.add_argument('--n_files', type=int, default=500)
     ap.add_argument('--d_values', type=int, nargs='+', default=[1, 2, 4, 8])
     ap.add_argument('--seed', type=int, default=0)
     ap.add_argument('--prior', default=PRIOR)
-    args = ap.parse_args()
+    return ap
+
+
+def main():
+    args = get_parser().parse_args()
     new = []
     for d in args.d_values:
         ds = HFDResidualData(data_path=DATA_ROOT, split='train', sensor_down_sample_rate=d, prior_path=args.prior,

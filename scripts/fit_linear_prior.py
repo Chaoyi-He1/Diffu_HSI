@@ -1,6 +1,7 @@
 """Fit the per-pixel linear Gaussian prior used for the warm-start estimate.
 
-Writes results/residual_warmstart/linear_prior_R1.npz with mu, C, K, s, R (and sigma_d / d_values, filled by
+Writes data_loader.warmstart_paths.PRIOR ($RESIDUAL_WARMSTART_RESULTS/linear_prior_R1.npz, the file training and
+evaluation read) with mu, C, K, s, R (and sigma_d / d_values, filled by
 scripts/compute_residual_scale.py; an existing file's sigma_d table is kept unless --overwrite_sigma). The write
 is atomic (temp file + os.replace). Fitted on pixels of the loader's TRAINING split only.
 Run from the repo root:
@@ -19,9 +20,8 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO)
 from data_loader.HFD_dataset import HFD_data  # noqa: E402
 from data_loader.linear_estimate import linear_inverse  # noqa: E402
+from data_loader.warmstart_paths import DATA_ROOT, PRIOR  # noqa: E402
 
-DATA_ROOT = os.environ.get('HFD_DATA_ROOT', '/data/chaoyi_he/HSI/Diffu/dataset/HFD100 Mat dataset')
-OUT_DIR = os.path.join(REPO, 'results', 'residual_warmstart')
 S_CANDIDATES = [1e-8, 3e-8, 1e-7, 3e-7, 1e-6, 3e-6, 1e-5, 3e-5, 1e-4, 1e-3]
 
 
@@ -119,17 +119,21 @@ def write_prior(path, arrays, overwrite_sigma=False):
     return kept
 
 
-def main():
+def get_parser():
     ap = argparse.ArgumentParser()
     ap.add_argument('--n_files', type=int, default=3000)
     ap.add_argument('--px_per_file', type=int, default=256)
     ap.add_argument('--n_heldout_files', type=int, default=300)
     ap.add_argument('--heldout_px_per_file', type=int, default=64)
     ap.add_argument('--seed', type=int, default=0)
-    ap.add_argument('--out', default=os.path.join(OUT_DIR, 'linear_prior_R1.npz'))
+    ap.add_argument('--out', default=PRIOR)
     ap.add_argument('--overwrite_sigma', action='store_true',
                     help='drop the sigma_d table of an existing output file (default: keep it)')
-    args = ap.parse_args()
+    return ap
+
+
+def main():
+    args = get_parser().parse_args()
 
     ds = HFD_data(data_path=DATA_ROOT, train_mode='image', eval_ratio=0.1, split='train',
                   data_format='image', type='Flower', R_n=1, sensor_down_sample_rate=1)

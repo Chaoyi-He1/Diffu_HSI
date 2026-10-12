@@ -3,9 +3,9 @@ import numpy as np
 import pytest
 import torch
 
-PRIOR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                     'results', 'residual_warmstart', 'linear_prior_R1.npz')
-needs_prior = pytest.mark.skipif(not os.path.exists(PRIOR), reason='run scripts/fit_linear_prior.py first')
+from data_loader.warmstart_paths import PRIOR     # the prior training and evaluation read
+
+needs_prior = pytest.mark.skipif(not os.path.exists(PRIOR), reason=f'no prior at {PRIOR}: run scripts/fit_linear_prior.py first')
 
 
 @pytest.mark.dataset

@@ -18,7 +18,6 @@ scripts/pilot/launch_run.sh cover only the pilot. The main process keeps its def
 """
 import argparse
 import functools
-import hashlib
 import json
 import os
 import random
@@ -38,13 +37,10 @@ from torch.utils.data.distributed import DistributedSampler
 REPO = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, REPO)
 from data_loader.hfd_residual import HFDResidualData, limit_worker_threads, residual_collate_fn  # noqa: E402
+from data_loader.warmstart_paths import DATA_ROOT, PRIOR, RESULTS_ROOT, SUBSET, file_sha256, git_head  # noqa: E402,F401
 from model.diffusion_trainer import DiffusionTrainer  # noqa: E402
 from model.residual_wrapper import MODES, build_residual_model, target_for  # noqa: E402
 
-DATA_ROOT = os.environ.get('HFD_DATA_ROOT', '/data/chaoyi_he/HSI/Diffu/dataset/HFD100 Mat dataset')
-RESULTS_ROOT = os.environ.get('RESIDUAL_WARMSTART_RESULTS', '/data/chaoyi_he/HSI/Diffu/results/residual_warmstart')
-PRIOR = os.path.join(RESULTS_ROOT, 'linear_prior_R1.npz')
-SUBSET = os.path.join(REPO, 'tests', 'data', 'val_subset_200.json')
 N_TIMESTEPS = 1000
 NO_DIST = SimpleNamespace(enabled=False, rank=0, world=1, local_rank=0)
 
@@ -98,14 +94,6 @@ def seed_everything(seed, rank):
 def epoch_seed(args, epoch, rank):
     """The noise stream of epoch e depends only on (seed, rank, e): a resumed epoch replays nothing."""
     seed_everything(args.seed + 1000 * (epoch + 1), rank)
-
-
-def file_sha256(path):
-    h = hashlib.sha256()
-    with open(path, 'rb') as f:
-        for chunk in iter(lambda: f.read(1 << 20), b''):
-            h.update(chunk)
-    return h.hexdigest()
 
 
 def all_min(value, device, dist_ctx):
