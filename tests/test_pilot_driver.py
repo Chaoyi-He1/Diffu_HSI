@@ -270,6 +270,39 @@ def test_is_stuck_means_nothing_executable_and_nothing_alive(tmp_path):
     assert not is_stuck(states(tmp_path), [])
 
 
+def test_is_stuck_never_on_a_failed_nvidia_smi(tmp_path):
+    mk_run(tmp_path, 'residual', alive=False, log_epochs=2, launches=4)
+    assert not is_stuck(states(tmp_path), [], {})                                         # nvidia-smi failed: wait
+    assert is_stuck(states(tmp_path), [], {0: 'busy', 1: 'busy'})                         # foreign jobs hold the GPUs: STUCK
+
+
+def test_a_failing_nvidia_smi_makes_the_loop_wait_not_stuck(driver_root, monkeypatch):
+    monkeypatch.setattr(pilot_driver, 'gpu_status', lambda: {})                           # nvidia-smi fails on every pass
+    slept = []
+
+    class Stop(Exception):
+        pass
+
+    def sleep(s):
+        slept.append(s)
+        if len(slept) == 2:
+            raise Stop
+    monkeypatch.setattr(pilot_driver, 'time', types.SimpleNamespace(sleep=sleep))
+    with pytest.raises(Stop):                                                             # rc 2 before the amendment
+        pilot_driver.main(['--loop', '5'])
+    log = events(driver_root)
+    assert slept == [5, 5] and log.count('SMI-FAIL') == 2 and 'STUCK' not in log
+
+
+def test_gpus_held_by_foreign_jobs_with_our_runs_dead_is_still_stuck(driver_root, monkeypatch):
+    mk_run(driver_root, 'residual', epochs=(10,), log_epochs=12, launches=1)               # dead and relaunchable, but GPU 0 is taken
+    mk_run(driver_root, 'standard', log_epochs=2, launches=1)
+    monkeypatch.setattr(pilot_driver, 'gpu_status', lambda: {0: 'busy', 1: 'busy'})
+    assert pilot_driver.main(['--loop', '5']) == 2
+    log = events(driver_root)
+    assert 'STUCK' in log and 'SMI-FAIL' not in log
+
+
 def test_one_pass_survives_an_exception_and_logs_it(driver_root, monkeypatch):
     def boom(*a, **k):
         raise RuntimeError('half-written marker')

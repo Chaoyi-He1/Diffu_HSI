@@ -5,7 +5,8 @@ Policy: B -> GPU 0 and A -> GPU 1; a dead run without DONE is relaunched with --
 quick evals of epochs 25/50 on the run's own GPU; full eval of the final checkpoint on an idle GPU; gate when all three exist.
 Unattended safety: every launch is counted (a run gets 1 + MAX_RELAUNCHES launches); an action that fails (non-zero rc or
 timeout) MAX_ACTION_FAILURES times is dropped (runs/action_failures.json -- delete the entry to retry); a pass never raises
-(it logs ERROR); the loop exits with STUCK when nothing is executable and no run is alive, and as soon as the gate has run.
+(it logs ERROR); the loop exits 2 with STUCK when nothing is executable, no run is alive and nvidia-smi answered (e.g. foreign
+jobs hold the GPUs) -- a failed nvidia-smi means wait, logged as SMI-FAIL on every pass -- and 0 as soon as the gate has run.
 """
 import argparse
 import datetime
@@ -136,8 +137,11 @@ def executable(actions, failures):
     return [a for a in actions if failures.get(repr(a), 0) < MAX_ACTION_FAILURES]
 
 
-def is_stuck(states, todo):
-    """Nothing executable this pass and no run alive: nothing can progress without a human."""
+def is_stuck(states, todo, gpus=None):
+    """Nothing executable this pass and no run alive: nothing can progress without a human (e.g. foreign jobs hold the
+    GPUs). gpus == {} -- the pass's gpu_status(), empty when nvidia-smi failed -- is never STUCK: the loop waits."""
+    if gpus == {}:
+        return False
     return not todo and not any(st['alive'] for st in states.values())
 
 
@@ -233,11 +237,17 @@ def read_states():
     return {m: run_state(os.path.join(ROOT, 'runs', run_name(m)), os.path.join(ROOT, 'eval')) for m in MODES}
 
 
-def one_pass():
-    """Observe, act, observe again. Returns (states after the actions, actions executed); never raises (logs ERROR, returns (None, []))."""
+def one_pass(observed=None):
+    """Observe, act, observe again. Returns (states after the actions, actions executed); never raises (logs ERROR, returns (None, [])).
+    observed (a dict, optional) receives the pass's GPU status under 'gpus' ({} when nvidia-smi failed: SMI-FAIL is logged)."""
     try:
         states = read_states()
-        acts = next_actions(states, gpu_status())
+        gpus = gpu_status()
+        if observed is not None:
+            observed['gpus'] = gpus
+        if not gpus:
+            log_event('SMI-FAIL no GPU status from nvidia-smi; no GPU counts as free this pass; waiting for it to answer')
+        acts = next_actions(states, gpus)
         failures = load_failures(failures_path())
         todo = executable(acts, failures)
         for a in acts:
@@ -257,16 +267,17 @@ def main(argv=None):
     ap = argparse.ArgumentParser(); ap.add_argument('--once', action='store_true'); ap.add_argument('--loop', type=int, default=0)
     args = ap.parse_args(argv)
     while True:
-        states, todo = one_pass()
+        observed = {}
+        states, todo = one_pass(observed)
         if states is not None:
             if states['residual'].get('gate'):
                 log_event('GATE file present; the pilot driver is finished')
                 return 0
-            if args.loop and is_stuck(states, todo):
+            if args.loop and is_stuck(states, todo, observed.get('gpus')):
                 log_event('STUCK no executable action and no run alive; a human must look: '
                           + str({m: dict(done=st['done'], launches=st['launches'], last_epoch=st['last_epoch'], full_evals=st['full_evals'])
                                  for m, st in states.items()})
-                          + f' (failed actions: {failures_path()})')
+                          + f" gpus={observed.get('gpus')} (failed actions: {failures_path()})")
                 return 2
         if not args.loop:
             return 0 if states is not None else 1
