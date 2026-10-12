@@ -1,3 +1,4 @@
+import fcntl
 import json
 import os
 import types
@@ -247,6 +248,125 @@ def test_execute_timeouts_per_action_kind(driver_root, monkeypatch):
 def test_run_cmd_returns_rc_and_kills_a_timed_out_group():
     assert run_cmd(['true'], 30) == 0 and run_cmd(['false'], 30) == 1
     assert run_cmd(['bash', '-c', 'sleep 60 | cat'], 0.5) == 'timeout'                       # the whole pipeline is killed, not just bash
+
+
+def test_run_cmd_polls_and_calls_on_tick_between_polls(monkeypatch):
+    assert pilot_driver.POLL_S == 60
+    monkeypatch.setattr(pilot_driver, 'POLL_S', 0.2)
+    ticks = []
+    assert run_cmd(['bash', '-c', 'sleep 1; exit 3'], 30, on_tick=ticks.append) == 3       # rc passes through
+    assert len(ticks) >= 3 and ticks == sorted(ticks) and all(0 < t < 30 for t in ticks)
+    ticks = []
+    assert run_cmd(['sleep', '60'], 1.0, on_tick=ticks.append) == 'timeout'               # the overall timeout still holds
+    assert len(ticks) >= 2 and all(t < 1.0 for t in ticks)
+
+
+def test_run_cmd_keeps_waiting_when_a_tick_raises(driver_root, monkeypatch):
+    monkeypatch.setattr(pilot_driver, 'POLL_S', 0.2)
+
+    def boom(elapsed):
+        raise RuntimeError('tick failed')
+    assert run_cmd(['bash', '-c', 'sleep 0.7'], 30, on_tick=boom) == 0                     # the child is waited for, not orphaned
+    assert 'ERROR' in events(driver_root) and 'tick failed' in events(driver_root)
+
+
+def test_a_launch_runs_while_a_synchronous_eval_is_in_flight(driver_root, monkeypatch):
+    mk_run(driver_root, 'residual', epochs=(100,), done=100, log_epochs=100)              # B DONE: its full eval goes to GPU 0
+    mk_run(driver_root, 'standard', epochs=(90,), alive=True, log_epochs=99)              # A still training on GPU 1
+    gpus = {0: 'free', 1: 'busy'}
+    monkeypatch.setattr(pilot_driver, 'gpu_status', lambda: dict(gpus))
+    calls = []
+
+    def fake_run_cmd(cmd, timeout, on_tick=None):
+        name, args = cmd[1].rsplit('/', 1)[-1], cmd[2:]
+        calls.append(('start', name, args))
+        if name == 'eval_milestone.sh':
+            (driver_root / 'runs' / 'standard_d4_b64' / 'DONE').write_text('100\n')     # A finishes during B's eval ...
+            gpus[1] = 'free'                                                              # ... and releases GPU 1
+            (driver_root / 'runs' / 'standard_d4_b64' / 'checkpoint_epoch_50.pth').write_bytes(b'x')   # a quick eval is due: not in a tick
+            on_tick(60.0)
+            on_tick(120.0)                                                                # A' is alive now: not launched twice
+        elif name == 'launch_run.sh':
+            mk_run(driver_root, args[0], alive=True)                                      # the launcher wrote a live pid
+        calls.append(('end', name, args))
+        return 0
+    monkeypatch.setattr(pilot_driver, 'run_cmd', fake_run_cmd)
+    st, executed = pilot_driver.one_pass()
+    assert [c[:2] for c in calls] == [('start', 'eval_milestone.sh'), ('start', 'launch_run.sh'), ('end', 'launch_run.sh'),
+                                      ('end', 'eval_milestone.sh')]                       # launched before the eval returned
+    assert calls[0][2] == ['residual', '100', 'full', '0'] and calls[1][2] == ['standard_xhat', '1']
+    assert len([c for c in calls if c[1] == 'eval_milestone.sh']) == 2                     # one eval (start + end): none issued by a tick
+    assert executed == [('eval_full', 'residual', 100, 0), ('launch', 'standard_xhat', 1)] and st['standard_xhat']['alive']
+    log = events(driver_root)
+    assert log.index("START ('launch', 'standard_xhat', 1)") < log.index("END   ('eval_full', 'residual', 100, 0)")
+
+
+def test_the_in_flight_eval_gpu_counts_as_busy_in_a_tick(driver_root, monkeypatch):
+    mk_run(driver_root, 'residual', epochs=(10,), alive=True, log_epochs=12, launches=1)
+    mk_run(driver_root, 'standard', epochs=(100,), done=100, log_epochs=100)              # A DONE: its full eval goes to GPU 0
+    mk_run(driver_root, 'standard_xhat', alive=True, log_epochs=3)
+    monkeypatch.setattr(pilot_driver, 'gpu_status', lambda: {0: 'free', 1: 'busy'})       # nvidia-smi does not list the eval yet
+    calls = []
+
+    def fake_run_cmd(cmd, timeout, on_tick=None):
+        calls.append(cmd[1].rsplit('/', 1)[-1])
+        if on_tick:
+            os.remove(driver_root / 'runs' / 'residual_d4_b64' / 'pid')                   # B dies during the eval
+            on_tick(60.0)
+        return 0
+    monkeypatch.setattr(pilot_driver, 'run_cmd', fake_run_cmd)
+    st, executed = pilot_driver.one_pass()
+    assert calls == ['eval_milestone.sh'] and executed == [('eval_full', 'standard', 100, 0)]   # no relaunch of B onto GPU 0 mid-eval
+    assert ('launch', 'residual', 0) in next_actions(states(driver_root), {0: 'free', 1: 'busy'})  # the next pass relaunches it
+
+
+def test_a_long_eval_logs_a_busy_heartbeat(driver_root, monkeypatch):
+    assert pilot_driver.BUSY_EVERY_S == 600
+    mk_run(driver_root, 'residual', epochs=(100,), done=100, log_epochs=100)
+    mk_run(driver_root, 'standard', alive=True, log_epochs=5)
+    monkeypatch.setattr(pilot_driver, 'gpu_status', lambda: {0: 'free', 1: 'busy'})
+    monkeypatch.setattr(pilot_driver, 'BUSY_EVERY_S', 120)
+
+    def fake_run_cmd(cmd, timeout, on_tick=None):
+        for t in (60.0, 125.0, 180.0, 245.0, 300.0):
+            on_tick(t)
+        return 0
+    monkeypatch.setattr(pilot_driver, 'run_cmd', fake_run_cmd)
+    pilot_driver.one_pass()
+    busy = [line for line in events(driver_root).splitlines() if ' BUSY ' in line]
+    assert len(busy) == 2
+    assert busy[0].endswith("BUSY ('eval_full', 'residual', 100, 0) elapsed=2min") and busy[1].endswith('elapsed=4min')
+
+
+def test_a_launch_during_an_eval_leaves_the_rest_of_the_stale_plan_for_the_next_pass(driver_root, monkeypatch):
+    plans = iter([[('eval_quick', 'residual', 25, 0), ('eval_full', 'standard', 100, 1)],   # the pass's plan
+                  [('launch', 'standard_xhat', 1)]])                                        # the first tick: GPU 1 is taken now
+    monkeypatch.setattr(pilot_driver, 'next_actions', lambda st, g: next(plans, []))
+    ran = []
+
+    def fake_execute(a, on_tick=None):
+        ran.append(a)
+        if on_tick:
+            on_tick(60.0)
+        return 0
+    monkeypatch.setattr(pilot_driver, 'execute', fake_execute)
+    st, executed = pilot_driver.one_pass()
+    assert ran == executed == [('eval_quick', 'residual', 25, 0), ('launch', 'standard_xhat', 1)]   # no eval on the new run's GPU
+    assert "REPLAN [('eval_full', 'standard', 100, 1)]" in events(driver_root)
+
+
+def test_a_second_driver_exits_nonzero_while_the_lock_is_held(driver_root, monkeypatch):
+    ran = []
+    monkeypatch.setattr(pilot_driver, 'execute', lambda a, **k: ran.append(a) or 0)
+    (driver_root / 'runs').mkdir(parents=True, exist_ok=True)
+    with open(driver_root / 'runs' / 'pilot_driver.lock', 'a') as held:
+        fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)                                  # another driver (--once or --loop) runs
+        assert pilot_driver.main(['--once']) not in (0, None)
+        assert pilot_driver.main(['--loop', '5']) not in (0, None)
+        assert ran == []
+    assert 'LOCKED' in events(driver_root)
+    assert pilot_driver.main(['--once']) == 0 and ran                                     # free again: this driver runs ...
+    assert pilot_driver.main(['--once']) == 0                                             # ... and released the lock on exit
 
 
 def test_gpu_status_parsing_skips_unparsable_lines():

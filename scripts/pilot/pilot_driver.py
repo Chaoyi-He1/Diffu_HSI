@@ -3,13 +3,19 @@
     python scripts/pilot/pilot_driver.py --loop 600      # every 10 min until the gate has run (nohup this)
 Policy: B -> GPU 0 and A -> GPU 1; a dead run without DONE is relaunched with --resume auto; A' -> GPU 1 after A is DONE;
 quick evals of epochs 25/50 on the run's own GPU; full eval of the final checkpoint on an idle GPU; gate when all three exist.
-Unattended safety: every launch is counted (a run gets 1 + MAX_RELAUNCHES launches); an action that fails (non-zero rc or
-timeout) MAX_ACTION_FAILURES times is dropped (runs/action_failures.json -- delete the entry to retry); a pass never raises
+A run that is still alive gets no full eval and holds back the gate, even with a DONE file.
+Evaluations run synchronously and one at a time. While one runs, the driver polls it every POLL_S s. Each poll re-reads
+the state and executes any launch that has become possible, counting the eval's GPU as busy, and logs a BUSY heartbeat
+every BUSY_EVERY_S s. A pass whose evaluation saw such a launch leaves the rest of its plan to the next pass (REPLAN).
+Unattended safety: one driver per results root (flock on runs/pilot_driver.lock; a second one exits 3); every launch is
+counted (a run gets 1 + MAX_RELAUNCHES launches); an action that fails (non-zero rc or timeout) MAX_ACTION_FAILURES times
+is dropped (runs/action_failures.json -- delete the entry to retry); a pass never raises
 (it logs ERROR); the loop exits 2 with STUCK when nothing is executable, no run is alive and nvidia-smi answered (e.g. foreign
 jobs hold the GPUs) -- a failed nvidia-smi means wait, logged as SMI-FAIL on every pass -- and 0 as soon as the gate has run.
 """
 import argparse
 import datetime
+import fcntl
 import glob
 import json
 import os
@@ -19,6 +25,7 @@ import subprocess
 import sys
 import time
 import traceback
+from time import monotonic
 
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, REPO)
@@ -30,6 +37,8 @@ MILESTONES = (25, 50)
 MAX_RELAUNCHES = 3            # a run that keeps dying (e.g. the non-finite abort) is left for a human: 1 + 3 launches in total
 MAX_ACTION_FAILURES = 2       # an action that failed this many times (rc != 0 or timeout) is no longer retried
 TIMEOUT_S = {'launch': 3600, 'eval_quick': 2 * 3600, 'eval_full': 8 * 3600, 'gate': 3600}
+POLL_S = 60                   # a running action is polled this often; an evaluation's poll may launch a run (eval_tick)
+BUSY_EVERY_S = 600            # BUSY heartbeat while an evaluation runs: a silent log no longer means a hung driver
 _SMI_FAILING = False          # nvidia-smi failure is logged once per failure episode, not once per pass
 
 
@@ -187,25 +196,43 @@ def log_event(msg):
         f.write(line + '\n')
 
 
-def run_cmd(cmd, timeout):
-    """Run cmd in its own session and wait up to `timeout` s; on timeout kill the whole group (bash, python, tee). Returns rc or 'timeout'."""
+def run_cmd(cmd, timeout, on_tick=None):
+    """Run cmd in its own session and wait up to `timeout` s, polling every POLL_S s and calling on_tick(elapsed_s) between
+    polls (a tick that raises is logged, never propagated: the child is still waited for). On timeout kill the whole group
+    (bash, python, tee). Returns rc or 'timeout'."""
     try:
         p = subprocess.Popen(cmd, cwd=REPO, start_new_session=True)
     except OSError as e:
         return f'oserror: {e}'                                         # counts as a failure like any non-zero rc
-    try:
-        return p.wait(timeout=timeout)
-    except subprocess.TimeoutExpired:
+    t0 = monotonic()
+    while True:
+        left = timeout - (monotonic() - t0)
+        if left <= 0:
+            break
         try:
-            os.killpg(p.pid, signal.SIGKILL)
-        except OSError:
+            return p.wait(timeout=min(POLL_S, left))
+        except subprocess.TimeoutExpired:
             pass
-        p.wait()
-        return 'timeout'
+        elapsed = monotonic() - t0
+        if on_tick is not None and elapsed < timeout:
+            try:
+                on_tick(elapsed)
+            except Exception:
+                try:
+                    log_event(f'ERROR in a tick of {cmd[1:]}: ' + traceback.format_exc().rstrip())
+                except Exception:
+                    pass
+    try:
+        os.killpg(p.pid, signal.SIGKILL)
+    except OSError:
+        pass
+    p.wait()
+    return 'timeout'
 
 
-def execute(action):
-    """Run one action synchronously; a non-zero rc or a timeout is counted in runs/action_failures.json, a success clears the count."""
+def execute(action, on_tick=None):
+    """Run one action synchronously; a non-zero rc or a timeout is counted in runs/action_failures.json, a success clears the count.
+    on_tick is passed to run_cmd (one_pass gives evaluations eval_tick)."""
     kind = action[0]
     sh = os.path.join(REPO, 'scripts', 'pilot')
     if kind == 'launch':
@@ -221,7 +248,7 @@ def execute(action):
     else:
         raise ValueError(action)
     log_event(f'START {action}')
-    rc = run_cmd(cmd, TIMEOUT_S[kind])
+    rc = run_cmd(cmd, TIMEOUT_S[kind]) if on_tick is None else run_cmd(cmd, TIMEOUT_S[kind], on_tick=on_tick)
     log_event(f'END   {action} rc={rc}')
     path = failures_path(); failures = load_failures(path); key = repr(action)
     if rc != 0:
@@ -235,6 +262,27 @@ def execute(action):
 
 def read_states():
     return {m: run_state(os.path.join(ROOT, 'runs', run_name(m)), os.path.join(ROOT, 'eval')) for m in MODES}
+
+
+def eval_tick(action, executed):
+    """on_tick for a running evaluation `action`: a BUSY heartbeat every BUSY_EVERY_S s, then re-read the state and execute
+    (through execute(), so they are counted) the launches that became possible -- launches only, evaluations stay serial.
+    The evaluation's own GPU counts as busy: nvidia-smi may not list its CUDA context yet. Executed launches go to `executed`."""
+    gpu, next_busy = action[3], [BUSY_EVERY_S]
+
+    def tick(elapsed_s):
+        if elapsed_s >= next_busy[0]:
+            log_event(f'BUSY {action} elapsed={elapsed_s / 60:.0f}min')
+            while next_busy[0] <= elapsed_s:
+                next_busy[0] += BUSY_EVERY_S
+        gpus = dict(gpu_status())
+        if gpus:
+            gpus[gpu] = 'busy'
+        launches = [a for a in next_actions(read_states(), gpus) if a[0] == 'launch']
+        for a in executable(launches, load_failures(failures_path())):
+            execute(a)
+            executed.append(a)
+    return tick
 
 
 def one_pass(observed=None):
@@ -255,9 +303,18 @@ def one_pass(observed=None):
                 log_event(f'SKIP {a} (failed {failures.get(repr(a), 0)} times)')
         if not acts:
             log_event(f"IDLE alive={[m for m in MODES if states[m]['alive']]} done={ {m: states[m]['done'] for m in MODES} }")
-        for a in todo:
-            execute(a)
-        return read_states(), todo
+        executed = []
+        for i, a in enumerate(todo):
+            executed.append(a)
+            if a[0] not in ('eval_quick', 'eval_full'):
+                execute(a)
+                continue
+            n = len(executed)
+            execute(a, on_tick=eval_tick(a, executed))
+            if len(executed) > n and todo[i + 1:]:                     # a launch took a GPU this plan may have counted as free
+                log_event(f'REPLAN {todo[i + 1:]} left for the next pass (launched during {a})')
+                break
+        return read_states(), executed
     except Exception:
         log_event('ERROR ' + traceback.format_exc().rstrip())
         return None, []
@@ -266,22 +323,31 @@ def one_pass(observed=None):
 def main(argv=None):
     ap = argparse.ArgumentParser(); ap.add_argument('--once', action='store_true'); ap.add_argument('--loop', type=int, default=0)
     args = ap.parse_args(argv)
-    while True:
-        observed = {}
-        states, todo = one_pass(observed)
-        if states is not None:
-            if states['residual'].get('gate'):
-                log_event('GATE file present; the pilot driver is finished')
-                return 0
-            if args.loop and is_stuck(states, todo, observed.get('gpus')):
-                log_event('STUCK no executable action and no run alive; a human must look: '
-                          + str({m: dict(done=st['done'], launches=st['launches'], last_epoch=st['last_epoch'], full_evals=st['full_evals'])
-                                 for m, st in states.items()})
-                          + f" gpus={observed.get('gpus')} (failed actions: {failures_path()})")
-                return 2
-        if not args.loop:
-            return 0 if states is not None else 1
-        time.sleep(args.loop)
+    os.makedirs(os.path.join(ROOT, 'runs'), exist_ok=True)
+    with open(os.path.join(ROOT, 'runs', 'pilot_driver.lock'), 'a+') as lock:     # held until this driver exits
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            lock.seek(0)
+            log_event(f'LOCKED another pilot driver (pid {lock.read().strip() or "?"}) holds {lock.name}; exiting')
+            return 3
+        lock.seek(0); lock.truncate(); lock.write(f'{os.getpid()}\n'); lock.flush()
+        while True:
+            observed = {}
+            states, todo = one_pass(observed)
+            if states is not None:
+                if states['residual'].get('gate'):
+                    log_event('GATE file present; the pilot driver is finished')
+                    return 0
+                if args.loop and is_stuck(states, todo, observed.get('gpus')):
+                    log_event('STUCK no executable action and no run alive; a human must look: '
+                              + str({m: dict(done=st['done'], launches=st['launches'], last_epoch=st['last_epoch'], full_evals=st['full_evals'])
+                                     for m, st in states.items()})
+                              + f" gpus={observed.get('gpus')} (failed actions: {failures_path()})")
+                    return 2
+            if not args.loop:
+                return 0 if states is not None else 1
+            time.sleep(args.loop)
 
 
 if __name__ == '__main__':
