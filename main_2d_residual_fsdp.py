@@ -10,6 +10,11 @@ Modes (model/residual_wrapper.py): residual (B), standard (A), standard_xhat (A'
 Conventions taken from main_2d_fsdp.py (FSDP wrap, bf16, AdamW + cosine per epoch, FULL_STATE_DICT checkpoints) without
 its rank-0-only checkpoint calls, worker cap and save-path rewriting. Every distributed decision (non-finite skip, memory
 refusal, wall-clock stop) is collective. No ds warm-up: d is fixed because x0_hat and sigma_d depend on it.
+
+CPU threads: each DataLoader worker computes x0_hat with numpy BLAS and is limited to one BLAS/OpenMP thread by its
+worker_init_fn (data_loader.hfd_residual.limit_worker_threads). That limit is what protects single-GPU and cluster
+launches: torchrun sets OMP_NUM_THREADS=1 only when it is unset and nproc_per_node > 1, and the thread exports in
+scripts/pilot/launch_run.sh cover only the pilot. The main process keeps its default threads.
 """
 import argparse
 import functools
@@ -32,7 +37,7 @@ from torch.utils.data.distributed import DistributedSampler
 
 REPO = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, REPO)
-from data_loader.hfd_residual import HFDResidualData, residual_collate_fn  # noqa: E402
+from data_loader.hfd_residual import HFDResidualData, limit_worker_threads, residual_collate_fn  # noqa: E402
 from model.diffusion_trainer import DiffusionTrainer  # noqa: E402
 from model.residual_wrapper import MODES, build_residual_model, target_for  # noqa: E402
 
@@ -127,10 +132,12 @@ def make_datasets(args):
 
 def make_loader(ds, args, batch_size, shuffle, rank, world, device):
     """Shuffled loaders always use a DistributedSampler (num_replicas=1 on one GPU) so the order of epoch e is a pure
-    function of (seed, e) via set_epoch — the basis of exact resume."""
+    function of (seed, e) via set_epoch — the basis of exact resume. Every worker runs with one BLAS thread
+    (limit_worker_threads); see the module docstring."""
     sampler = DistributedSampler(ds, num_replicas=world, rank=rank, shuffle=shuffle, seed=args.seed, drop_last=shuffle) \
         if (shuffle or world > 1) else None
-    kw = dict(num_workers=args.num_workers, pin_memory=(device.type == 'cuda'), collate_fn=residual_collate_fn)
+    kw = dict(num_workers=args.num_workers, pin_memory=(device.type == 'cuda'), collate_fn=residual_collate_fn,
+              worker_init_fn=limit_worker_threads)
     if args.num_workers > 0:
         kw.update(persistent_workers=True, prefetch_factor=4)         # safe: d never changes during a run
     return DataLoader(ds, batch_size=batch_size, sampler=sampler, shuffle=False, drop_last=shuffle, **kw)

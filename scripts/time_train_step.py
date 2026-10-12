@@ -15,13 +15,19 @@ import torch
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO)
-from data_loader.hfd_residual import HFDResidualData, residual_collate_fn  # noqa: E402
+from data_loader.hfd_residual import HFDResidualData, limit_worker_threads, residual_collate_fn  # noqa: E402
 from model.diffusion_trainer import DiffusionTrainer  # noqa: E402
 from model.residual_wrapper import ResidualWrapper  # noqa: E402
 from model.u2net_hyperspectral import U2NetHyperspectral  # noqa: E402
 
 DATA_ROOT = os.environ.get('HFD_DATA_ROOT', '/data/chaoyi_he/HSI/Diffu/dataset/HFD100 Mat dataset')
 PRIOR = os.path.join(REPO, 'results', 'residual_warmstart', 'linear_prior_R1.npz')
+
+
+def make_loader(ds, batch_size, num_workers=4):
+    """Shuffled loader whose workers run with one BLAS thread each (limit_worker_threads)."""
+    return torch.utils.data.DataLoader(ds, batch_size=batch_size, shuffle=True, num_workers=num_workers,
+                                       collate_fn=residual_collate_fn, worker_init_fn=limit_worker_threads)
 
 
 def free_mb(index):
@@ -51,7 +57,7 @@ def main():
     torch.cuda.set_device(device)
 
     ds = HFDResidualData(data_path=DATA_ROOT, split='train', sensor_down_sample_rate=args.d, prior_path=PRIOR)
-    loader = torch.utils.data.DataLoader(ds, batch_size=args.batch_size, shuffle=True, num_workers=4, collate_fn=residual_collate_fn)
+    loader = make_loader(ds, args.batch_size)
     net = U2NetHyperspectral(spectral_channels=64, sensor_channels=30, base_channels=args.base_channels, extra_in_channels=64)
     model = ResidualWrapper(net, use_x0_hat=True).to(device)
     n_params = sum(p.numel() for p in model.parameters())

@@ -44,6 +44,16 @@ class HFDResidualData(HFD_data):
         return np.asarray(x64, dtype=np.float32), y_d, np.asarray(x0_hat, dtype=np.float32)
 
 
+def limit_worker_threads(_worker_id):
+    """DataLoader worker_init_fn: one BLAS (and OpenMP) thread per worker process.
+
+    Each item runs numpy linear algebra (the x0_hat estimate). A forked worker inherits the parent's BLAS thread count,
+    one per core by default, so N workers oversubscribe the CPU N-fold. torch's worker loop limits only torch's own
+    intra-op threads. Module level, not a lambda: the spawn and forkserver start methods pickle the worker_init_fn."""
+    from threadpoolctl import threadpool_limits
+    threadpool_limits(1)
+
+
 def residual_collate_fn(batch):
     x, y, xh = zip(*batch)
     to = lambda a: torch.tensor(np.stack(a, 0), dtype=torch.float32).permute(0, 3, 1, 2).contiguous()
