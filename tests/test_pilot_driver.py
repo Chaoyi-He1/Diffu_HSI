@@ -146,6 +146,7 @@ def test_aprime_starts_when_a_done_and_full_evals_need_idle_gpu(tmp_path):
     assert not any(a[0] == 'eval_full' for a in acts)                 # GPU 1 goes to A′ first; A's full eval waits for an idle GPU
     mk_run(tmp_path, 'standard_xhat', alive=True, log_epochs=1)
     mk_run(tmp_path, 'residual', epochs=(90, 100, 25, 50), done=100, alive=False, log_epochs=100)
+    os.remove(tmp_path / 'runs' / 'residual_d4_b64' / 'pid')                               # B has exited (mk_run keeps an old pid)
     acts = next_actions(states(tmp_path), {0: 'free', 1: 'busy'})
     assert acts and acts[0][:3] == ('eval_full', 'residual', 100) and acts[0][3] == 0 and len([a for a in acts if a[0] == 'eval_full']) == 1
 
@@ -178,6 +179,24 @@ def test_gate_when_three_full_evals_exist(tmp_path):
     mk_gate(tmp_path)
     assert states(tmp_path)['residual']['gate'] is True
     assert next_actions(states(tmp_path), {0: 'free', 1: 'free'}) == []
+
+
+def test_an_alive_run_with_done_gets_neither_full_eval_nor_gate(tmp_path):
+    # B has written DONE but its process is still alive (exiting, or a manual resume): no full eval of it yet
+    mk_run(tmp_path, 'residual', epochs=(100,), done=100, alive=True, log_epochs=100)
+    mk_run(tmp_path, 'standard', epochs=(90,), alive=True, log_epochs=95)
+    assert not any(a[0] in ('eval_full', 'gate') for a in next_actions(states(tmp_path), {0: 'free', 1: 'free'}))
+    os.remove(tmp_path / 'runs' / 'residual_d4_b64' / 'pid')                               # control: once it is gone, it is evaluated
+    assert ('eval_full', 'residual', 100, 0) in next_actions(states(tmp_path), {0: 'free', 1: 'free'})
+    # all three DONE and evaluated, but A' is alive again (resumed past an old DONE): no gate
+    root = tmp_path / 'all_done'
+    for m in MODES:
+        mk_run(root, m, epochs=(100,), done=100, log_epochs=100)
+        mk_eval(root, m, f'{m}_d4_b64', 100)
+    (root / 'runs' / 'standard_xhat_d4_b64' / 'pid').write_text(str(os.getpid()))
+    assert not any(a[0] in ('eval_full', 'gate') for a in next_actions(states(root), {0: 'free', 1: 'free'}))
+    os.remove(root / 'runs' / 'standard_xhat_d4_b64' / 'pid')
+    assert next_actions(states(root), {0: 'free', 1: 'free'}) == [('gate', 100, 100, 100)]
 
 
 def test_gate_waits_for_the_third_full_eval(tmp_path):

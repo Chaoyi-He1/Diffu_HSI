@@ -81,10 +81,12 @@ def run_state(run_dir, eval_dir):
 
 
 def next_actions(states, gpu_status):
-    """Pure policy. states: {mode: run_state}; gpu_status: {0: 'free'|'busy', 1: ...}. Returns a list of action tuples."""
+    """Pure policy. states: {mode: run_state}; gpu_status: {0: 'free'|'busy', 1: ...}. Returns a list of action tuples.
+    A run that is still alive gets no full eval and holds back the gate, even with a DONE file: its process may still be
+    exiting, or it was resumed past an old DONE (the trainer removes DONE when it starts)."""
     acts, free = [], {g for g, s in gpu_status.items() if s == 'free'}
     s = states
-    if all(s[m]['done'] is not None and s[m]['done'] in s[m]['full_evals'] for m in MODES):
+    if all(s[m]['done'] is not None and s[m]['done'] in s[m]['full_evals'] and not s[m]['alive'] for m in MODES):
         return [] if s['residual'].get('gate') else [('gate',) + tuple(s[m]['done'] for m in MODES)]
     def launchable(st):                                                # not finished, not running, not stuck in a crash loop
         return st['done'] is None and not st['alive'] and st.get('launches', 0) <= MAX_RELAUNCHES
@@ -100,9 +102,9 @@ def next_actions(states, gpu_status):
         for e in MILESTONES:
             if e in st['checkpoints'] and e not in st['quick_evals']:
                 acts.append(('eval_quick', mode, e, HOME_GPU[mode]))
-    for mode in MODES:                                                 # one full eval per idle GPU
+    for mode in MODES:                                                 # one full eval per idle GPU, of a finished run only
         st = s[mode]
-        if st['done'] is not None and st['done'] not in st['full_evals'] and free:
+        if st['done'] is not None and not st['alive'] and st['done'] not in st['full_evals'] and free:
             g = min(free); acts.append(('eval_full', mode, st['done'], g)); free.discard(g)
     return acts
 
