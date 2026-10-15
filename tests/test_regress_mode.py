@@ -108,6 +108,8 @@ def test_regression_trainer_loss_is_the_plain_per_sample_mean(loss_type):
 def test_make_trainer_ties_mode_regress_to_prediction_type_direct(tmp_path):
     t = tr.make_trainer(regress_args(tmp_path), CPU)
     assert isinstance(t, RegressionTrainer) and t.loss_type == 'l2'
+    for lt in ('l1', 'l2'):                 # --loss_type reaches the objective (l2 alone would match the default)
+        assert tr.make_trainer(regress_args(tmp_path, loss_type=lt), CPU).loss_type == lt
     for bad in (dict(prediction_type='v'), dict(mode='residual')):                 # regress + v, residual + direct
         with pytest.raises(ValueError, match='direct'):
             tr.make_trainer(regress_args(tmp_path, **bad), CPU)
