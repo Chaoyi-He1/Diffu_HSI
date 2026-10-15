@@ -13,6 +13,7 @@ finished schedule. Every launch first removes a stale DONE / STOPPED, and refuse
 that already used the whole --max_hours budget.
 
 Modes (model/residual_wrapper.py): residual (B), standard (A), standard_xhat (A'). --batch_size is PER GPU.
+Mode regress (R, the one-step residual regressor): --mode regress --prediction_type direct --loss_type l1|l2.
 Conventions taken from main_2d_fsdp.py (FSDP wrap, bf16, AdamW + cosine per epoch, FULL_STATE_DICT checkpoints) without
 its rank-0-only checkpoint calls, worker cap and save-path rewriting. Every distributed decision (non-finite skip, memory
 refusal, wall-clock stop) is collective. No ds warm-up: d is fixed because x0_hat and sigma_d depend on it.
@@ -48,6 +49,7 @@ sys.path.insert(0, REPO)
 from data_loader.hfd_residual import HFDResidualData, limit_worker_threads, residual_collate_fn  # noqa: E402
 from data_loader.warmstart_paths import DATA_ROOT, PRIOR, RESULTS_ROOT, SUBSET, file_sha256, git_head  # noqa: E402,F401
 from model.diffusion_trainer import DiffusionTrainer  # noqa: E402
+from model.regression_trainer import RegressionTrainer  # noqa: E402
 from model.residual_wrapper import MODES, build_residual_model, target_for  # noqa: E402
 
 N_TIMESTEPS = 1000
@@ -68,8 +70,10 @@ def get_parser():
                     help='stop after the epoch that crosses this wall-clock budget, counted over all launches (0 = no cap)')
     ap.add_argument('--lr', type=float, default=1e-4); ap.add_argument('--lrf', type=float, default=0.033, help='eta_min = lr * lrf')
     ap.add_argument('--weight_decay', type=float, default=0.0); ap.add_argument('--grad_clip', type=float, default=1.0)
-    ap.add_argument('--prediction_type', choices=['eps', 'x0', 'v'], default='v')
-    ap.add_argument('--loss_type', choices=['l1', 'l2'], default='l1'); ap.add_argument('--snr_gamma', type=float, default=5.0)
+    ap.add_argument('--prediction_type', choices=['eps', 'x0', 'v', 'direct'], default='v',
+                    help="diffusion parameterisation; 'direct' is required by, and only allowed with, --mode regress")
+    ap.add_argument('--loss_type', choices=['l1', 'l2'], default='l1')
+    ap.add_argument('--snr_gamma', type=float, default=5.0, help='min-SNR-gamma loss weighting, <= 0 = off (ignored by --mode regress)')
     ap.add_argument('--val_every', type=int, default=5, help='loss-only validation on the non-gate validation files every N epochs (0 = never)')
     ap.add_argument('--save_every', type=int, default=10); ap.add_argument('--keep_last', type=int, default=2)
     ap.add_argument('--keep_epochs', type=int, nargs='*', default=[25, 50, 100], help='milestone checkpoints exempt from pruning')
@@ -144,7 +148,17 @@ def make_loader(ds, args, batch_size, shuffle, rank, world, device):
     return DataLoader(ds, batch_size=batch_size, sampler=sampler, shuffle=False, drop_last=shuffle, **kw)
 
 
+def check_mode_args(args):
+    """--mode regress and --prediction_type direct go together (the meta records both; check_meta compares both)."""
+    if (args.mode == 'regress') != (args.prediction_type == 'direct'):
+        raise ValueError(f"--mode regress needs --prediction_type direct, and 'direct' needs --mode regress "
+                         f"(got mode={args.mode!r}, prediction_type={args.prediction_type!r})")
+
+
 def make_trainer(args, device):
+    check_mode_args(args)
+    if args.mode == 'regress':
+        return RegressionTrainer(device=device, loss_type=args.loss_type, n_timesteps=N_TIMESTEPS)
     return DiffusionTrainer(device=device, n_timesteps=N_TIMESTEPS, loss_type=args.loss_type,
                             prediction_type=args.prediction_type, snr_gamma=args.snr_gamma if args.snr_gamma > 0 else None)
 
@@ -211,15 +225,20 @@ RESUME_META_KEYS = ('mode', 'd', 'base_channels', 'prediction_type')
 
 def check_resume_meta(ck, args, sigma_d, prior_sha256, path='<checkpoint>', warn=True):
     """Refuse to resume a checkpoint whose `meta` differs from the current run (the provenance chain the gate relies on
-    must not break silently: A' and B have identical parameter shapes, so strict loading would not notice a mode switch).
-    Compares RESUME_META_KEYS exactly, sigma_d (|diff| < 1e-9) and prior_sha256; raises ValueError naming every mismatch,
-    and also when the checkpoint has no meta. A scheduler T_max different from --num_epochs only warns (the cosine
-    schedule keeps the checkpoint's T_max; the Task 3 smoke test deliberately resumes 2 -> 3 epochs). Returns True."""
+    must not break silently: A' and B have identical parameter shapes, so strict loading would not notice a mode
+    switch). Compares RESUME_META_KEYS and meta['args'] loss_type and seed exactly, sigma_d (|diff| < 1e-9) and
+    prior_sha256; raises ValueError naming every mismatch, and also when the checkpoint has no meta. A scheduler T_max
+    different from --num_epochs only warns (the cosine schedule keeps the checkpoint's T_max; the Task 3 smoke test
+    deliberately resumes 2 -> 3 epochs). Returns True."""
     meta = ck.get('meta') if isinstance(ck, dict) else None
     if not meta:
         raise ValueError(f'checkpoint {path} carries no meta; refusing to resume (every checkpoint this script writes has one)')
     bad = [f'{k}: checkpoint {meta.get(k, "<missing>")!r} vs args {getattr(args, k)!r}'
            for k in RESUME_META_KEYS if k not in meta or meta[k] != getattr(args, k)]
+    margs = meta.get('args') or {}
+    for k in ('loss_type', 'seed'):      # meta['args'] is vars(args) at save time; the L1/L2 runs differ only in loss_type
+        if k in margs and margs[k] != getattr(args, k, None):
+            bad.append(f'{k}: checkpoint {margs[k]!r} vs args {getattr(args, k, None)!r}')
     if 'sigma_d' not in meta or abs(float(meta['sigma_d']) - sigma_d) >= 1e-9:
         bad.append(f'sigma_d: checkpoint {meta.get("sigma_d", "<missing>")!r} vs prior {sigma_d!r}')
     if meta.get('prior_sha256') != prior_sha256:
@@ -387,6 +406,7 @@ def validate(model, trainer, loader, args, device, dist_ctx, mode, sigma_d):
 
 # ----------------------------------------------------------------------------- entry points
 def build_everything(args, dist_ctx, device):
+    check_mode_args(args)
     train_ds, val_ds = make_datasets(args)
     model = build_residual_model(args.mode, args.base_channels)
     n_params = sum(p.numel() for p in model.parameters())           # counted before the wrap (sharding hides it after)

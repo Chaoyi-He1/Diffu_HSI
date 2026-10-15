@@ -64,7 +64,7 @@ def test_build_residual_model_per_mode(mode, in_ch, use_xhat):
 def test_build_residual_model_rejects_unknown_mode():
     with pytest.raises(ValueError):
         build_residual_model('standard_x0hat', base_channels=8)
-    assert MODES == ('residual', 'standard', 'standard_xhat')
+    assert MODES == ('residual', 'standard', 'standard_xhat', 'regress')
 
 
 def test_target_for_modes():
