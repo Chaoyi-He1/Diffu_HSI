@@ -27,6 +27,14 @@ class Const(torch.nn.Module):
         return torch.full_like(cond['x0_hat'], self.v) + 0 * self.p
 
 
+class Spy(torch.nn.Module):
+    """Checks the regressor's call (zero x_t placeholder, t = REGRESS_T) and reads BOTH condition inputs."""
+
+    def forward(self, x_t, cond, t):
+        assert t.tolist() == [REGRESS_T] * x_t.shape[0] and float(x_t.abs().max()) == 0.0
+        return cond['x0_hat'] + cond['sensor'].mean((1, 2, 3), keepdim=True)
+
+
 def test_direct_grid_is_one_call():
     assert ew.sampler_grid('direct') == [DIRECT]
     assert 'direct' not in [c['name'] for c in ew.sampler_grid('full')]
@@ -40,6 +48,9 @@ def test_reconstruct_direct_is_x0_hat_plus_sigma_times_one_prediction():
     batch = (torch.zeros(2, 4, 8, 8), torch.zeros(2, 3, 2, 2), xh)
     out = ew.reconstruct(Const(3.0), tr, 'regress', batch, DIRECT, sigma_d=0.1, seed=0)
     assert torch.allclose(out, (xh + 0.3).clamp(-1, 1)) and tr.last_nfe == 1 and not out.requires_grad
+    y = torch.rand(2, 3, 2, 2)                                     # the model's inputs: zero x_t, t = REGRESS_T, both conds
+    out = ew.reconstruct(Spy(), tr, 'regress', (torch.zeros_like(xh), y, xh), DIRECT, sigma_d=0.1, seed=0)
+    assert torch.allclose(out, (xh + 0.1 * (xh + y.mean((1, 2, 3), keepdim=True))).clamp(-1, 1))
     with pytest.raises(ValueError, match='regress'):
         ew.reconstruct(Const(3.0), tr, 'residual', batch, DIRECT, 0.1, 0)
     with pytest.raises(ValueError, match='regress'):
@@ -87,6 +98,59 @@ def test_checkpoint_eval_refuses_mode_grid_and_prediction_type_mismatches(tmp_pa
             ew.checkpoint_eval(argparse.Namespace(**base, **kw))     # refused before anything is loaded
 
 
+@pytest.mark.parametrize('mode, prediction_type, grid, yswap_n, expected', [
+    ('regress', 'direct', 'direct', None, 32),                       # the regressor's default
+    ('residual', 'v', 'full', None, 8),                              # every other mode keeps the gate's 8
+    ('regress', 'direct', 'direct', 16, 16),                         # an explicit --yswap_n wins
+    ('standard', 'v', 'quick', 5, 5),
+])
+def test_checkpoint_eval_yswap_n_reaches_yswap_batch_and_provenance(tmp_path, monkeypatch, mode, prediction_type,
+                                                                    grid, yswap_n, expected):
+    """The y-swap cube count flows args -> yswap_batch(n) -> provenance. Every data-touching collaborator is stubbed
+    and the grid is emptied, so only the y-swap path runs (no dataset, no real model)."""
+    from types import SimpleNamespace
+
+    class Tiny(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.p = torch.nn.Parameter(torch.zeros(()))
+    ckpt, prior = tmp_path / 'tiny.pth', tmp_path / 'prior.npz'
+    torch.save({'model_state_dict': Tiny().state_dict(), 'meta': dict(args=dict(loss_type='l1', seed=43))}, ckpt)
+    prior.write_bytes(b'stub')
+    ds = SimpleNamespace(sigma_d=0.1, prior={'s': 1.0}, img_list=[])
+    seen = []
+    monkeypatch.setattr(ew, 'build_model', lambda *a: Tiny())
+    monkeypatch.setattr(ew, 'dataset_for', lambda *a, **k: ds)
+    monkeypatch.setattr(ew, 'check_meta', lambda *a: True)
+    monkeypatch.setattr(ew, 'baseline_eval', lambda *a, **k: dict(mean={}, per_item={}, files=[]))
+    monkeypatch.setattr(ew, 'sampler_grid', lambda which: [])
+    monkeypatch.setattr(ew, 'yswap_batch', lambda root, prior_path, d, n=8: (seen.append(n), (ds, None))[1])
+    monkeypatch.setattr(ew, 'yswap_check', lambda *a, **k: {})
+    monkeypatch.setattr(ew, 'EVAL_DIR', str(tmp_path / 'eval'))
+    ew.checkpoint_eval(argparse.Namespace(d=4, ckpt=str(ckpt), mode=mode, grid=grid, run_name='r', base_channels=8,
+                                          prediction_type=prediction_type, seeds=[0, 1], batch_size=4, device='cpu',
+                                          data_root=str(tmp_path), prior=str(prior), yswap_n=yswap_n))
+    suffix = '' if grid == 'full' else f'__{grid}'
+    prov = json.load(open(tmp_path / 'eval' / mode / 'd4' / f'r__tiny{suffix}.json'))['provenance']
+    assert seen == [expected] and prov['yswap_n'] == expected
+    assert prov['loss_type'] == 'l1' and prov['train_seed'] == 43
+
+
+def test_cli_passes_grid_direct_and_yswap_n_to_checkpoint_eval(monkeypatch):
+    import sys
+    got = []
+    monkeypatch.setattr(ew, 'checkpoint_eval', got.append)
+    cmd = ['eval_warmstart.py', '--d', '4', '--ckpt', 'x.pth', '--mode', 'regress', '--prediction_type', 'direct',
+           '--grid', 'direct']
+    monkeypatch.setattr(sys, 'argv', cmd)
+    ew.main()
+    monkeypatch.setattr(sys, 'argv', cmd + ['--yswap_n', '16'])
+    ew.main()
+    a, b = got
+    assert (a.mode, a.prediction_type, a.grid, a.yswap_n) == ('regress', 'direct', 'direct', None)   # None -> 32 later
+    assert b.yswap_n == 16
+
+
 def test_yswap_one_step_writes_only_under_the_diagnostics_dir(tmp_path, monkeypatch):
     from scripts import yswap_one_step as ys
     root = tmp_path / 'root'
@@ -110,7 +174,7 @@ def test_checkpoint_eval_regress_writes_a_one_row_direct_evaluation(data_root, t
     p = load_prior(PRIOR)
     meta = dict(mode='regress', d=4, base_channels=8, prediction_type='direct',
                 sigma_d=float(p['sigma_d'][list(p['d_values']).index(4)]), prior_sha256=ew.file_sha256(PRIOR),
-                args=dict(loss_type='l2', seed=42))
+                args=dict(loss_type='l1', seed=43))                  # non-default: the gate pairs runs on these
     ckpt = tmp_path / 'tiny.pth'
     torch.save({'model_state_dict': sd, 'meta': meta}, ckpt)
     real = ew.load_subset
@@ -119,15 +183,19 @@ def test_checkpoint_eval_regress_writes_a_one_row_direct_evaluation(data_root, t
         [real(root, 'files')[i] for i in pick] if which == 'files' else real(root, which)[:4]))
     monkeypatch.setattr(ew, 'subset_class_counts', lambda: {'P022': 3, 'P023': 3, 'P024': 2})
     monkeypatch.setattr(ew, 'EVAL_DIR', str(tmp_path))
+    real_yb, seen_n = ew.yswap_batch, []
+    monkeypatch.setattr(ew, 'yswap_batch', lambda root, prior_path, d, n=8: (
+        seen_n.append(n), real_yb(root, prior_path, d, n))[1])
     args = argparse.Namespace(d=4, ckpt=str(ckpt), mode='regress', grid='direct', run_name='tiny_run', base_channels=8,
                               prediction_type='direct', seeds=[0, 1], batch_size=4, device='cpu', data_root=data_root,
                               prior=PRIOR, yswap_n=None)
     ew.checkpoint_eval(args)
     out = json.load(open(tmp_path / 'regress' / 'd4' / 'tiny_run__tiny__direct.json'))
     assert [r['name'] for r in out['rows']] == ['direct'] and out['rows'][0]['nfe'] == 1
-    assert out['grid'] == 'direct' and out['provenance']['loss_type'] == 'l2' and out['provenance']['train_seed'] == 42
+    assert out['grid'] == 'direct' and out['provenance']['loss_type'] == 'l1' and out['provenance']['train_seed'] == 43
     assert out['provenance']['meta_checked'] is True and out['provenance']['prediction_type'] == 'direct'
     assert out['provenance']['yswap_n'] == 32 and len(out['yswap']['files']) == 8   # regress default; all 8 picked cubes
+    assert seen_n == [32]                                                     # the count reached yswap_batch
     ys = out['yswap']
     assert set(ys) >= {f't{REGRESS_T}', 'per_cube', 'baseline_per_cube', 'files'}
     assert len(ys['files']) == len(ys['baseline_per_cube'])
