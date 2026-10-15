@@ -3,6 +3,10 @@
   python scripts/eval_warmstart.py --d 4 --baseline
   python scripts/eval_warmstart.py --d 4 --ckpt results/residual_warmstart/residual/d4/checkpoint_epoch_200.pth \
          --mode residual --base_channels 256 [--seeds 0 1] [--device cuda:0] [--grid quick]
+  python scripts/eval_warmstart.py --d 4 --ckpt <run>/checkpoint_epoch_100.pth --mode regress --prediction_type direct --grid direct
+
+Mode regress (the one-step regressor) is scored on the one-row direct grid; its y-swap is one deterministic call at
+t = REGRESS_T on 32 cubes (--yswap_n).
 
 Baselines go to results/residual_warmstart/eval/baseline_d<d>.json; checkpoint evaluations to
 results/residual_warmstart/eval/<mode>/d<d>/<run_name>__<ckpt>[__quick].json with a `provenance` record. A checkpoint carrying
@@ -24,7 +28,7 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO)
 from data_loader.hfd_residual import HFDResidualData, limit_worker_threads, residual_collate_fn  # noqa: E402
 from model.diffusion_trainer import DiffusionTrainer  # noqa: E402
-from model.residual_wrapper import MODES, build_residual_model  # noqa: E402
+from model.residual_wrapper import MODES, REGRESS_T, build_residual_model, regress_forward  # noqa: E402
 from scripts.paired_stats import cluster_se  # noqa: E402
 # Defined once (fix item 15) and re-exported from here: scripts/make_baseline_record.py and the tests import them from
 # this module, and check_meta / checkpoint_eval use file_sha256 and git_head.
@@ -199,6 +203,8 @@ QUICK_GRID = ('ddim1', 'ddim2', 'ddim5', 'ddim10', 'ddim20', 'warm50_ddim', 'war
 
 
 def sampler_grid(which='full'):
+    if which == 'direct':                        # the one-step regressor: one deterministic call, no sampler
+        return [dict(name='direct', method='direct', n_steps=1)]
     g = [dict(name='ddpm1000', method='ddpm', n_steps=1000)]
     g += [dict(name=f'ddim{k}', method='ddim', n_steps=k) for k in (1, 2, 5, 10, 20)]
     g += [dict(name=f'warm{t}_ddim', method='ddim', n_steps=10, t_start=t) for t in (50, 100, 200, 400)]
@@ -207,13 +213,22 @@ def sampler_grid(which='full'):
         return g
     if which == 'quick':                         # milestone checks: every row costs <= 20 NFE, no 50-cube DDPM row
         return [c for c in g if c['name'] in QUICK_GRID]
-    raise ValueError(f"grid must be 'full' or 'quick', got {which!r}")
+    raise ValueError(f"grid must be 'full', 'quick' or 'direct', got {which!r}")
 
 
 def reconstruct(model, trainer, mode, batch, cfg, sigma_d, seed):
-    """batch = (x, y_d, x0_hat) tensors. Returns x_hat [B, 64, H, W] clamped to [-1, 1]."""
+    """batch = (x, y_d, x0_hat) tensors. Returns x_hat [B, 64, H, W] clamped to [-1, 1]. Mode regress takes the
+    'direct' cfg only (one deterministic call; `seed` unused) and every other mode takes a sampler cfg."""
     x, y_d, x0_hat = [b.to(trainer.device) for b in batch]
     cond = {'sensor': y_d, 'x0_hat': x0_hat}
+    if (cfg['method'] == 'direct') != (mode == 'regress'):
+        raise ValueError(f"the direct cfg is for mode 'regress' only, and mode 'regress' takes only the direct cfg "
+                         f"(mode={mode!r}, method={cfg['method']!r})")
+    if mode == 'regress':
+        with torch.no_grad():
+            r = regress_forward(model, cond)
+        trainer.last_nfe = 1
+        return (x0_hat + sigma_d * r).clamp(-1, 1)        # clamping the cube = clamping r to the feasible envelope
     torch.manual_seed(seed)
     kw = dict(n_steps=cfg['n_steps'], method=cfg['method'], progress=False)
     if 't_start' in cfg:
@@ -254,14 +269,18 @@ def yswap_check(model, trainer, mode, batch, t_values=(100, 300), sigma_d=None, 
     Returns `t<t>` -> {variant: mean RMSE %} and `passes` (true <= YSWAP_RATIO x swap_full at every t; spec §7 uses
     t = 100 and 300, the default), plus, additively (fix item 1): `per_cube` -> {str(t): {variant: [RMSE % per cube]}},
     `baseline_per_cube` (the prior x0_hat's RMSE %, as baseline_eval scores it) and `files` (the cubes in batch
-    order, None when not given)."""
+    order, None when not given).
+
+    Mode regress: one deterministic call per variant at t = REGRESS_T (t_values is ignored)."""
     x, y_d, x0_hat = [b.to(trainer.device) for b in batch]
     if x.shape[0] < 2:
         raise ValueError('y-swap check needs a batch of at least 2 items')
-    if mode == 'residual' and sigma_d is None:
-        raise ValueError('yswap_check in residual mode needs sigma_d (the residual scale of this d)')
+    if mode in ('residual', 'regress') and sigma_d is None:
+        raise ValueError('yswap_check in residual and regress modes needs sigma_d (the residual scale of this d)')
+    if mode == 'regress':
+        t_values = (REGRESS_T,)          # one deterministic call: the noise level does not apply
     k = x.shape[0] // 2
-    target = (x - x0_hat) / sigma_d if mode == 'residual' else x
+    target = (x - x0_hat) / sigma_d if mode in ('residual', 'regress') else x
     conds = {
         'true': {'sensor': y_d, 'x0_hat': x0_hat},
         'swap_full': {'sensor': y_d.roll(k, 0), 'x0_hat': x0_hat.roll(k, 0)},
@@ -274,8 +293,12 @@ def yswap_check(model, trainer, mode, batch, t_values=(100, 300), sigma_d=None, 
     for tv in t_values:
         row, cubes = {}, {}
         for name, c in conds.items():
-            pred = _one_step_x0(model, trainer, mode, target, c, tv)
-            x_hat = (x0_hat + sigma_d * pred) if mode == 'residual' else pred
+            if mode == 'regress':
+                with torch.no_grad():
+                    pred = regress_forward(model, c)
+            else:
+                pred = _one_step_x0(model, trainer, mode, target, c, tv)
+            x_hat = (x0_hat + sigma_d * pred) if mode in ('residual', 'regress') else pred
             rmse = metrics(x_hat.clamp(-1, 1), x)['rmse_pct']
             row[name], cubes[name] = float(rmse.mean()), rmse.tolist()
         res[f't{tv}'], per_cube[str(tv)] = row, cubes
@@ -327,12 +350,20 @@ def check_meta(ck, args, sigma_d, prior_sha256):
 
 
 def checkpoint_eval(args):
-    device = torch.device(args.device)
     grid = getattr(args, 'grid', 'full')
+    if (args.mode == 'regress') != (grid == 'direct'):
+        raise ValueError(f"--mode regress needs --grid direct, and --grid direct needs --mode regress "
+                         f"(got mode={args.mode!r}, grid={grid!r})")
+    if (args.mode == 'regress') != (args.prediction_type == 'direct'):
+        raise ValueError(f"--mode regress needs --prediction_type direct, and 'direct' needs --mode regress "
+                         f"(got mode={args.mode!r}, prediction_type={args.prediction_type!r})")
+    yswap_n = getattr(args, 'yswap_n', None) or (32 if args.mode == 'regress' else 8)
+    device = torch.device(args.device)
     run_name = getattr(args, 'run_name', None) or os.path.basename(os.path.dirname(os.path.abspath(args.ckpt)))
     trainer = DiffusionTrainer(device=device, prediction_type=args.prediction_type, loss_type='l1', snr_gamma=None)
     model = build_model(args.mode, args.base_channels, device)
     ck = torch.load(args.ckpt, map_location='cpu', weights_only=False)
+    targs = ((ck.get('meta') or {}).get('args') or {}) if isinstance(ck, dict) else {}
     ds_all = dataset_for(args.data_root, args.prior, args.d, load_subset(args.data_root, 'files'))
     sigma_d = ds_all.sigma_d
     prior_sha256 = file_sha256(args.prior)
@@ -343,7 +374,8 @@ def checkpoint_eval(args):
     provenance = dict(mode=args.mode, d=args.d, base_channels=args.base_channels, prediction_type=args.prediction_type,
                       n_timesteps=trainer.n_timesteps, sigma_d=sigma_d, prior_s=float(ds_all.prior['s']),
                       prior_sha256=prior_sha256, prior_path=os.path.abspath(args.prior),
-                      ckpt=os.path.abspath(args.ckpt), git_head=git_head(), meta_checked=meta_checked)
+                      ckpt=os.path.abspath(args.ckpt), git_head=git_head(), meta_checked=meta_checked,
+                      loss_type=targs.get('loss_type'), train_seed=targs.get('seed'), yswap_n=yswap_n)
     base = baseline_eval(args.data_root, args.prior, args.d, ds_all.img_list)
     n_seeds = len(args.seeds)
     rows = []
@@ -372,7 +404,7 @@ def checkpoint_eval(args):
         print(f"{cfg['name']:>14} nfe={nfe:5d} rmse={agg['rmse_pct']:.3f}±{agg['rmse_pct_se']:.3f} "
               f"(baseline {np.mean(base_r):.3f}, paired {agg['paired_rmse_diff']:+.3f}±{agg['paired_rmse_se']:.3f}) "
               f"seed-std {agg['rmse_pct_seed_std']:.3f} sam={agg['sam_deg']:.2f}")
-    ds_ys, batch = yswap_batch(args.data_root, args.prior, args.d)
+    ds_ys, batch = yswap_batch(args.data_root, args.prior, args.d, yswap_n)
     ys = yswap_check(model, trainer, args.mode, batch, sigma_d=sigma_d,
                      files=[os.path.relpath(f, args.data_root) for f in ds_ys.img_list])
     print('y-swap:', json.dumps(ys))
@@ -392,10 +424,11 @@ def main():
     ap.add_argument('--d', type=int, required=True)
     ap.add_argument('--baseline', action='store_true')
     ap.add_argument('--ckpt'); ap.add_argument('--mode', choices=list(MODES))
-    ap.add_argument('--grid', choices=['full', 'quick'], default='full')
+    ap.add_argument('--grid', choices=['full', 'quick', 'direct'], default='full')
     ap.add_argument('--run_name', default=None)
     ap.add_argument('--base_channels', type=int, default=64)
-    ap.add_argument('--prediction_type', default='v')
+    ap.add_argument('--prediction_type', default='v', help="'direct' for --mode regress")
+    ap.add_argument('--yswap_n', type=int, default=None, help='y-swap cubes (default 32 for --mode regress, 8 otherwise)')
     ap.add_argument('--seeds', type=int, nargs='+', default=[0, 1])
     ap.add_argument('--batch_size', type=int, default=8)
     ap.add_argument('--device', default='cuda:0' if torch.cuda.is_available() else 'cpu')

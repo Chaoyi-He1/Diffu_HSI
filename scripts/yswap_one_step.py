@@ -11,7 +11,9 @@ clustered by source image) of swap_full - true, true - baseline, swap_full - bas
 the ratios true / swap_full and true / baseline, and how many cubes the true condition wins.
 
 The spec §7 rule (true <= 0.9 x swap_full at t = 100 and 300) and the gate are unchanged; this script only reports.
-It refuses an --out inside the results tree (RESULTS_ROOT) and checks the checkpoint's meta like the harness does.
+It refuses an --out inside the results tree (RESULTS_ROOT) other than RESULTS_ROOT/diagnostics and checks the
+checkpoint's meta like the harness does. Mode regress needs --prediction_type direct; its y-swap is the single call at
+t = 999 (--t is ignored).
 """
 import argparse
 import json
@@ -31,6 +33,8 @@ from model.residual_wrapper import MODES  # noqa: E402
 from scripts.eval_warmstart import _mean_se, build_model, check_meta, yswap_batch, yswap_check  # noqa: E402
 from scripts.paired_stats import cluster_se  # noqa: E402
 
+DIAG_DIR = os.path.join(RESULTS_ROOT, 'diagnostics')   # the one place in the results tree this script may write
+
 VARIANTS = ('true', 'swap_full', 'swap_sensor_only', 'zero')
 CONTRASTS = (('swap_full_minus_true', 'swap_full', 'true'),
              ('true_minus_baseline', 'true', 'baseline'),
@@ -45,7 +49,7 @@ def get_parser():
     ap.add_argument('--t', type=int, nargs='+', default=[100, 300, 999])
     ap.add_argument('--n', type=int, default=32, help='cubes, picked by yswap_files (8 = the gate batch)')
     ap.add_argument('--device', default='cpu')
-    ap.add_argument('--out', required=True, help='JSON output; never inside the results tree')
+    ap.add_argument('--out', required=True, help='JSON output; inside the results tree only under RESULTS_ROOT/diagnostics')
     ap.add_argument('--d', type=int, default=4)
     ap.add_argument('--base_channels', type=int, default=64)
     ap.add_argument('--prediction_type', default='v')
@@ -94,8 +98,9 @@ def print_summary(summary, n):
 
 def main(argv=None):
     args = get_parser().parse_args(argv)
-    if under(args.out, RESULTS_ROOT):
-        raise SystemExit(f'--out {args.out} is inside the results tree {RESULTS_ROOT}; this diagnostic never writes there')
+    if under(args.out, RESULTS_ROOT) and not under(args.out, DIAG_DIR):
+        raise SystemExit(f'--out {args.out} is inside the results tree {RESULTS_ROOT}; this diagnostic writes there only '
+                         f'under {DIAG_DIR}')
     device = torch.device(args.device)
     trainer = DiffusionTrainer(device=device, prediction_type=args.prediction_type, loss_type='l1', snr_gamma=None)
     ck = torch.load(args.checkpoint, map_location='cpu', weights_only=False)
