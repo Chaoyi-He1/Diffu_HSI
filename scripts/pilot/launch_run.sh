@@ -1,5 +1,6 @@
 #!/bin/bash
-# Launch one pilot run in the background on one GPU. Usage: launch_run.sh residual|standard|standard_xhat GPU [extra args]
+# Launch one pilot run in the background on one GPU.
+# Usage: [RUN_NAME=<dir name>] launch_run.sh residual|standard|standard_xhat|regress GPU [extra args]   (regress needs --prediction_type direct --loss_type l1|l2)
 # Refuses (exit 1; nothing started, the launch not counted) when the GPU is busy, another launch_run.sh holds the run's
 # .launch.lock, the run has a DONE file (delete it to train further), or its pid file names a live process.
 set -euo pipefail
@@ -7,7 +8,7 @@ cd "$(dirname "$0")/../.."
 PY=${PILOT_PY:-/home/grads/c/chaoyi_he/Desktop/conda/envs/hsi/bin/python}     # tests point PILOT_PY at a stub
 ROOT=${RESIDUAL_WARMSTART_RESULTS:-/data/chaoyi_he/HSI/Diffu/results/residual_warmstart}
 MODE=$1; GPU=$2; shift 2
-RUN=$ROOT/runs/${MODE}_d4_b64
+RUN=$ROOT/runs/${RUN_NAME:-${MODE}_d4_b64}     # RUN_NAME overrides the run directory (e.g. regress_l2_d4_b64)
 FREE=$(nvidia-smi --query-gpu=memory.free --format=csv,noheader,nounits --id="$GPU")
 PROCS=$(nvidia-smi --query-compute-apps=pid --format=csv,noheader --id="$GPU" | sed '/^$/d' | wc -l)
 if [[ "$FREE" -lt 3000 || "$PROCS" -gt 0 ]]; then echo "GPU $GPU busy (free ${FREE} MiB, ${PROCS} procs); not launching"; exit 1; fi
