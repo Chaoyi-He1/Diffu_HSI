@@ -18,6 +18,11 @@ at t = 999 (K NFE). B is re-validated under the same rule from its t = 999 y-swa
 different losses and the same training seed form a loss_pair; two with the same loss and different seeds form a
 seed_pair, whose go_1b is true only when both are PASS (hence valid), target_met and pass the spec 0.9 ratio at
 t = 999. best is the lowest-RMSE PASS regressor (the lowest-RMSE one when none passes); best_verdict is its verdict.
+
+Every y-swap record must be scored against its own evaluation's per-cube baseline on its cubes: the regressor's own
+y-swap against the regressor evaluation's baseline, and --b_yswap against B's (within YSWAP_BASELINE_TOL). --b_yswap
+must also be B's by provenance (mode residual, B's checkpoint, d, prior, meta checked). --b_diag's provenance.b_eval
+must name the --b file.
 """
 import argparse
 import json
@@ -36,6 +41,9 @@ from scripts.gate_1a import (YSWAP_THRESHOLD, _need, _paired, _prov, baseline_by
 B_EVAL = os.path.join(EVAL_DIR, 'residual', 'd4', 'residual_d4_b64__checkpoint_epoch_100.json')
 TARGET_FRACTION = 0.85          # spec §8: the 1b bar is 15 % below the baseline
 ONE_STEP_T = 999                # REGRESS_T and B's ddim1 call (repeated here: the gate stays torch-free)
+YSWAP_BASELINE_TOL = 1e-5       # a y-swap scores its baseline in float32 on the evaluation device, the evaluation's own
+#                                 baseline_per_item on the CPU: a few ulps apart (1 ulp is 4.8e-7 at 4-8 %), far below
+#                                 what another cube or prior changes
 
 
 def proposed_validity(ys, k=DEFAULT_K):
@@ -96,6 +104,42 @@ def check_inputs(regs, ev_b, require_done):
         base = baseline_by_file(ev)
         if base is None or set(base) != set(base_b) or max(abs(base[f] - base_b[f]) for f in base) > 1e-6:
             raise ValueError(f"{_prov(ev, 'ckpt')}: per-cube baselines differ from B's (different cubes or prior)")
+        check_yswap_baseline(_need(ev, 'yswap'), base, f"{_prov(ev, 'ckpt')}: the regressor's y-swap")
+
+
+def check_yswap_baseline(ys, base, where):
+    """A y-swap record's per-cube baseline must be its evaluation's (`base`: file -> baseline RMSE %) on its cubes."""
+    files, yb = _need(ys, 'files', where), _need(ys, 'baseline_per_cube', where)
+    if files is None:
+        raise ValueError(f'{where} has no files (needed to pair it with the baseline)')
+    if len(files) != len(yb) or any(f not in base for f in files) or \
+            max(abs(base[f] - v) for f, v in zip(files, yb)) > YSWAP_BASELINE_TOL:
+        raise ValueError(f"{where}: its per-cube baselines differ from its evaluation's on its cubes "
+                         f"(different cubes or prior)")
+
+
+def _same(key, got, want):
+    if key == 'checkpoint':
+        return os.path.realpath(str(got)) == os.path.realpath(str(want))
+    return got is True if key == 'meta_checked' else str(got) == str(want)
+
+
+def check_b_records(ev_b, b_yswap=None, b_diag=None, b_path=None):
+    """--b_yswap must be B's own (scripts/yswap_one_step.py provenance: mode residual, B's checkpoint, d and prior, meta
+    checked; its per-cube baseline is B's on its cubes). --b_diag's provenance.b_eval (scripts/diagnose_b.py merge)
+    must name the --b file; that comparison needs `b_path`, which main always passes."""
+    if b_yswap is not None:
+        prov = _need(b_yswap, 'provenance', '--b_yswap record')
+        for key, want in (('mode', 'residual'), ('checkpoint', _prov(ev_b, 'ckpt')), ('d', _prov(ev_b, 'd')),
+                          ('prior_sha256', _prov(ev_b, 'prior_sha256')), ('meta_checked', True)):
+            got = _need(prov, key, '--b_yswap provenance')
+            if not _same(key, got, want):
+                raise ValueError(f"--b_yswap is not B's y-swap: provenance.{key} is {got!r}, B's evaluation has {want!r}")
+        check_yswap_baseline(_need(b_yswap, 'yswap', '--b_yswap record'), baseline_by_file(ev_b), '--b_yswap')
+    if b_diag is not None:
+        named = _need(_need(b_diag, 'provenance', 'b_diagnostics'), 'b_eval', 'b_diagnostics provenance')
+        if b_path is not None and os.path.realpath(named) != os.path.realpath(b_path):
+            raise ValueError(f'--b_diag was made from {named}, not from --b {b_path}')
 
 
 def judge(ev, ev_b, k):
@@ -131,8 +175,9 @@ def vs_b_kmean(ev, b_diag, k=DEFAULT_K):
     return r
 
 
-def gate(regs, ev_b, b_yswap=None, k=DEFAULT_K, require_done=True, b_diag=None):
+def gate(regs, ev_b, b_yswap=None, k=DEFAULT_K, require_done=True, b_diag=None, b_path=None):
     check_inputs(regs, ev_b, require_done)
+    check_b_records(ev_b, b_yswap, b_diag, b_path)
     models = [judge(ev, ev_b, k) for ev in regs]
     for m, ev in zip(models, regs):
         m['vs_b_t999_kmean'] = None if b_diag is None else vs_b_kmean(ev, b_diag, k)
@@ -207,7 +252,7 @@ def main(argv=None):
     ev_b = json.load(open(args.b))
     b_yswap = json.load(open(args.b_yswap)) if args.b_yswap else None
     b_diag = json.load(open(args.b_diag)) if args.b_diag else None
-    g = gate(regs, ev_b, b_yswap, k=args.k, require_done=not args.no_require_done, b_diag=b_diag)
+    g = gate(regs, ev_b, b_yswap, k=args.k, require_done=not args.no_require_done, b_diag=b_diag, b_path=args.b)
     g['inputs'] = dict(reg=[os.path.abspath(p) for p in args.reg], b=os.path.abspath(args.b),
                        b_yswap=os.path.abspath(args.b_yswap) if args.b_yswap else None,
                        b_diag=os.path.abspath(args.b_diag) if args.b_diag else None)
