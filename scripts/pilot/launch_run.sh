@@ -1,13 +1,36 @@
 #!/bin/bash
 # Launch one pilot run in the background on one GPU.
 # Usage: [RUN_NAME=<dir name>] launch_run.sh residual|standard|standard_xhat|regress GPU [extra args]   (regress needs --prediction_type direct --loss_type l1|l2)
-# Refuses (exit 1; nothing started, the launch not counted) when the GPU is busy, another launch_run.sh holds the run's
-# .launch.lock, the run has a DONE file (delete it to train further), or its pid file names a live process.
+# Refuses (exit 1; nothing started, the launch not counted) when a non-empty RUN_NAME is not <MODE>_[A-Za-z0-9_]+ (no
+# '/' or '..'; an exported RUN_NAME cannot redirect another mode's launch), when a regress launch has no --loss_type l1|l2
+# (the trainer's default is l1) or one that contradicts an _l1_ / _l2_ in RUN_NAME, when the GPU is busy, another
+# launch_run.sh holds the run's .launch.lock, the run has a DONE file (delete it to train further), or its pid file
+# names a live process.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 PY=${PILOT_PY:-/home/grads/c/chaoyi_he/Desktop/conda/envs/hsi/bin/python}     # tests point PILOT_PY at a stub
 ROOT=${RESIDUAL_WARMSTART_RESULTS:-/data/chaoyi_he/HSI/Diffu/results/residual_warmstart}
 MODE=$1; GPU=$2; shift 2
+NAME_RE="^${MODE}_[A-Za-z0-9_]+\$"
+if [[ -n "${RUN_NAME:-}" && ! "$RUN_NAME" =~ $NAME_RE ]]; then
+  echo "RUN_NAME='$RUN_NAME' is not ${MODE}_[A-Za-z0-9_]+; not launching"; exit 1
+fi
+if [[ "$MODE" == regress ]]; then
+  LOSS=""; PREV=""
+  for A in "$@"; do                                       # the last --loss_type wins, as in argparse
+    [[ "$PREV" == --loss_type ]] && LOSS=$A
+    [[ "$A" == --loss_type=* ]] && LOSS=${A#--loss_type=}
+    PREV=$A
+  done
+  if [[ "$LOSS" != l1 && "$LOSS" != l2 ]]; then
+    echo "regress needs --loss_type l1|l2 in the extra args (got '${LOSS}'; RUN_NAME='${RUN_NAME:-}'); not launching"; exit 1
+  fi
+  for L in l1 l2; do
+    if [[ "${RUN_NAME:-}" == *_${L}_* && "$LOSS" != "$L" ]]; then
+      echo "RUN_NAME='$RUN_NAME' names $L but --loss_type is $LOSS; not launching"; exit 1
+    fi
+  done
+fi
 RUN=$ROOT/runs/${RUN_NAME:-${MODE}_d4_b64}     # RUN_NAME overrides the run directory (e.g. regress_l2_d4_b64)
 FREE=$(nvidia-smi --query-gpu=memory.free --format=csv,noheader,nounits --id="$GPU")
 PROCS=$(nvidia-smi --query-compute-apps=pid --format=csv,noheader --id="$GPU" | sed '/^$/d' | wc -l)
