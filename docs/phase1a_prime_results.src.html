@@ -1,0 +1,626 @@
+<title>Phase 1a′ Results</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600;700&display=swap">
+<script>
+window.MathJax={tex:{inlineMath:[['$','$']],displayMath:[['$$','$$']],tags:'none'},svg:{fontCache:'global'},options:{skipHtmlTags:['script','noscript','style','textarea','pre','code','svg']}};
+</script>
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-svg.js"></script>
+<style>
+/* Layout: one 900px reading column; each section is built around a panel-card figure with a caption (the GDN report style). */
+:root{
+  --bg:#f3f5f8; --panel:#ffffff; --panel-2:#eaeef4; --ink:#141a24; --ink-2:#475164; --muted:#5f6b7e;
+  --rule:#dbe1ea; --rule-strong:#a9b3c2;
+  --accent:#2a78d6; --accent-bg:#e2edfb; --s2:#eb6834; --s2-bg:#fde8df; --s3:#1baf7a; --s3-bg:#dcf3ea; --de:#a2aab7;
+  --good:#16733f; --good-bg:#dff2e6; --bad:#c43d3d; --bad-bg:#fbe4e4; --warn:#9a6700; --warn-bg:#fff1cc;
+  --sans:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    color-scheme:dark;
+    --bg:#0e1218; --panel:#161b23; --panel-2:#1c222c; --ink:#e8ecf2; --ink-2:#b3bccb; --muted:#8893a4;
+    --rule:#29303b; --rule-strong:#4a5565;
+    --accent:#3987e5; --accent-bg:#162840; --s2:#d95926; --s2-bg:#3a2118; --s3:#199e70; --s3-bg:#12302a; --de:#5e6778;
+    --good:#46b676; --good-bg:#15301f; --bad:#e66767; --bad-bg:#3b1b1b; --warn:#e2b84a; --warn-bg:#3a2f12;
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --bg:#0e1218; --panel:#161b23; --panel-2:#1c222c; --ink:#e8ecf2; --ink-2:#b3bccb; --muted:#8893a4;
+  --rule:#29303b; --rule-strong:#4a5565;
+  --accent:#3987e5; --accent-bg:#162840; --s2:#d95926; --s2-bg:#3a2118; --s3:#199e70; --s3-bg:#12302a; --de:#5e6778;
+  --good:#46b676; --good-bg:#15301f; --bad:#e66767; --bad-bg:#3b1b1b; --warn:#e2b84a; --warn-bg:#3a2f12;
+}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:16px;line-height:1.7;padding-left:max(20px,env(safe-area-inset-left,0px));padding-right:max(20px,env(safe-area-inset-right,0px));padding-block:0 72px;margin:0}
+main{max-width:900px;margin:0 auto}
+a{color:var(--accent)}
+a:focus-visible,summary:focus-visible,button:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
+header{padding-block:52px 12px}
+.eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.08em;color:var(--muted)}
+h1{font-size:clamp(30px,5vw,44px);font-weight:700;line-height:1.15;letter-spacing:-.015em;margin:.25em 0 .35em;text-wrap:balance}
+.lede{font-size:17px;color:var(--ink-2);max-width:44em;margin:0}
+nav.toc{display:flex;flex-wrap:wrap;gap:8px;margin:22px 0 4px}
+nav.toc a{font-size:13px;color:var(--ink-2);text-decoration:none;border:1px solid var(--rule-strong);border-radius:999px;padding:3px 12px;background:var(--panel)}
+nav.toc a:hover{border-color:var(--accent);color:var(--accent)}
+nav.toc b{font-family:var(--mono);font-weight:600;color:var(--accent);margin-right:6px}
+section{padding-block:36px 4px;border-top:1px solid var(--rule);margin-top:28px}
+h2{font-size:27px;font-weight:700;line-height:1.25;margin:0 0 8px;text-wrap:balance;display:flex;align-items:baseline;gap:12px}
+h2 .no{font-family:var(--mono);font-size:15px;font-weight:700;color:var(--accent);letter-spacing:.04em}
+h3{font-size:19px;font-weight:600;margin:30px 0 4px;text-wrap:balance}
+p{margin:6px 0}
+.lead{color:var(--ink-2);max-width:44em}
+figure{margin:18px 0 26px;background:var(--panel);border:1px solid var(--rule);border-radius:12px;padding:18px 18px 14px;min-width:0}
+figcaption{font-size:14px;color:var(--ink-2);margin-top:10px;max-width:48em;line-height:1.65}
+.charthead{font-size:15px;font-weight:600;margin:0 0 8px}
+.scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+.scroll>svg{display:block;width:100%;height:auto}
+.legend{display:flex;flex-wrap:wrap;gap:6px 18px;font-size:13px;color:var(--ink-2);margin:0 0 8px}
+.legend span{display:inline}
+.legend i{display:inline-block;width:16px;height:3px;border-radius:2px;vertical-align:middle;margin-right:7px}
+.legend i.sq{width:11px;height:11px;border-radius:3px}
+.legend i.dash{height:0;border-top:2px dashed var(--muted);border-radius:0;background:none}
+.legend i.dot{width:10px;height:10px;border-radius:50%}
+.kv{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:16px 0 4px}
+.kv div{background:var(--panel);border:1px solid var(--rule);border-radius:10px;padding:10px 14px;min-width:0;display:flex;flex-direction:column;justify-content:space-between;gap:4px}
+.kv small{display:block;font-size:12px;color:var(--muted)}
+.kv b{font-family:var(--mono);font-size:15px;font-weight:600}
+.kv b.hi{font-size:22px}
+.tbl{overflow-x:auto}
+table.t{border-collapse:collapse;width:100%;font-size:14px;min-width:560px}
+table.t th{font-size:12.5px;font-weight:500;color:var(--muted);text-align:left;padding:6px 10px;border-bottom:1px solid var(--rule-strong)}
+table.t td{padding:9px 10px;border-bottom:1px solid var(--rule);vertical-align:top}
+table.t td.num{font-family:var(--mono);font-variant-numeric:tabular-nums;white-space:nowrap}
+table.t tr:last-child td{border-bottom:0}
+table.t tr.hi td{background:var(--accent-bg)}
+.pill{display:inline-flex;align-items:center;gap:4px;padding:1px 10px;border-radius:999px;font-size:12.5px;font-weight:700;white-space:nowrap}
+.pill.ok{background:var(--good-bg);color:var(--good)}
+.pill.no{background:var(--bad-bg);color:var(--bad)}
+.pill.wn{background:var(--warn-bg);color:var(--warn)}
+.pill.nt{background:var(--panel-2);color:var(--ink-2);font-weight:600}
+.seg{display:inline-flex;flex-wrap:wrap;gap:6px;margin:0 0 10px}
+.seg button{font:inherit;font-size:13px;color:var(--ink-2);background:var(--panel);border:1px solid var(--rule-strong);border-radius:999px;padding:3px 12px;cursor:pointer}
+.seg button[aria-pressed="true"]{background:var(--accent-bg);border-color:var(--accent);color:var(--ink)}
+.thm{background:var(--panel);border:1px solid var(--rule);border-left:4px solid var(--accent);border-radius:0 12px 12px 0;padding:12px 18px;margin:18px 0}
+.thm.warn{border-left-color:var(--warn)}
+.thm.warn .lbl{color:var(--warn)}
+.thm .lbl{font-family:var(--mono);font-size:12.5px;font-weight:700;letter-spacing:.04em;color:var(--accent);display:block;margin-bottom:2px}
+.thm .pf{color:var(--ink-2);font-size:15px;margin-top:6px}
+.thm .pf b{color:var(--ink)}
+.remark{border-left:3px solid var(--rule-strong);padding:2px 16px;margin:14px 0;color:var(--ink-2);font-size:15px}
+.remark b{color:var(--ink)}
+.gloss{display:grid;grid-template-columns:repeat(auto-fit,minmax(270px,1fr));gap:6px 22px;margin:22px 0 4px;padding:16px 18px;background:var(--panel);border:1px solid var(--rule);border-radius:12px}
+.gloss h3{grid-column:1/-1;margin:0 0 4px;font-size:16px}
+.gloss div{font-size:14px;color:var(--ink-2);line-height:1.6;min-width:0}
+.gloss b{color:var(--ink);margin-right:8px;font-weight:600}
+ul.concl{padding-left:0;list-style:none;display:grid;gap:12px;margin:14px 0}
+ul.concl li{background:var(--panel);border:1px solid var(--rule);border-radius:12px;padding:12px 16px;min-width:0}
+ul.concl b{display:block;margin-bottom:2px}
+ul.concl .cost{display:block;margin-top:6px;font-size:13.5px;color:var(--muted)}
+ul.concl .cost b{display:inline;color:var(--ink-2);font-weight:600;margin-right:6px}
+ol.steps{padding-left:1.3em;margin:10px 0}
+ol.steps li{margin:6px 0}
+ul.plain{margin:8px 0;padding-left:1.2em}
+ul.plain li{margin:4px 0}
+code{font-family:var(--mono);font-size:.86em;background:var(--panel-2);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
+pre.gate{font-family:var(--mono);font-size:12.5px;line-height:1.55;background:var(--panel-2);border-radius:8px;padding:12px 14px;overflow-x:auto;white-space:pre-wrap;overflow-wrap:anywhere;margin:10px 0 0;color:var(--ink)}
+footer{margin-top:40px;padding-top:18px;border-top:1px solid var(--rule);font-size:13px;color:var(--muted)}
+footer code{font-size:12.5px}
+details.data{margin-top:8px;font-size:13px}
+details.data summary{cursor:pointer;color:var(--muted)}
+table.dt{border-collapse:collapse;margin-top:6px;font-size:12.5px}
+table.dt th,table.dt td{padding:3px 12px 3px 0;border-bottom:1px solid var(--rule);text-align:right;font-family:var(--mono);font-variant-numeric:tabular-nums;font-weight:400}
+table.dt th{color:var(--muted);font-family:var(--sans)}
+table.dt td:first-child,table.dt th:first-child{text-align:left;font-family:var(--sans)}
+mjx-container[display="true"]{overflow-x:auto;overflow-y:hidden;padding:4px 0;margin:10px 0!important}
+.eq{overflow-x:auto;overflow-y:hidden;max-width:100%}
+#tip{position:fixed;z-index:20;left:0;top:0;background:var(--panel);color:var(--ink);border:1px solid var(--rule-strong);border-radius:8px;padding:7px 10px;font-size:12.5px;line-height:1.55;box-shadow:0 8px 24px rgb(0 0 0 / .14);pointer-events:none;max-width:320px}
+#tip .tr{display:flex;align-items:center;gap:7px}
+#tip i{width:12px;height:3px;border-radius:2px;flex:none}
+#tip b{margin-left:auto;padding-left:12px;font-family:var(--mono);font-weight:600;white-space:nowrap}
+#tip .sub{color:var(--muted);font-size:12px}
+.twocol{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px}
+.twocol>div{min-width:0}
+/* SVG */
+svg text{font-family:var(--sans);font-size:12.5px;fill:var(--ink)}
+svg .bt{font-weight:600;font-size:13px}
+svg .bs{font-size:11.5px;fill:var(--ink-2)}
+svg .sm{font-size:11px;fill:var(--muted)}
+svg .mono{font-family:var(--mono)}
+svg .tag{font-family:var(--mono);font-size:11px;fill:var(--muted);letter-spacing:.06em;paint-order:stroke;stroke:var(--panel);stroke-width:4px;stroke-linejoin:round}
+svg .vl{font-family:var(--mono);font-size:11.5px;fill:var(--ink-2)}
+svg .box{fill:var(--bg);stroke:var(--rule-strong);stroke-width:1.2}
+svg .box-acc{fill:var(--accent-bg);stroke:var(--accent)}
+svg .box-s2{fill:var(--s2-bg);stroke:var(--s2)}
+svg .box-s3{fill:var(--s3-bg);stroke:var(--s3)}
+svg .pane{fill:none;stroke:var(--rule);stroke-width:1}
+svg .ar{fill:none;stroke:var(--ink-2);stroke-width:1.4;stroke-linejoin:round}
+svg .ar-acc{stroke:var(--accent)}
+svg .ar-s2{stroke:var(--s2)}
+svg .mk{fill:var(--ink-2)}
+svg .mk-acc{fill:var(--accent)}
+svg .mk-s2{fill:var(--s2)}
+svg .grid{stroke:var(--rule);stroke-width:1}
+svg .axis{stroke:var(--rule-strong);stroke-width:1}
+svg .tick{font-family:var(--mono);font-size:11px;fill:var(--muted)}
+svg .axt{font-size:11.5px;fill:var(--muted)}
+svg .ln{fill:none;stroke-width:2;stroke-linejoin:round;stroke-linecap:round}
+svg .dot{stroke:var(--panel);stroke-width:2}
+svg .cross{stroke:var(--rule-strong);stroke-width:1}
+svg .hit{fill:transparent;cursor:crosshair}
+svg .ref{stroke:var(--muted);stroke-width:1;stroke-dasharray:4 4}
+svg .refacc{stroke:var(--accent);stroke-width:1.2;stroke-dasharray:5 4}
+svg .reflbl{font-size:11.5px;fill:var(--muted);paint-order:stroke;stroke:var(--panel);stroke-width:4px;stroke-linejoin:round}
+svg .endlbl{font-family:var(--mono);font-size:12px;fill:var(--ink-2);font-weight:600}
+svg .vlbl{font-family:var(--mono);font-size:11.5px;fill:var(--ink-2);paint-order:stroke;stroke:var(--panel);stroke-width:3px;stroke-linejoin:round}
+svg .barhit{cursor:default}
+svg .wire{fill:none;stroke:var(--ink-2);stroke-width:1.4}
+svg .okt{fill:var(--good);font-weight:700}
+svg .badt{fill:var(--bad);font-weight:700}
+svg .pt{stroke:var(--panel);stroke-width:1;fill-opacity:.85}
+svg .diag{stroke:var(--rule-strong);stroke-width:1;stroke-dasharray:3 3}
+svg .err{stroke:var(--ink-2);stroke-width:1.4}
+@media (max-width:520px){ body{font-size:15px} h2{font-size:23px} figure{padding:14px 12px 12px} }
+@media (prefers-reduced-motion: reduce){ *{scroll-behavior:auto} }
+</style>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <defs>
+    <marker id="mI" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="mk"/></marker>
+    <marker id="mA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="mk-acc"/></marker>
+    <marker id="mS" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="mk-s2"/></marker>
+  </defs>
+</svg>
+<div id="tip" hidden></div>
+
+<main>
+<header>
+  <div class="eyebrow">Diffu_HSI · residual warm-start · Phase 1a′ · 16 October 2026</div>
+  <h1>A one-step regressor beats the baseline by 8.9 %. The target needs 15 %.</h1>
+  <p class="lede">Phase 1a left two questions open: what B's sampling chain does, and whether a plain one-step regressor with B's architecture can beat B's one-step read-out. Both are answered. The chain is centred closer to the truth than B's own one-step output, and the L1 regressor beats the baseline, B, and B's 8-draw mean in a single call. Neither regressor reaches the 1.9985 % target, so the gate does not license the full-size run. Both overfit by epoch 10–15; on the monitoring split, which is not the gate, that accounts for most of the missing gain.</p>
+  <div class="kv">
+    <div><small>R L1 · 1 NFE · gate</small><b class="hi">2.142 %</b><small><span class="pill ok">PASS</span> target not met</small></div>
+    <div><small>R L2 · 1 NFE · gate</small><b class="hi">2.183 %</b><small><span class="pill ok">PASS</span> target not met</small></div>
+    <div><small>B · one DDIM step</small><b class="hi">2.243 %</b><small><span class="pill ok">PASS</span> under the proposed rule</small></div>
+    <div><small>linear baseline x̂₀</small><b class="hi">2.351 %</b><small>on the 200 gate cubes</small></div>
+    <div><small>Phase 1b target (−15 %)</small><b class="hi">1.999 %</b><small><span class="pill no">go_1b false</span></small></div>
+  </div>
+  <figure>
+    <div class="scroll" data-fig="pipeline" data-aria="The low-resolution sensor image gives a linear estimate of the cube, the baseline. Two models correct it: B, a residual diffusion model read out in one DDIM step, and R, a one-step regressor with the same network trained with a direct residual loss. Both are scored on 200 held-out cubes against the baseline and checked for condition use with a y-swap on 32 cubes."></div>
+    <figcaption>What was compared. Every model starts from the same linear Gaussian-prior estimate $\hat x_0$ of the 64-band cube from the stride-4 sensor image $y_4$, and predicts the residual $r=(x-\hat x_0)/\sigma_4$ with $\sigma_4=0.0517$. B is the Phase 1a residual diffusion model, read out with one DDIM step at $t=999$. R is the same U-Net, trained from scratch with a direct loss on $r$ at that single $t$ with a zero noise input: B's one-step regime, trained as a regressor. The gate scores the mean over 200 held-out cubes of each cube's RMSE in % of its range, paired cube by cube.</figcaption>
+  </figure>
+  <nav class="toc" aria-label="Contents">
+    <a href="#s1"><b>1</b>The question</a><a href="#s2"><b>2</b>Step 0: B's chain</a><a href="#s3"><b>3</b>Regressors vs B</a><a href="#s4"><b>4</b>Validity</a><a href="#s5"><b>5</b>Overfitting</a><a href="#s6"><b>6</b>Decision</a><a href="#s7"><b>7</b>Corrections and compute</a>
+  </nav>
+  <div class="gloss">
+    <h3>Terms used below</h3>
+    <div><b>Baseline $\hat x_0$</b>the linear Gaussian-prior estimate of the cube from the float32 sensor image; 2.3512 % on the gate cubes</div>
+    <div><b>Residual $r$</b>$(x-\hat x_0)/\sigma_4$, unit-RMS; every model here predicts $r$ and returns $\hat x=\hat x_0+\sigma_4\hat r$, clamped to $[-1,1]$</div>
+    <div><b>B</b>the Phase 1a residual diffusion model (base 64, 100 epochs); <b>ddim1</b> is its one-step read-out at $t=999$ from pure noise</div>
+    <div><b>R L1, R L2</b>the one-step regressors: B's network, zero $x_t$, constant $t=999$, trained with an L1 or L2 loss on $r$</div>
+    <div><b>Mean RMSE</b>the gate's metric: the mean over cubes of each cube's RMSE in % of its range; <b>error energy</b> is RMSE², in pct²</div>
+    <div><b>NFE</b>network calls per cube at test time; the Phase 1b bar is $\le 10$</div>
+    <div><b>K-mean</b>the average of $K$ independent draws of a sampler, per cube; its error energy is the chain's centre energy $c_2$ plus spread$/K$</div>
+    <div><b>$c_1$, $c_2$, spread</b>per cube: the error energy of B's noise-free one-step centre, of a chain's $K\to\infty$ mean, and the per-element variance across draws</div>
+    <div><b>$\lambda$</b>$(b^2-c_2)/(b^2-c_1)$: 0 if a chain is centred on $r=0$, 1 if on B's one-step centre, above 1 if closer to the truth than that</div>
+    <div><b>y-swap</b>the condition test: score a model with its own condition (<b>true</b>), another cube's (<b>swap_full</b>), only the sensor channel swapped (<b>sensor-only</b>), or both inputs zeroed (<b>zero</b>)</div>
+    <div><b>Proposed rule</b>valid if swap_full − true &gt; 2 SE and swap_full − baseline + 2 SE ≥ 0, at $t=999$ on 32 cubes; the spec's 0.9 ratio is reported</div>
+    <div><b>PASS / go_1b</b>PASS: valid and better than both the baseline and B's ddim1 by 2 SE; go_1b: a loss's two seeds both PASS, meet the 1.9985 % target and pass the spec's 0.9 ratio at $t=999$</div>
+    <div><b>Gate cubes / monitoring files</b>200 held-out cubes that only the gate sees; 800 other validation files that training monitors every 5 epochs</div>
+  </div>
+</header>
+
+<!-- ============================================================ -->
+<section id="s1">
+  <h2><span class="no">01</span>The question Phase 1a left, and how it was gated</h2>
+  <p class="lead">Phase 1a found that B's best read-out is a single DDIM step: every extra sampling step made the result worse. That raised a plain question. If one call at $t=999$ is all B uses, what does a network trained only for that call do?</p>
+  <figure>
+    <p class="charthead">B after Phase 1a: mean RMSE against network calls (200 cubes; DDPM-1000 on its 50-cube subset)</p>
+    <div class="scroll" data-chart="nfe" data-aria="Horizontal bars of B's mean RMSE for each sampler: one DDIM step 2.2426 percent, two steps 2.3471, five 2.8379, ten 3.0861, twenty 3.2485, DDPM with 1000 steps 3.4016; the baseline is 2.3512"></div>
+    <figcaption>From B's Phase 1a evaluation. Only the one-step read-out beats the baseline (2.3512 %); two steps tie it (2.3471, −0.0040 ± 0.0076 paired) and every longer chain is worse. Warm starts from $\hat x_0$ (not shown) sit between 2.39 and 3.28 %. The one-step call is the regime this phase isolates.</figcaption>
+  </figure>
+  <h3>What was run</h3>
+  <ol class="steps">
+    <li><b>Step 0, diagnostics of B.</b> Sample B's chain $K$ times per cube with the harness's own seeding: DDIM-10 and the one-step call with $K=8$ on the 200 cubes, DDPM-1000 with $K=4$ on the 50 DDPM cubes. From the draws, estimate each chain's centre and spread per cube. Draws 0 and 1 reproduce B's stored evaluation to $10^{-6}$, so the diagnostics sample exactly the chain Phase 1a scored.</li>
+    <li><b>Step 1, two regressors.</b> Train B's architecture (58.9 M parameters, base 64) from scratch with B's budget (batch 8, 100 epochs, lr $10^{-4}$ cosine, seed 42) and a direct loss on $r$ at $t=999$ with a zero $x_t$: one run with L1, one with L2. 7.6 h and 6.9 h on one GPU each.</li>
+    <li><b>Gate.</b> On the 200 held-out cubes, paired per cube: a regressor passes if it beats the baseline and B's ddim1 by more than 2 SE and is valid under the proposed y-swap rule. The target for the full-size run is 15 % below the baseline, 1.9985 %. A second training seed runs only if the best regressor meets the target. Final checkpoints only, as pre-registered.</li>
+  </ol>
+  <div class="remark"><b>Six deviations from the spec were approved with the plan.</b> The binding validity check is the proposed one-step rule (at $t=999$ the spec's 0.9 ratio needs a one-step gain of ≈ 5.4 % for a calibrated model and ≈ 8 % for one with B's shrinkage, so B's 4.4–4.6 % cannot pass it); both losses are trained; the regressor reuses B's architecture; the diagnostics budget is fixed; seed 43 runs only on success; and no new driver was built. All six are listed in the plan's 'Deviations from the spec' section; the as-built block records how deviations 1, 2, 4 and 5 played out.</div>
+</section>
+
+<!-- ============================================================ -->
+<section id="s2">
+  <h2><span class="no">02</span>Step 0: B's chain is centred closer to the truth than its one-step output</h2>
+  <p class="lead">Phase 1a left two hypotheses. H0: the chain samples an unconditional residual, centred on $r=0$. H1: it is a posterior sampler centred on B's one-step estimate. Neither holds. The chain's long-run mean beats the one-step centre; what a single draw pays is the spread.</p>
+  <figure>
+    <p class="charthead">Error energy per cube, decomposed (pct², mean over cubes): centre + spread = a single draw</p>
+    <div class="legend"><span><i class="sq" style="background:var(--de)"></i>baseline $b^2$</span><span><i class="sq" style="background:var(--s3)"></i>one-step centre $c_1$</span><span><i class="sq" style="background:var(--accent)"></i>chain centre $c_2$</span><span><i class="sq" style="background:var(--accent);opacity:.35"></i>spread (what one draw adds)</span></div>
+    <div class="scroll" data-fig="energy" data-aria="Stacked horizontal bars of error energy in squared percent. 200 cubes: baseline 6.085; one-step centre 5.392; one-step single draw 5.392 plus 0.139 spread; DDIM-10 chain centre 4.908 plus spread 4.907 equals 9.815 for a single draw. 50 DDPM cubes: baseline 6.203; one-step centre 5.516; DDPM-1000 centre 4.791 plus spread 6.940 equals 11.731."></div>
+    <figcaption>Per cube, a single draw's error energy is exactly its chain's centre energy plus its spread: $9.815 = 4.908 + 4.907$ pct² for DDIM-10. The chain's centre removes 19.3 % of the baseline's error energy on the 200 cubes, against 11.4 % for the noise-free one-step centre; DDPM-1000's removes 22.8 % on its 50 cubes. In RMS energy a single DDIM-10 draw is $\sqrt{9.815/4.908}=1.414\times$ its own centre: the $\sqrt2$ a calibrated sampler pays, but only in aggregate (next figure). B's one-step output barely depends on its noise draw: its spread is 2.6 % of its centre energy, so averaging 8 one-step draws gains only $0.0265\pm0.0006$ in mean RMSE.</figcaption>
+  </figure>
+  <div class="kv">
+    <div><small>λ · DDIM-10 (200 cubes, K = 8)</small><b>1.698 ± 0.022</b><small>0 = centred on r = 0 · 1 = on the one-step centre</small></div>
+    <div><small>λ · DDPM-1000 (50 cubes, K = 4)</small><b>2.055 ± 0.112</b><small>jackknife SE over source images</small></div>
+    <div><small>DDIM-10 8-draw mean · observed</small><b>2.2566 %</b><small>pred H0 2.4584 · pred H1 2.3409</small></div>
+    <div><small>DDPM-1000 4-draw mean · observed</small><b>2.5110 %</b><small>pred H0 2.7090 · pred H1 2.6142</small></div>
+    <div><small>chain K → ∞ mean · DDIM-10</small><b>2.1079 %</b><small>extrapolated; break-even with one step at K ≈ 9</small></div>
+  </div>
+  <figure>
+    <p class="charthead">Is the spread calibrated cube by cube? Per-cube spread against the baseline's error energy</p>
+    <div class="seg" role="group" aria-label="Chain"><button type="button" data-row="ddim10" aria-pressed="true">DDIM-10 · 200 cubes</button><button type="button" data-row="ddpm1000" aria-pressed="false">DDPM-1000 · 50 cubes</button></div>
+    <div class="legend"><span><i class="dot" style="background:var(--accent)"></i>one cube: spread</span><span><i style="background:var(--accent)"></i>fitted slope of spread on $b^2$</span><span><i class="dash"></i>slope of the chain's own centre energy $c_2$ on $b^2$ (what per-cube calibration would show)</span></div>
+    <div class="scroll" data-chart="spread" data-aria="Scatter of per-cube spread against baseline error energy for the selected chain, with the fitted line and the much steeper reference slope of the chain's own centre energy"></div>
+    <figcaption>In aggregate DDIM-10's spread equals its own centre's error energy (ratio 1.000; 0.910 against the one-step centre, the plan's calibration rule). Per cube it is nearly constant in size: it correlates with difficulty (correlation 0.71) but its slope on $b^2$ is $0.131\pm0.031$, 6.2× smaller than its own centre energy's 0.814, and its coefficient of variation over cubes is 0.15 against 0.68 for $c_2$. DDPM-1000 is over-dispersed (spread 1.45× its centre energy) with slope $0.263\pm0.047$ against 0.753. Neither chain is calibrated cube by cube, which is what Phase 1a Observation 1 inferred from per-seed RMSE. A single draw adds an error that grows only weakly with the cube's difficulty.</figcaption>
+  </figure>
+  <div class="thm"><span class="lbl">What step 0 settles</span>
+    B is a conditional model, and its chain is not a posterior sampler around its one-step estimate: $\lambda>1$ by many SE for both chains. The Phase 1a losses from sampling are the spread, paid on top of a centre that is better than the one-step read-out. Matching one step in mean RMSE by sampling the chain takes about 9 DDIM-10 draws (≈ 90 NFE); distilling the chain's mean into one call is option 7 in §6, a direction whose cost is not measured here.
+    <div class="pf"><b>Reading the numbers.</b> $\lambda=(b^2-c_2)/(b^2-c_1)$ with $b$ the baseline's RMSE. The single-draw version of this ratio, which uses a draw's RMSE² in place of $c_1$, is biased upward: on the one-step row, whose true $\lambda$ is 1 by construction, it reads $1.272\pm0.025$. Phase 1a's $\rho^2\approx9\,\%$, its estimate of the share of the residual energy B's one-step output removes, came from such single-draw RMSEs; the noise-free one-step centre removes 11.4 % of the mean error energy.</div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section id="s3">
+  <h2><span class="no">03</span>The regressors beat B's one-step read-out; only L1 also beats its 8-draw mean</h2>
+  <p class="lead">Direct regression at $t=999$ changes three things at once: the objective (a full-weight loss at one $t$, where B's training weighted $t=999$ at $4.8\times10^{-5}$ of its peak), a single deterministic call, and a zero $x_t$ in place of noise. At 1 NFE, L1 scores 2.1422 % and L2 2.1829 %.</p>
+  <figure>
+    <p class="charthead">Gain over the baseline on the 200 gate cubes (paired per cube; bars show ± 2 iid SE)</p>
+    <div class="scroll" data-chart="gains" data-aria="Horizontal bars of mean RMSE change against the baseline: B one DDIM step minus 0.1086, B's 8-draw one-step mean minus 0.1371, R L2 minus 0.1683, R L1 minus 0.2090; the Phase 1b target is minus 0.3527"></div>
+    <figcaption>Every model is paired with the baseline on the same cubes, so the SE is that of the per-cube difference. L1's gain is 8.9 %, L2's 7.2 %, B's 4.6 %. The target is 15 %, a change of −0.3527. L1 is $0.1004\pm0.0195$ below B's ddim1 and $0.0718\pm0.0196$ below B's 8-draw one-step mean (8 NFE); both pass at 2 SE, so L1's gain is credited to the objective; B's noise sensitivity costs it only 0.0265. L2 is $0.0597\pm0.0220$ below ddim1 but only $0.0312\pm0.0221$ below the 8-draw mean, which does not pass. L1 beats L2 by $0.0407\pm0.0123$ (one seed each), even in error energy, the aggregation L2's loss targets.</figcaption>
+  </figure>
+  <figure>
+    <p class="charthead">Cube by cube: model RMSE against the baseline's (200 cubes)</p>
+    <div class="seg" role="group" aria-label="Model"><button type="button" data-model="l1" aria-pressed="true">R L1</button><button type="button" data-model="l2" aria-pressed="false">R L2</button><button type="button" data-model="b" aria-pressed="false">B ddim1</button></div>
+    <div class="legend"><span><i class="dot" style="background:var(--s2)"></i>P022 (seen in training, 24 cubes)</span><span><i class="dot" style="background:var(--accent)"></i>P023 (unseen, 152)</span><span><i class="dot" style="background:var(--s3)"></i>P024 (unseen, 24)</span><span><i class="dash"></i>no change</span></div>
+    <div class="scroll" data-chart="scatter" data-aria="Scatter of per-cube RMSE for the selected model against the baseline RMSE, with the diagonal; points below the diagonal improved"></div>
+    <figcaption>Points below the diagonal improved on the baseline. The regressors' mean gains are the largest but the least uniform: L1 is worse than the baseline on 53 of 200 cubes (by up to 19.6 %), L2 on 65 (by up to 53.8 %), B's ddim1 on 14. L1's paired SE is 3.9× B's. The seen class P022 and the unseen P024 gain 15–18 % with either regressor; the shortfall is P023, which gains 6.0 % (L1) and 3.8 % (L2) and holds 152 of the 200 cubes. With three classes, a seen-versus-unseen effect cannot be separated from a class effect.</figcaption>
+  </figure>
+  <figure>
+    <div class="tbl">
+      <table class="t">
+        <thead><tr><th>mean RMSE %, by split</th><th>cubes</th><th>baseline</th><th>B ddim1</th><th>R L1</th><th>L1 gain</th><th>R L2</th><th>L2 gain</th></tr></thead>
+        <tbody>
+          <tr><td>all gate cubes</td><td class="num">200</td><td class="num">2.3512</td><td class="num">2.2426</td><td class="num">2.1422</td><td class="num">8.9 %</td><td class="num">2.1829</td><td class="num">7.2 %</td></tr>
+          <tr><td>P022 (seen)</td><td class="num">24</td><td class="num">2.0699</td><td class="num">1.9541</td><td class="num">1.7385</td><td class="num">16.0 %</td><td class="num">1.7049</td><td class="num">17.6 %</td></tr>
+          <tr><td>P023 (unseen)</td><td class="num">152</td><td class="num">2.2545</td><td class="num">2.1633</td><td class="num">2.1181</td><td class="num">6.0 %</td><td class="num">2.1693</td><td class="num">3.8 %</td></tr>
+          <tr><td>P024 (unseen)</td><td class="num">24</td><td class="num">3.2449</td><td class="num">3.0333</td><td class="num">2.6986</td><td class="num">16.8 %</td><td class="num">2.7469</td><td class="num">15.3 %</td></tr>
+          <tr><td>unseen (P023 + P024)</td><td class="num">176</td><td class="num">2.3895</td><td class="num">2.2820</td><td class="num">2.1973</td><td class="num">8.0 %</td><td class="num">2.2481</td><td class="num">5.9 %</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <figcaption>Gains are relative to the split's baseline. L1's gain on P022 exceeds its gain on the unseen classes by $0.1392\pm0.0526$, where B's ddim1 gained alike on both ($-0.0083\pm0.0142$ in Phase 1a). L2's gap is wider by $0.0844\pm0.0272$, mainly from the unseen classes; on P022 the two regressors do not differ significantly ($+0.0336\pm0.0237$).</figcaption>
+  </figure>
+  <div class="remark"><b>In error energy, L1 is level with B's chain centre.</b> L1's mean error energy is 5.031 pct² against DDIM-10's centre 4.908 $(+0.12\pm0.09)$: one call reaches what B's chain reaches only in its $K\to\infty$ mean. It removes 17.3 % of the baseline's error energy (L2 13.4 %). On the 50 DDPM cubes, DDPM-1000's centre removes 22.8 %, DDIM-10's 18.7 % and L1 17.0 %. The target is 15 % in mean RMSE, which is about 28 % of the energy if every cube improves by the same factor.</div>
+</section>
+
+<!-- ============================================================ -->
+<section id="s4">
+  <h2><span class="no">04</span>Validity: both regressors use their condition, and B does too</h2>
+  <p class="lead">A model can beat the baseline by learning a cube-independent correction. The y-swap test gives each model another cube's condition and checks that its gain disappears. All three models pass the proposed rule; the regressors also pass the spec's 0.9 ratio.</p>
+  <figure>
+    <p class="charthead">y-swap at $t=999$ on 32 stratified cubes: mean RMSE % by condition variant</p>
+    <div class="legend"><span><i class="sq" style="background:var(--accent)"></i>true condition</span><span><i class="sq" style="background:var(--s3)"></i>sensor channel swapped only</span><span><i class="sq" style="background:var(--s2)"></i>full swap (another cube's condition)</span><span><i class="sq" style="background:var(--de)"></i>both inputs zeroed</span><span><i class="dash"></i>baseline on these cubes, 2.4194</span></div>
+    <div class="scroll" data-chart="yswap" data-aria="Grouped columns for R L1, R L2 and B: with the true condition 2.1888, 2.2665 and 2.3128 percent; with the sensor swapped 2.2385, 2.3276, 2.3299; with a full swap 2.9678, 3.0344, 2.5022; with zeroed inputs 2.4624, 2.4550, 3.8452; the baseline is 2.4194"></div>
+    <figcaption>Every variant is composed with the true $\hat x_0$, so only the network's input changes. A full swap costs the regressors $+0.78$ and leaves them $0.55$–$0.62$ worse than the baseline on 32 of 32 cubes: each applies a confident, cube-specific correction that is wrong for another cube. B's swap costs $+0.1895\pm0.0134$ and leaves it $0.0828\pm0.0121$ above the baseline, so B is valid too. All three use the sensor-only path weakly ($+0.02$ to $+0.06$). With both inputs zeroed, the regressors return almost the baseline ($+0.04$); B does not (3.85 %).</figcaption>
+  </figure>
+  <figure>
+    <div class="tbl">
+      <table class="t">
+        <thead><tr><th>model</th><th>$x_t$ at $t=999$</th><th>swap_full − true</th><th>swap_full − baseline</th><th>true − baseline</th><th>proposed rule</th><th>spec 0.9 ratio</th></tr></thead>
+        <tbody>
+          <tr><td>R L1</td><td>zero</td><td class="num">+0.7789 ± 0.0695</td><td class="num">+0.5483 ± 0.0747</td><td class="num">−0.2306 ± 0.0554</td><td><span class="pill ok">valid</span></td><td class="num">0.738 <span class="pill ok">passes</span></td></tr>
+          <tr><td>R L2</td><td>zero</td><td class="num">+0.7679 ± 0.0890</td><td class="num">+0.6150 ± 0.0802</td><td class="num">−0.1529 ± 0.0667</td><td><span class="pill ok">valid</span></td><td class="num">0.747 <span class="pill ok">passes</span></td></tr>
+          <tr><td>B, leak-free (the gate's input)</td><td>pure noise ε</td><td class="num">+0.1895 ± 0.0134</td><td class="num">+0.0828 ± 0.0121</td><td class="num">−0.1067 ± 0.0139</td><td><span class="pill ok">valid</span></td><td class="num">0.924 <span class="pill no">fails</span></td></tr>
+          <tr><td>B, leaky reference (not used)</td><td>q_sample(r, 999)</td><td class="num">+0.2225 ± 0.0136</td><td class="num">+0.0509 ± 0.0149</td><td class="num">−0.1715 ± 0.0197</td><td><span class="pill ok">valid</span></td><td class="num">0.910 <span class="pill no">fails</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <figcaption>± is the iid SE over the 32 cubes; the clustered SEs over the 29 source images are within 10 % of them. Valid means swap_full − true &gt; 2 SE and swap_full − baseline + 2 SE ≥ 0. The leaky row is the record Phase 1a used; §7 explains the correction.</figcaption>
+  </figure>
+</section>
+
+<!-- ============================================================ -->
+<section id="s5">
+  <h2><span class="no">05</span>Both regressors overfit, so the gate's numbers are epoch-100 lower bounds</h2>
+  <p class="lead">Each run's training loss falls for 100 epochs while its monitoring loss, on 800 validation files the gate never sees, is lowest at epoch 15 (L1) and 10 (L2), is higher than that minimum at every later check, and rises at every check from epoch 35 (L1) and 60 (L2). B's monitoring loss fell monotonically in Phase 1a.</p>
+  <figure>
+    <p class="charthead">Training and monitoring loss by epoch (units of the unit-RMS residual; L1 logs absolute error, L2 squared error)</p>
+    <div class="legend"><span><i style="background:var(--accent)"></i>R L1 training</span><span><i style="background:var(--accent);opacity:.45"></i>R L1 monitoring (every 5 epochs)</span><span><i style="background:var(--s2)"></i>R L2 training</span><span><i style="background:var(--s2);opacity:.45"></i>R L2 monitoring</span></div>
+    <div class="twocol" data-fig="curves"></div>
+    <figcaption>The two panels are in different units and are not comparable with each other. L1's monitoring loss reaches 0.4208 at epoch 15 and ends at 0.4586 (+9.0 %); L2's reaches 0.6503 at epoch 10 and ends at 0.7796 (+19.9 %). A uniform growth of the error raises a squared loss about twice as much as an absolute one; measured in the same units on the kept checkpoints (epoch 25 → 100), L1's MSE rises 15.4 % and its MAE 8.1 %, L2's 17.0 % and 5.8 %. The rises are similar; L2's minimum comes earlier.</figcaption>
+  </figure>
+  <figure>
+    <p class="charthead">Residual error energy removed on the 800 monitoring files, by kept checkpoint (1 − MSE / the baseline's 0.8729)</p>
+    <div class="legend"><span><i class="sq" style="background:var(--accent)"></i>R L1</span><span><i class="sq" style="background:var(--s2)"></i>R L2</span><span><i class="dash"></i>what the gate measured at epoch 100 on its own 200 cubes (17.3 % / 13.4 %)</span><span><i class="dot" style="background:var(--muted)"></i>the ≈ 28 % the target needs</span></div>
+    <div class="scroll" data-chart="energy" data-aria="Grouped columns at epochs 25, 50, 90 and 100: R L1 removes 26.7, 23.0, 16.5 and 15.4 percent of the residual energy on the monitoring files; R L2 removes 23.7, 21.1, 12.4 and 10.7 percent; L2's logged loss at epoch 10 implies 25.5 percent"></div>
+    <figcaption>From <code>diagnostics/regress_monitoring_energy.json</code>: every kept checkpoint scored on the training script's own 800 monitoring files, never the gate cubes; the zero prediction $\hat r=0$ is the baseline itself (MSE 0.8729). L1 removes 26.7 % of the residual energy at epoch 25 and 15.4 % at epoch 100; L2 23.7 % and 10.7 %, and its logged loss at epoch 10 implies 25.5 %. The MSE rises in every class for both runs, the seen class included, so this is overfitting; no class shift is involved. In the gate's own metric, the mean-RMSE gain on the monitoring files rises from 8.2 % to 14.7 % (L1) and from 6.0 % to 12.9 % (L2) between the epoch-100 and the epoch-25 checkpoints, against the 15 % target.</figcaption>
+  </figure>
+  <div class="thm warn"><span class="lbl">How far the inference carries</span>
+    The gate's 17.3 % and 13.4 % come from the epoch-100 checkpoints. They are lower bounds set by overfitting; they do not measure what $(\hat x_0, y_4)$ can predict. The transfer to the gate is approximate: the monitoring files are different patches from the same validation pool as the gate cubes, with the gate's class mix, and they include patches of all 113 gate source images. No epoch-25 checkpoint was ever scored on the gate, and this phase scored the final checkpoints as pre-registered. Any future checkpoint selection must use the monitoring split, and because that split shares source images with the gate, the selection rule has to be fixed before the gate is looked at.
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section id="s6">
+  <h2><span class="no">06</span>The decision</h2>
+  <p class="lead">The gate selects the branch "best regressor PASS, target not met". go_1b is false and the seed-43 runs did not happen. Nothing is running or queued. The options below are the note's nine, in its order, each with its cost; the choice is yours.</p>
+  <ul class="concl">
+    <li><b>1. Stop early or select the checkpoint on the monitoring split, at base 64.</b> This targets most of the gap: on the monitoring files the epoch-25 checkpoints remove 26.7 % / 23.7 % of the residual energy against 15.4 % / 10.7 % at epoch 100, and the mean-RMSE gain rises to 14.7 % (L1) against the 15 % target. Add weight decay (0 now) or augmentation if early stopping alone does not hold the minimum. Pre-register the selection rule (lowest monitoring loss on the 800 non-gate files) before any gate run.<span class="cost"><b>Cost</b>one full base-64 run is 6.9–7.6 h on one GPU; two variants fit side by side. The monitoring minima came after 1.3 h (L1) and 0.8 h (L2). The saved epoch-25 and 50 checkpoints could be scored on the gate in minutes on CPU, but only as a labelled post-hoc look.</span></li>
+    <li><b>2. More epochs at base 64.</b> The monitoring curves do not support it: both are lowest by epoch 15 and higher at every later check.<span class="cost"><b>Cost</b>a further base-64 run, 6.9–7.6 h on one GPU, with nothing in the curves to expect a gain from.</span></li>
+    <li><b>3. More capacity: the Phase 1b′ path.</b> The regressor at base 256 with FSDP at batch 8 per GPU: 16× the parameters (940 M against 58.9 M), trained on the same 9 000 files on which base 64 already overfits by epoch 10–15. The gate does not license it (go_1b false), and nothing measured here predicts its gain.<span class="cost"><b>Cost</b>≈ 27.6 h for 200 epochs on both GPUs at Phase 0's timing (16.1 GB peak); the launcher's 24 h cap needs raising.</span></li>
+    <li><b>4. A loss aligned with the metric.</b> The gate scores the mean over cubes of per-cube RMSE; L2 minimises the mean of per-cube MSE and L1 the mean of per-cube MAE. A per-cube RMSE loss is the metric itself; relative to L2 it weights each cube's gradient by $1/(2\,\mathrm{RMSE}_i)$, so the cubes with large errors count less. L2 is worse than the baseline on 65 of 200 cubes, L1 on 53.<span class="cost"><b>Cost</b>one base-64 run, 6.9–7.6 h; it can run beside an option-1 run. Nothing measured here predicts its gain, and L1 already beats L2 under RMSE.</span></li>
+    <li><b>5. Both: more capacity with the metric-aligned loss.</b> The costs add, and the larger model would need option 1's regularisation as well. Testing options 1 and 4 at base 64 first (≈ 7 h each, side by side) shows which change carries a gain before a 27.6 h run.<span class="cost"><b>Cost</b>≈ 27.6 h plus the two base-64 probes.</span></li>
+    <li><b>6. Change the information the model gets.</b> What $(\hat x_0, y_4)$ can predict at $d=4$ is not yet measured: L1 at epoch 100 removes 17.3 % of the gate's error energy (a lower bound set by overfitting) and B's DDIM-10 chain centre 19.3 % on the 200 cubes; on the 50 DDPM cubes DDPM-1000's centre removes 22.8 %, DDIM-10's 18.7 % and L1 17.0 %. B's centres are a lower bound of another kind, since B's monitoring loss never rose. The target needs about 28 %. Every model here barely uses the sensor-only path. Changing the conditioning path, the training data or $d$ is a new spec decision.<span class="cost"><b>Cost</b>at least one base-64 run each, plus any data or prior work.</span></li>
+    <li><b>7. Use B's chain centre.</b> Step 0 shows the chain centres beat B's one-step read-out (19.3 % and 22.8 % against 11 %). Reaching them by sampling costs ≈ 90 NFE to match one step in mean RMSE; distilling the chain's mean into one call is a direction whose cost is not measured here.<span class="cost"><b>Cost</b>a new training setup; not measured here.</span></li>
+    <li><b>8. A seed-variance estimate.</b> Seed 43 of both losses side by side measures the training-seed spread of L1's 8.9 % and of the $0.0407$ L1 − L2 difference. It cannot make go_1b true at these RMSEs.<span class="cost"><b>Cost</b>≈ 8.8 h of both GPUs.</span></li>
+    <li><b>9. Stop</b> the residual line at $d=4$ with this result.</li>
+  </ul>
+</section>
+
+<!-- ============================================================ -->
+<section id="s7">
+  <h2><span class="no">07</span>A correction to Phase 1a, and what the phase cost</h2>
+  <div class="thm warn"><span class="lbl">Correction · B's one-step y-swap had leaked the true residual</span>
+    Phase 1a's y-swap built B's input at $t=999$ as $$x_t=\sqrt{\bar\alpha_{999}}\,r+\sqrt{1-\bar\alpha_{999}}\,\varepsilon=0.00635\,r+0.99998\,\varepsilon,$$ which carries a trace of the true residual; B's real one-step call starts from pure noise. B read the leak: with the same $\varepsilon$ and $x_t=\varepsilon$, its true-condition score on the 32 y-swap cubes is 2.3128 instead of 2.2479 (leaky − leak-free $-0.0649\pm0.0102$, lower on 32 of 32 cubes), and the leaked term is the only difference between the two runs. The final code review found it; the fix adds a pure-noise option, re-ran B's y-swap, and makes the gate refuse the leaky record.
+    <div class="pf"><b>What changes.</b> Phase 1a's "7.1 % gain on the y-swap cubes" is 4.4 %, consistent with the 200-cube 4.6 %; the cube selection did not matter. <b>What holds.</b> B passes the proposed rule with either record and fails the spec's 0.9 ratio with either (0.924 leak-free, against 0.917, the ratio a model whose swapped prediction is uncorrelated with the truth would show at a 4.4 % gain, $\sqrt{v/(2-v)}$ with $v=(1-0.044)^2$), so Phase 1a's conclusion that the 0.9 rule lacks power at this gain stands. The $t=100$ and $300$ checks are unaffected, since there the leaky construction is the sampler's own input distribution.</div>
+  </div>
+  <h3>Compute</h3>
+  <div class="kv">
+    <div><small>diagnostics · GPU 0, sequential</small><b>1.61 GPU-h</b><small>19:34 → 21:10 on 15 Oct; DDPM-1000 K = 4 is 1.46 of it</small></div>
+    <div><small>R L1 · GPU 0</small><b>7.56 h</b><small>252 s/epoch alone, 262 s median incl. contended epochs</small></div>
+    <div><small>R L2 · GPU 1</small><b>6.87 h</b><small>238 s/epoch alone; started when GPU 1 freed at 04:08</small></div>
+    <div><small>evaluations · CPU</small><b>≈ 4 min each</b><small>200 cubes + the 32-cube y-swap; 0.27–0.34 s/cube</small></div>
+    <div><small>total</small><b>16.04 GPU-h</b><small>15.5 h wall-clock from the first shard to the gate</small></div>
+    <div><small>tests after the runs</small><b>317 passed</b><small>207 → 317 over the phase</small></div>
+  </div>
+  <p class="lead">Both runs: 58 942 272 parameters, batch 8, bf16, lr $10^{-4}\to3.3\times10^{-6}$ cosine, weight decay 0, grad clip 1.0, one launch each, no skipped steps, peak 3.34 GB. The two runs were staggered, because the other GPU was busy with another project, so their per-epoch times are not comparable. The three diagnostic shards ran on one GPU for the same reason (the plan expected ≈ 55 min over both).</p>
+  <figure>
+    <p class="charthead">The binding gate record, as printed</p>
+<pre class="gate">regress_l1_d4_b64 (l1, seed 42, epoch 100): PASS  RMSE 2.1422 ± 0.0471 %  target 1.9985 not met
+   - baseline -0.2090 ± 0.0234 (clustered 0.0244)  - B ddim1 -0.1004 ± 0.0195 (clustered 0.0197)
+   - B t999 mean of 8 draws (report only) -0.0718 ± 0.0196 (clustered 0.0196)
+   validity at t = 999 on 32 cubes: swap_full - true +0.7789 ± 0.0695, swap_full - baseline +0.5483 ± 0.0747 -> valid (spec 0.9 ratio 0.738)
+regress_l2_d4_b64 (l2, seed 42, epoch 100): PASS  RMSE 2.1829 ± 0.0503 %  target 1.9985 not met
+   - baseline -0.1683 ± 0.0257 (clustered 0.0284)  - B ddim1 -0.0597 ± 0.0220 (clustered 0.0239)
+   - B t999 mean of 8 draws (report only) -0.0312 ± 0.0221 (clustered 0.0237)
+   validity at t = 999 on 32 cubes: swap_full - true +0.7679 ± 0.0890, swap_full - baseline +0.6150 ± 0.0802 -> valid (spec 0.9 ratio 0.747)
+B ddim1 2.2426 %  - baseline -0.1086 ± 0.0060  under the proposed rule: PASS
+loss_pair: regress_l1_d4_b64 - regress_l2_d4_b64 -0.0407 ± 0.0123
+best regress_l1_d4_b64 (PASS); go_1b False</pre>
+    <figcaption><code>eval/regress/d4/gate_1a_prime__regress_l1_d4_b64+regress_l2_d4_b64.json</code>, written 16 Oct 11:04 with the leak-free B y-swap and the step-0 diagnostics as inputs, final checkpoints required.</figcaption>
+  </figure>
+</section>
+
+<footer>
+  <p>Sources, all under <code>results/residual_warmstart/</code> (git-ignored): <code>diagnostics/b_diagnostics.json</code> and its three shards; <code>diagnostics/yswap_residual_d4_b64_t999_n32__xT.json</code> (leak-free) and <code>…_n32.json</code> (leaky reference); <code>diagnostics/regress_monitoring_energy.json</code>; <code>runs/regress_{l1,l2}_d4_b64/</code>; <code>eval/regress/d4/*__direct.json</code> and the gate record; B's Phase 1a evaluation. The headline numbers on this page are in the results note <code>docs/superpowers/plans/2026-10-12-residual-warm-start-phase1a-prime-RESULTS.md</code>, which a helper re-derived from those files with 0 mismatches; the chart data (B's Phase 1a sampler grid, the per-cube scatter, the epoch-50 and -90 checkpoints, the per-class energy table) are read from the result files directly, and the deviations, test counts and the NFE bar come from the plan and the spec. The rulings are in <code>…-phase1a-prime-LEDGER.md</code>. Branch <code>worktree-phase1-plan</code>, code at <code>5739753</code>, docs through <code>f92b8d7</code>. "±" is one standard error over cubes unless marked; SEs clustered over source images are given in the note.</p>
+</footer>
+</main>
+
+<script>
+const D=/*__DATA__*/null;
+(function(){
+const NS='http://www.w3.org/2000/svg';
+function el(tag,attrs,parent){const e=document.createElementNS(NS,tag);if(attrs)for(const k in attrs)e.setAttribute(k,attrs[k]);if(parent)parent.appendChild(e);return e;}
+function tx(p,x,y,s,cls,anchor){const t=el('text',{x:x,y:y},p);if(cls)t.setAttribute('class',cls);if(anchor)t.setAttribute('text-anchor',anchor);t.textContent=s;return t;}
+function box(p,x,y,w,h,lines,cls){el('rect',{x:x,y:y,width:w,height:h,rx:7,class:cls||'box'},p);const n=lines.length;lines.forEach(function(s,i){tx(p,x+w/2,y+h/2+(i-(n-1)/2)*17+4.5,s,i===0?'bt':'bs','middle');});}
+function arr(p,pts,cls){const k=cls||'';const m=k.indexOf('acc')>=0?'mA':(k.indexOf('s2')>=0?'mS':'mI');return el('path',{d:'M'+pts.map(function(q){return q[0]+' '+q[1];}).join(' L'),class:'ar '+k,'marker-end':'url(#'+m+')'},p);}
+function line(p,x1,y1,x2,y2,cls){return el('line',{x1:x1,y1:y1,x2:x2,y2:y2,class:cls||'wire'},p);}
+function mk(host,W,H,minW){const s=el('svg',{viewBox:'0 0 '+W+' '+H,role:'img','aria-label':host.dataset.aria||''});s.style.minWidth=(minW||Math.min(W,640))+'px';host.appendChild(s);return s;}
+function f4(v){return (v>=0?'':'')+v.toFixed(4);}
+function f3(v){return v.toFixed(3);}
+function pm(v){return (v>0?'+':'')+v.toFixed(4);}
+function rrect(x,y,w,h,r){if(w<=r)return 'M'+x+' '+y+'h'+w+'v'+h+'h'+(-w)+'z';return 'M'+x+' '+y+'h'+(w-r)+'a'+r+' '+r+' 0 0 1 '+r+' '+r+'v'+(h-2*r)+'a'+r+' '+r+' 0 0 1 '+(-r)+' '+r+'h'+(-(w-r))+'z';}
+function cpath(x,base,w,h,r){if(h<=r)return 'M'+x+' '+base+'v'+(-h)+'h'+w+'v'+h+'z';return 'M'+x+' '+base+'v'+(-(h-r))+'a'+r+' '+r+' 0 0 1 '+r+' '+(-r)+'h'+(w-2*r)+'a'+r+' '+r+' 0 0 1 '+r+' '+r+'v'+(h-r)+'z';}
+/* tooltip */
+const tip=document.getElementById('tip');
+function showTip(e,html){tip.innerHTML=html;tip.hidden=false;const r=tip.getBoundingClientRect();let x=e.clientX+14,y=e.clientY+14;if(x+r.width>innerWidth-8)x=e.clientX-r.width-14;if(y+r.height>innerHeight-8)y=e.clientY-r.height-14;tip.style.left=Math.max(4,x)+'px';tip.style.top=Math.max(4,y)+'px';}
+function hideTip(){tip.hidden=true;}
+function svgPt(svg,e){const p=svg.createSVGPoint();p.x=e.clientX;p.y=e.clientY;return p.matrixTransform(svg.getScreenCTM().inverse());}
+function dataTable(host,head,rows){const d=document.createElement('details');d.className='data';const sm=document.createElement('summary');sm.textContent='Show the data';d.appendChild(sm);const w=document.createElement('div');w.className='tbl';const t=document.createElement('table');t.className='dt';let h='<tr>'+head.map(function(x){return '<th>'+x+'</th>';}).join('')+'</tr>';rows.forEach(function(r){h+='<tr>'+r.map(function(x){return '<td>'+x+'</td>';}).join('')+'</tr>';});t.innerHTML=h;w.appendChild(t);d.appendChild(w);host.parentNode.insertBefore(d,host.nextSibling);}
+function hover(node,fn){node.addEventListener('pointermove',function(e){showTip(e,fn());});node.addEventListener('pointerleave',hideTip);}
+function clear(host){while(host.firstChild)host.removeChild(host.firstChild);const n=host.nextSibling;if(n&&n.classList&&n.classList.contains('data'))n.parentNode.removeChild(n);}
+
+/* ---------- line chart ---------- */
+function lineChart(host,o){
+  const W=o.w||720,H=o.h||300,m={l:o.ml||54,r:(o.mr==null?110:o.mr),t:26,b:44};
+  const svg=mk(host,W,H,o.minW||520);
+  const pw=W-m.l-m.r,ph=H-m.t-m.b;
+  const X=function(v){return m.l+(v-o.x[0])/(o.x[1]-o.x[0])*pw;},Y=function(v){return m.t+ph-(v-o.y[0])/(o.y[1]-o.y[0])*ph;};
+  o.yTicks.forEach(function(t){line(svg,m.l,Y(t),m.l+pw,Y(t),'grid');tx(svg,m.l-8,Y(t)+4,(o.yFmt||String)(t),'tick','end');});
+  line(svg,m.l,m.t+ph,m.l+pw,m.t+ph,'axis');
+  o.xTicks.forEach(function(t){tx(svg,X(t),m.t+ph+18,(o.xFmt||String)(t),'tick','middle');});
+  if(o.yTitle)tx(svg,4,14,o.yTitle,'axt','start');
+  if(o.xTitle)tx(svg,m.l+pw,m.t+ph+38,o.xTitle,'axt','end');
+  (o.refs||[]).forEach(function(r){line(svg,m.l,Y(r.y),m.l+pw,Y(r.y),'ref');tx(svg,r.left?m.l+8:m.l+pw+8,Y(r.y)+(r.dy==null?4:r.dy),r.label,'reflbl','start');});
+  (o.vrefs||[]).forEach(function(r){line(svg,X(r.x),m.t,X(r.x),m.t+ph,'ref');tx(svg,X(r.x)+6,m.t+12,r.label,'reflbl','start');});
+  o.series.forEach(function(s){
+    const d=s.data.map(function(p,i){return (i?'L':'M')+X(p[0]).toFixed(1)+' '+Y(p[1]).toFixed(1);}).join(' ');
+    el('path',{d:d,class:'ln',style:'stroke:var('+s.c+');'+(s.faint?'opacity:.5;':'')+(s.dash?'stroke-dasharray:3 3;':'')},svg);
+    if(s.marks)s.data.forEach(function(p){el('circle',{cx:X(p[0]),cy:Y(p[1]),r:3,class:'dot',style:'fill:var('+s.c+');'+(s.faint?'opacity:.6':'')},svg);});
+    const L=s.data[s.data.length-1];
+    el('circle',{cx:X(L[0]),cy:Y(L[1]),r:4.5,class:'dot',style:'fill:var('+s.c+')'},svg);
+    if(s.label)tx(svg,X(L[0])+(s.ldx==null?10:s.ldx),Y(L[1])+(s.ldy==null?4:s.ldy),s.label,'endlbl',s.lanchor||'start');
+    if(s.min){const mn=s.data.reduce(function(a,b){return b[1]<a[1]?b:a;});el('circle',{cx:X(mn[0]),cy:Y(mn[1]),r:6,fill:'none',style:'stroke:var('+s.c+');stroke-width:1.6'},svg);tx(svg,X(mn[0])+10,Y(mn[1])-11,'min '+mn[1].toFixed(4)+' @ '+mn[0],'vlbl','start');}
+  });
+  const cross=el('line',{y1:m.t,y2:m.t+ph,class:'cross',visibility:'hidden'},svg);
+  const hd=o.series.map(function(s){return el('circle',{r:5,class:'dot',style:'fill:var('+s.c+')',visibility:'hidden'},svg);});
+  const hit=el('rect',{x:m.l,y:m.t,width:pw,height:ph,class:'hit'},svg);
+  function off(){cross.setAttribute('visibility','hidden');hd.forEach(function(c){c.setAttribute('visibility','hidden');});hideTip();}
+  hit.addEventListener('pointermove',function(e){
+    const p=svgPt(svg,e);const xv=o.x[0]+(p.x-m.l)/pw*(o.x[1]-o.x[0]);const tol=(o.x[1]-o.x[0])*0.03;const rows=[];
+    o.series.forEach(function(s,i){
+      const f=s.data[0][0],l=s.data[s.data.length-1][0];
+      if(xv<f-tol||xv>l+tol){hd[i].setAttribute('visibility','hidden');return;}
+      let bi=0;s.data.forEach(function(q,j){if(Math.abs(q[0]-xv)<Math.abs(s.data[bi][0]-xv))bi=j;});
+      const b=s.data[bi];hd[i].setAttribute('cx',X(b[0]));hd[i].setAttribute('cy',Y(b[1]));hd[i].setAttribute('visibility','visible');
+      rows.push('<div class="tr"><i style="background:var('+s.c+')"></i>'+s.name+'<b>'+(o.tipY||f4)(b[1])+'</b></div><div class="sub">'+(o.tipX||String)(b[0])+'</div>');
+    });
+    if(!rows.length){off();return;}
+    cross.setAttribute('x1',p.x);cross.setAttribute('x2',p.x);cross.setAttribute('visibility','visible');
+    showTip(e,rows.join(''));
+  });
+  hit.addEventListener('pointerleave',off);
+  if(o.table)dataTable(host,o.table.head,o.table.rows);
+}
+
+/* ---------- figures ---------- */
+const F={};
+F.pipeline=function(h){
+  const s=mk(h,960,262,760);
+  tx(s,10,22,'THE SAME START','tag');
+  box(s,10,34,224,66,['Low-res sensor image y₄','16 × 16 px × 30 channels'],'box');
+  arr(s,[[238,67],[318,67]]);tx(s,278,58,'linear prior','vl','middle');
+  box(s,322,34,268,66,['Linear estimate x̂₀ = baseline','64 × 64 × 64 bands · 2.3512 %'],'box box-acc');
+  box(s,10,164,290,72,['B · residual diffusion (Phase 1a)','one DDIM step at t = 999 from noise · 2.2426 %'],'box box-s3');
+  box(s,322,164,268,72,['R · one-step regressor (this phase)','same U-Net, zero x_t, direct loss · L1 2.1422 %'],'box box-acc');
+  arr(s,[[456,104],[456,160]],'ar-acc');tx(s,466,138,'input [x_t, x̂₀], context y₄','vl');
+  arr(s,[[160,104],[160,160]],'ar-acc');
+  tx(s,10,150,'TWO WAYS TO PREDICT THE RESIDUAL r = (x − x̂₀) / σ₄','tag');
+  tx(s,10,112,'r̂ → x̂ = x̂₀ + σ₄ r̂','sm');
+  tx(s,630,22,'THE GATE','tag');
+  box(s,630,34,320,66,['200 held-out cubes, paired per cube','beat the baseline and B by 2 SE; target −15 %'],'box');
+  box(s,630,164,320,72,['Validity: y-swap on 32 cubes at t = 999','the gain must vanish with another cube’s condition'],'box box-s2');
+  arr(s,[[594,67],[626,67]]);arr(s,[[594,200],[626,200]],'ar-s2');arr(s,[[304,200],[318,200]]);
+  tx(s,950,254,'Only final checkpoints are scored; the monitoring split never includes the gate cubes.','sm','end');
+};
+F.energy=function(h){
+  const W=760,rowH=30,m={l:250,r:110,t:30,b:36};
+  const rows=[
+    {g:'200 gate cubes',label:'baseline b²',parts:[['--de',D.diag.ddim10.c2+0,'x']],v:6.085,tip:'baseline error energy 6.085 pct², the mean of per-cube RMSE² (RMS 2.467 %; mean RMSE 2.3512 %)',mono:true},
+    {g:'',label:'one-step centre c₁',v:D.diag.t999.c1,parts:[['--s3',D.diag.t999.c1]],tip:'noise-free centre of B’s t = 999 output: removes 11.4 % of the baseline energy'},
+    {g:'',label:'one-step single draw',v:D.diag.t999.o,parts:[['--s3',D.diag.t999.c2],['--s3f',D.diag.t999.spread]],tip:'5.392 centre + 0.139 spread: B’s one-step output barely depends on its noise'},
+    {g:'',label:'DDIM-10 chain: centre c₂ + spread',v:D.diag.ddim10.o,parts:[['--accent',D.diag.ddim10.c2],['--accentf',D.diag.ddim10.spread]],tip:'4.908 centre (removes 19.3 %) + 4.907 spread = 9.815 for a single draw'},
+    {g:'50 DDPM cubes',label:'baseline b²',v:D.diag.ddpm1000.c2+0,parts:[['--de',6.203]],tip:'baseline error energy 6.203 pct² on the 50 DDPM cubes'},
+    {g:'',label:'one-step centre c₁',v:D.diag.ddpm1000.c1,parts:[['--s3',D.diag.ddpm1000.c1]],tip:'removes 11.1 % of the baseline energy on these cubes'},
+    {g:'',label:'DDPM-1000 chain: centre c₂ + spread',v:D.diag.ddpm1000.o,parts:[['--accent',D.diag.ddpm1000.c2],['--accentf',D.diag.ddpm1000.spread]],tip:'4.791 centre (removes 22.8 %) + 6.940 spread = 11.731 for a single draw'}];
+  rows[0].parts=[['--de',6.085]];rows[4].v=6.203;
+  const H=m.t+m.b+rowH*rows.length+14;const svg=mk(h,W,H,600);
+  const pw=W-m.l-m.r,max=12;const X=function(v){return m.l+v/max*pw;};
+  [0,2,4,6,8,10,12].forEach(function(t){line(svg,X(t),m.t-6,X(t),H-m.b,'grid');tx(svg,X(t),H-m.b+16,String(t),'tick','middle');});
+  tx(svg,m.l+pw,H-m.b+32,'error energy, pct² (RMSE² on the 0–100 % scale)','axt','end');
+  rows.forEach(function(r,i){
+    const yc=m.t+rowH*i+rowH/2+(i>=4?14:0),bh=18;
+    if(r.g)tx(svg,10,yc-14,r.g.toUpperCase(),'tag');
+    tx(svg,m.l-12,yc+4,r.label,'bs','end');
+    let x0=0;r.parts.forEach(function(p){const faint=p[0].slice(-1)==='f';const col=faint?p[0].slice(0,-1):p[0];const w=X(p[1])-X(0);el('path',{d:rrect(X(x0),yc-bh/2,Math.max(1,w),bh,0),style:'fill:var('+col+');'+(faint?'fill-opacity:.35':'')},svg);x0+=p[1];});
+    tx(svg,X(x0)+8,yc+4,x0.toFixed(3),'vlbl','start');
+    const hit=el('rect',{x:m.l,y:yc-rowH/2,width:pw+m.r,height:rowH,fill:'transparent',class:'barhit'},svg);
+    hover(hit,function(){return '<div><b style="margin:0;padding:0">'+r.label+'</b></div><div class="sub">'+r.tip+'</div>';});
+  });
+  dataTable(h,['row','b²','c₁','c₂','spread','single draw o','K-mean ebar','λ'],['ddim10','t999','ddpm1000'].map(function(k){const d=D.diag[k];return [k,k==='ddpm1000'?'6.203':'6.085',d.c1.toFixed(3),d.c2.toFixed(3),d.spread.toFixed(3),d.o.toFixed(3),d.ebar.toFixed(3),d.lam==null?'1 (def.)':d.lam.toFixed(3)+' ± '+d.lam_se.toFixed(3)];}));
+};
+F.curves=function(h){
+  function panel(title,run,c,yr,ticks,ymin){
+    const d=document.createElement('div');const t=document.createElement('p');t.className='charthead';t.textContent=title;d.appendChild(t);const host=document.createElement('div');host.className='scroll';host.dataset.aria=title;d.appendChild(host);h.appendChild(d);
+    const L=D.logs[run];const tr=L.map(function(r){return [r[0],r[1]];});const va=L.filter(function(r){return r[2]!=null;}).map(function(r){return [r[0],r[2]];});
+    lineChart(host,{w:440,h:300,minW:360,mr:16,ml:50,x:[0,100],y:yr,yTicks:ticks,xTicks:[0,25,50,75,100],xTitle:'epoch',yTitle:'loss (unit-RMS residual)',
+      series:[{name:'training',c:c,data:tr},{name:'monitoring (800 files)',c:c,data:va,faint:true,marks:true,min:true}],tipX:function(e){return 'epoch '+e;}});
+  }
+  panel('R L1: mean absolute error','regress_l1_d4_b64','--accent',[0.2,0.5],[0.2,0.3,0.4,0.5]);
+  panel('R L2: mean squared error','regress_l2_d4_b64','--s2',[0.2,0.9],[0.2,0.4,0.6,0.8]);
+};
+
+/* ---------- charts ---------- */
+const CH={};
+CH.nfe=function(h){
+  const rows=[['ddim1','1 DDIM step'],['ddim2','2 steps'],['ddim5','5 steps'],['ddim10','10 steps'],['ddim20','20 steps'],['ddpm1000','DDPM, 1000 steps (50 cubes)']].map(function(x){const g=D.grid.find(function(r){return r.name===x[0];});return {label:x[1],v:g.rmse,se:g.se,nfe:g.nfe,n:g.n};});
+  const W=720,rowH=34,m={l:230,r:80,t:30,b:40};const H=m.t+m.b+rowH*rows.length;const svg=mk(h,W,H,620);
+  const pw=W-m.l-m.r,x0=0,x1=4;const X=function(v){return m.l+(v-x0)/(x1-x0)*pw;};
+  [0,1,2,3,4].forEach(function(t){line(svg,X(t),m.t,X(t),H-m.b,'grid');tx(svg,X(t),H-m.b+18,String(t),'tick','middle');});
+  tx(svg,m.l+pw,H-m.b+34,'mean RMSE %','axt','end');
+  line(svg,X(2.3512),m.t-4,X(2.3512),H-m.b,'refacc');tx(svg,X(2.3512)+5,m.t-8,'baseline 2.3512','reflbl');
+  rows.forEach(function(r,i){const yc=m.t+rowH*i+rowH/2,bh=16;tx(svg,m.l-12,yc+4,r.label,'bs','end');
+    el('path',{d:rrect(X(x0),yc-bh/2,X(r.v)-X(x0),bh,4),style:'fill:var('+(r.nfe===1?'--s3':'--de')+')'},svg);tx(svg,X(r.v)+8,yc+4,r.v.toFixed(4),'vlbl');
+    const hit=el('rect',{x:m.l,y:yc-rowH/2,width:pw+m.r,height:rowH,fill:'transparent',class:'barhit'},svg);
+    hover(hit,function(){return '<div><b style="margin:0;padding:0">'+r.label+'</b></div><div class="sub">'+r.v.toFixed(4)+' ± '+r.se.toFixed(4)+' % · '+r.nfe+' NFE · '+r.n+' cubes</div>';});});
+  dataTable(h,['sampler','NFE','cubes','mean RMSE %','SE'],D.grid.map(function(g){return [g.name,g.nfe,g.n,g.rmse.toFixed(4),g.se.toFixed(4)];}));
+};
+CH.spread=function(h){
+  const host=h;function draw(row){clear(host);const d=D.diag[row],pc=d.pc;const b2=pc.b.map(function(v){return v*v;});
+    const W=720,H=330,m={l:54,r:24,t:24,b:44};const svg=mk(host,W,H,600);const pw=W-m.l-m.r,ph=H-m.t-m.b;
+    const xmax=row==='ddim10'?16:13,ymax=row==='ddim10'?10:12;const X=function(v){return m.l+Math.min(v,xmax)/xmax*pw;},Y=function(v){return m.t+ph-Math.min(v,ymax)/ymax*ph;};
+    const yt=row==='ddim10'?[0,2,4,6,8,10]:[0,3,6,9,12];yt.forEach(function(t){line(svg,m.l,Y(t),m.l+pw,Y(t),'grid');tx(svg,m.l-8,Y(t)+4,String(t),'tick','end');});
+    const xt=row==='ddim10'?[0,4,8,12,16]:[0,3,6,9,12];xt.forEach(function(t){tx(svg,X(t),m.t+ph+18,String(t),'tick','middle');});line(svg,m.l,m.t+ph,m.l+pw,m.t+ph,'axis');
+    tx(svg,4,14,'spread, pct²','axt');tx(svg,m.l+pw,m.t+ph+38,'baseline error energy b², pct²','axt','end');
+    // fits: spread on b² (least squares) and c2 on b²
+    function fit(y){const n=y.length;let sx=0,sy=0,sxx=0,sxy=0;for(let i=0;i<n;i++){sx+=b2[i];sy+=y[i];sxx+=b2[i]*b2[i];sxy+=b2[i]*y[i];}const sl=(n*sxy-sx*sy)/(n*sxx-sx*sx);return [sl,(sy-sl*sx)/n];}
+    const fs=fit(pc.spread),fc=fit(pc.c2);
+    const seg=function(f,cls,style){const x1=0,x2=xmax;let y1=f[1],y2=f[1]+f[0]*x2;if(y2>ymax){y2=ymax;}const xe=(y2-f[1])/f[0];el('line',{x1:X(x1),y1:Y(y1),x2:X(Math.min(x2,xe)),y2:Y(y2),class:cls,style:style||''},svg);};
+    seg(fc,'ref');seg(fs,'ln','stroke:var(--accent)');
+    let beyond=0;pc.spread.forEach(function(sp,i){if(b2[i]>xmax)beyond++;const c=el('circle',{cx:X(b2[i]),cy:Y(sp),r:4,class:'pt',style:'fill:var(--accent)'},svg);
+      hover(c,function(){return '<div><b style="margin:0;padding:0">cube '+(i+1)+'</b></div><div class="sub">baseline '+pc.b[i].toFixed(3)+' % (b² '+b2[i].toFixed(2)+') · spread '+sp.toFixed(2)+' · centre c₂ '+pc.c2[i].toFixed(2)+' pct²</div>';});});
+    tx(svg,m.l+pw-6,m.t+ph-8,'spread on b²: slope '+fs[0].toFixed(3)+' (own-centre slope '+fc[0].toFixed(3)+')'+(beyond?' · '+beyond+' cube'+(beyond>1?'s':'')+' beyond the x range drawn at the edge':''),'sm','end');
+  }
+  draw('ddim10');
+  document.querySelectorAll('[data-row]').forEach(function(b){b.addEventListener('click',function(){document.querySelectorAll('[data-row]').forEach(function(x){x.setAttribute('aria-pressed','false');});b.setAttribute('aria-pressed','true');draw(b.dataset.row);});});
+};
+CH.gains=function(h){
+  const g=D.gate.models;const L1=g.find(function(m){return m.loss==='l1';}),L2=g.find(function(m){return m.loss==='l2';});
+  const rows=[{label:'B · one DDIM step (1 NFE)',v:-0.1086,se:0.0060,c:'--s3',pct:'4.6 %'},{label:'B · mean of 8 one-step draws (8 NFE)',v:-0.1371,se:0.0059,c:'--s3',pct:'5.8 %'},
+    {label:'R L2 (1 NFE)',v:L2.vs_base.diff,se:L2.vs_base.se,c:'--s2',pct:'7.2 %'},{label:'R L1 (1 NFE)',v:L1.vs_base.diff,se:L1.vs_base.se,c:'--accent',pct:'8.9 %'}];
+  const W=720,rowH=36,m={l:270,r:130,t:30,b:40};const H=m.t+m.b+rowH*rows.length;const svg=mk(h,W,H,620);
+  const pw=W-m.l-m.r,x0=-0.4,x1=0;const X=function(v){return m.l+(v-x0)/(x1-x0)*pw;};
+  [-0.4,-0.3,-0.2,-0.1,0].forEach(function(t){line(svg,X(t),m.t,X(t),H-m.b,'grid');tx(svg,X(t),H-m.b+18,(t>0?'+':'')+t.toFixed(1),'tick','middle');});
+  line(svg,X(0),m.t,X(0),H-m.b,'axis');tx(svg,m.l+pw,H-m.b+34,'change in mean RMSE against the baseline, percentage points','axt','end');
+  line(svg,X(-0.3527),m.t,X(-0.3527),H-m.b,'refacc');tx(svg,X(-0.3527)-5,m.t-4,'target −0.3527 (−15 %)','reflbl','end');
+  rows.forEach(function(r,i){const yc=m.t+rowH*i+rowH/2,bh=16;tx(svg,m.l-12,yc+4,r.label,'bs','end');
+    el('path',{d:rrect(X(r.v),yc-bh/2,X(0)-X(r.v),bh,0),style:'fill:var('+r.c+')'},svg);
+    line(svg,X(r.v-2*r.se),yc,X(r.v+2*r.se),yc,'err');line(svg,X(r.v-2*r.se),yc-5,X(r.v-2*r.se),yc+5,'err');line(svg,X(r.v+2*r.se),yc-5,X(r.v+2*r.se),yc+5,'err');
+    tx(svg,X(0)+8,yc+4,r.v.toFixed(4)+' ± '+r.se.toFixed(4),'vlbl');
+    const hit=el('rect',{x:m.l,y:yc-rowH/2,width:pw+m.r,height:rowH,fill:'transparent',class:'barhit'},svg);
+    hover(hit,function(){return '<div><b style="margin:0;padding:0">'+r.label+'</b></div><div class="sub">'+r.v.toFixed(4)+' ± '+r.se.toFixed(4)+' (bar: ± 2 SE) · gain '+r.pct+'</div>';});});
+  dataTable(h,['model','− baseline','iid SE','clustered SE','− B ddim1','− B 8-draw mean'],[['B ddim1','−0.1086','0.0060','0.0068','—','+0.0286 ± 0.0015'],['B 8-draw one-step mean','−0.1371','0.0059','0.0069','−0.0286 ± 0.0015','—'],
+    ['R L1',pm(L1.vs_base.diff),L1.vs_base.se.toFixed(4),L1.vs_base.se_cluster.toFixed(4),pm(L1.vs_b.diff)+' ± '+L1.vs_b.se.toFixed(4),pm(L1.vs_k.diff)+' ± '+L1.vs_k.se.toFixed(4)],
+    ['R L2',pm(L2.vs_base.diff),L2.vs_base.se.toFixed(4),L2.vs_base.se_cluster.toFixed(4),pm(L2.vs_b.diff)+' ± '+L2.vs_b.se.toFixed(4),pm(L2.vs_k.diff)+' ± '+L2.vs_k.se.toFixed(4)]]);
+};
+CH.scatter=function(h){
+  const host=h;const names={l1:'R L1',l2:'R L2',b:'B ddim1'};const cc={P022:'--s2',P023:'--accent',P024:'--s3'};
+  function draw(model){clear(host);const W=720,H=420,m={l:54,r:24,t:24,b:44};const svg=mk(host,W,H,600);const pw=W-m.l-m.r,ph=H-m.t-m.b;const lo=0.5,hi=6;
+    const X=function(v){return m.l+(v-lo)/(hi-lo)*pw;},Y=function(v){return m.t+ph-(v-lo)/(hi-lo)*ph;};
+    [1,2,3,4,5,6].forEach(function(t){line(svg,m.l,Y(t),m.l+pw,Y(t),'grid');tx(svg,m.l-8,Y(t)+4,String(t),'tick','end');line(svg,X(t),m.t,X(t),m.t+ph,'grid');tx(svg,X(t),m.t+ph+18,String(t),'tick','middle');});
+    line(svg,m.l,m.t+ph,m.l+pw,m.t+ph,'axis');line(svg,X(lo),Y(lo),X(hi),Y(hi),'diag');
+    tx(svg,4,14,names[model]+' RMSE %','axt');tx(svg,m.l+pw,m.t+ph+38,'baseline RMSE % (same cube)','axt','end');
+    let worse=0,sum=0;D.cubes.forEach(function(c){const v=c[model];if(v>c.base)worse++;sum+=v-c.base;
+      const p=el('circle',{cx:X(c.base),cy:Y(v),r:4.5,class:'pt',style:'fill:var('+cc[c.c]+')'},svg);
+      hover(p,function(){return '<div><b style="margin:0;padding:0">'+c.f.replace('MatFlower60/Train/','')+'</b></div><div class="sub">baseline '+c.base.toFixed(3)+' · '+names[model]+' '+v.toFixed(3)+' ('+pm(v-c.base)+') · B '+c.b.toFixed(3)+' · L1 '+c.l1.toFixed(3)+' · L2 '+c.l2.toFixed(3)+'</div>';});});
+    tx(svg,m.l+10,m.t+14,names[model]+': mean change '+pm(sum/200)+' · worse than the baseline on '+worse+' of 200 cubes','sm');
+    tx(svg,X(hi)-6,Y(hi)+16,'worse ↑','sm','end');tx(svg,X(hi)-6,Y(lo)-8,'better ↓','sm','end');
+  }
+  draw('l1');
+  document.querySelectorAll('[data-model]').forEach(function(b){b.addEventListener('click',function(){document.querySelectorAll('[data-model]').forEach(function(x){x.setAttribute('aria-pressed','false');});b.setAttribute('aria-pressed','true');draw(b.dataset.model);});});
+};
+CH.yswap=function(h){
+  const groups=D.yswaps.slice(0,3);const vars=[['true','true','--accent'],['swap_sensor_only','sensor-only swap','--s3'],['swap_full','full swap','--s2'],['zero','both zeroed','--de']];
+  const W=720,H=330,m={l:54,r:16,t:24,b:56};const svg=mk(h,W,H,600);const pw=W-m.l-m.r,ph=H-m.t-m.b;const y0=1.5,y1=4;
+  const Y=function(v){return m.t+ph-(v-y0)/(y1-y0)*ph;};const band=pw/groups.length,bw=Math.min(40,band/5.2);
+  [1.5,2,2.5,3,3.5,4].forEach(function(t){line(svg,m.l,Y(t),m.l+pw,Y(t),'grid');tx(svg,m.l-8,Y(t)+4,t.toFixed(1),'tick','end');});line(svg,m.l,Y(y0),m.l+pw,Y(y0),'axis');
+  tx(svg,4,14,'mean RMSE % on the 32 y-swap cubes','axt');
+  line(svg,m.l,Y(2.4194),m.l+pw,Y(2.4194),'refacc');tx(svg,m.l+4,Y(2.4194)-5,'baseline 2.4194','reflbl','start');
+  groups.forEach(function(g,i){const cx=m.l+band*i+band/2;tx(svg,cx,Y(y0)+20,g.label.replace(' (leak-free x_T)',''),'bs','middle');if(i===2)tx(svg,cx,Y(y0)+36,'leak-free, x_t = ε','sm','middle');
+    vars.forEach(function(v,j){const x=cx+(j-1.5)*(bw+3)-bw/2;const val=g[v[0]];el('path',{d:cpath(x,Y(y0),bw,Y(y0)-Y(Math.min(val,y1)),4),style:'fill:var('+v[2]+')'},svg);
+      if(val<=y1)tx(svg,x+bw/2,Y(val)-6,val.toFixed(3),'vlbl','middle');
+      const hit=el('rect',{x:x,y:m.t,width:bw+3,height:ph,fill:'transparent',class:'barhit'},svg);hover(hit,function(){return '<div><b style="margin:0;padding:0">'+g.label+' · '+v[1]+'</b></div><div class="sub">'+val.toFixed(4)+' % · baseline '+g.baseline.toFixed(4)+' · n = '+g.n+'</div>';});});});
+  dataTable(h,['model','true','sensor-only','full swap','zeroed','baseline'],D.yswaps.map(function(g){return [g.label,g.true.toFixed(4),g.swap_sensor_only.toFixed(4),g.swap_full.toFixed(4),g.zero.toFixed(4),g.baseline.toFixed(4)];}));
+};
+CH.energy=function(h){
+  const z=D.mon.zero.mse.pooled;const ep=[25,50,90,100];const runs=[['regress_l1_d4_b64','R L1','--accent',0.173],['regress_l2_d4_b64','R L2','--s2',0.134]];
+  const W=720,H=320,m={l:54,r:16,t:24,b:56};const svg=mk(h,W,H,600);const pw=W-m.l-m.r,ph=H-m.t-m.b;const ymax=32;
+  const Y=function(v){return m.t+ph-v/ymax*ph;};const band=pw/ep.length,bw=Math.min(52,band/3);
+  [0,5,10,15,20,25,30].forEach(function(t){line(svg,m.l,Y(t),m.l+pw,Y(t),'grid');tx(svg,m.l-8,Y(t)+4,t+' %','tick','end');});line(svg,m.l,Y(0),m.l+pw,Y(0),'axis');
+  tx(svg,4,14,'residual error energy removed (monitoring files)','axt');tx(svg,m.l+pw,Y(0)+40,'kept checkpoint (epoch)','axt','end');
+  line(svg,m.l,Y(28),m.l+pw,Y(28),'ref');tx(svg,m.l+pw-4,Y(28)-5,'≈ 28 % of the energy ≙ the 15 % target','reflbl','end');
+  const rows=[];
+  ep.forEach(function(e,i){const cx=m.l+band*i+band/2;tx(svg,cx,Y(0)+20,'epoch '+e,'bs','middle');
+    runs.forEach(function(r,j){const k=D.mon.checkpoints[r[0]+'@'+e];const v=100*(1-k.mse.pooled/z);const x=cx+(j-1)*(bw+6)+3;el('path',{d:cpath(x,Y(0),bw,Y(0)-Y(v),4),style:'fill:var('+r[2]+')'},svg);
+      if(e===100){line(svg,x-4,Y(100*r[3]),x+bw+4,Y(100*r[3]),'ref');}
+      tx(svg,x+bw/2,Y(v)-6,v.toFixed(1),'vlbl','middle');
+      const hit=el('rect',{x:x,y:m.t,width:bw+6,height:ph,fill:'transparent',class:'barhit'},svg);hover(hit,function(){return '<div><b style="margin:0;padding:0">'+r[1]+' · epoch '+e+'</b></div><div class="sub">MSE '+k.mse.pooled.toFixed(4)+' against the baseline’s '+z.toFixed(4)+' → '+v.toFixed(1)+' % removed · logged monitoring loss '+k.logged_val.toFixed(4)+(e===100?' · gate (200 cubes): '+(100*r[3]).toFixed(1)+' %':'')+'</div>';});
+      rows.push([r[1],e,k.mse.pooled.toFixed(4),k.mae.pooled.toFixed(4),v.toFixed(1)+' %',(100*(1-k.mse.P022/D.mon.zero.mse.P022)).toFixed(1)+' %',(100*(1-k.mse.P023/D.mon.zero.mse.P023)).toFixed(1)+' %',(100*(1-k.mse.P024/D.mon.zero.mse.P024)).toFixed(1)+' %']);});});
+  dataTable(h,['run','epoch','MSE','MAE','removed, pooled','P022','P023','P024'],rows);
+};
+
+document.querySelectorAll('[data-fig]').forEach(function(h){const f=F[h.dataset.fig];if(f)f(h);});
+document.querySelectorAll('[data-chart]').forEach(function(h){const f=CH[h.dataset.chart];if(f)f(h);});
+})();
+</script>
