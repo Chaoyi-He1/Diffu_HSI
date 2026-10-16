@@ -5,7 +5,7 @@ this phase; the spec §7 0.9 ratio is reported, and go_1b requires it too). Torc
   python scripts/gate_1a_prime.py \
       --reg <eval>/regress/d4/regress_l1_d4_b64__checkpoint_epoch_100__direct.json \
             <eval>/regress/d4/regress_l2_d4_b64__checkpoint_epoch_100__direct.json \
-      --b_yswap <results>/diagnostics/yswap_residual_d4_b64_t999_n32.json \
+      --b_yswap <results>/diagnostics/yswap_residual_d4_b64_t999_n32__xT.json \
       --b_diag <results>/diagnostics/b_diagnostics.json
 
 Per regressor R: vs_baseline (R - baseline per cube) and vs_b_ddim1 (R - B's seed-mean ddim1 per cube) pass when
@@ -18,11 +18,13 @@ at t = 999 (K NFE). B is re-validated under the same rule from its t = 999 y-swa
 different losses and the same training seed form a loss_pair; two with the same loss and different seeds form a
 seed_pair, whose go_1b is true only when both are PASS (hence valid), target_met and pass the spec 0.9 ratio at
 t = 999. best is the lowest-RMSE PASS regressor (the lowest-RMSE one when none passes); best_verdict is its verdict.
+Every regressor must carry its loss_type and train_seed, and no two may share both ('duplicate runs').
 
-Every y-swap record must be scored against its own evaluation's per-cube baseline on its cubes: the regressor's own
-y-swap against the regressor evaluation's baseline, and --b_yswap against B's (within YSWAP_BASELINE_TOL). --b_yswap
-must also be B's by provenance (mode residual, B's checkpoint, d, prior, meta checked). --b_diag's provenance.b_eval
-must name the --b file.
+Every y-swap record must hold YSWAP_N = 32 cubes (the pre-registered size) and be scored against its own evaluation's
+per-cube baseline on its cubes: the regressor's own y-swap against the regressor evaluation's baseline, and --b_yswap
+against B's (within YSWAP_BASELINE_TOL). --b_yswap must also be B's by provenance (mode residual, B's checkpoint, d,
+prior, meta checked) and leak-free: made with scripts/yswap_one_step.py --x_t noise, B's own pure-noise x_T (the
+default q_sample x_t leaks the true residual to B at t = 999). --b_diag's provenance.b_eval must name the --b file.
 """
 import argparse
 import json
@@ -41,6 +43,7 @@ from scripts.gate_1a import (YSWAP_THRESHOLD, _need, _paired, _prov, baseline_by
 B_EVAL = os.path.join(EVAL_DIR, 'residual', 'd4', 'residual_d4_b64__checkpoint_epoch_100.json')
 TARGET_FRACTION = 0.85          # spec §8: the 1b bar is 15 % below the baseline
 ONE_STEP_T = 999                # REGRESS_T and B's ddim1 call (repeated here: the gate stays torch-free)
+YSWAP_N = 32                    # plan deviation 1: the proposed rule is pre-registered on 32 stratified y-swap cubes
 YSWAP_BASELINE_TOL = 1e-5       # a y-swap scores its baseline in float32 on the evaluation device, the evaluation's own
 #                                 baseline_per_item on the CPU: a few ulps apart (1 ulp is 4.8e-7 at 4-8 %), far below
 #                                 what another cube or prior changes
@@ -82,6 +85,15 @@ def check_inputs(regs, ev_b, require_done):
         if _prov(ev, 'mode') != 'regress' or ev.get('grid') != 'direct' or _prov(ev, 'prediction_type') != 'direct':
             raise ValueError(f"--reg must be a direct-grid regress evaluation, got mode={_prov(ev, 'mode')!r} "
                              f"grid={ev.get('grid')!r} prediction_type={_prov(ev, 'prediction_type')!r}")
+    runs = {}                                    # (loss_type, train_seed) -> ckpt: the keys the pairs are formed on
+    for ev in regs:
+        key, ckpt = (_prov(ev, 'loss_type'), _prov(ev, 'train_seed')), _prov(ev, 'ckpt')
+        if None in key:
+            raise ValueError(f'{ckpt}: provenance loss_type={key[0]!r}, train_seed={key[1]!r}: the gate pairs regressors '
+                             f'on both, so neither may be None')
+        if key in runs:
+            raise ValueError(f'duplicate runs: {runs[key]} and {ckpt} are both loss_type {key[0]!r}, train_seed {key[1]!r}')
+        runs[key] = ckpt
     if _prov(ev_b, 'mode') != 'residual' or ev_b.get('grid') != 'full':
         raise ValueError(f"--b must be B's full-grid residual evaluation, got mode={_prov(ev_b, 'mode')!r} "
                          f"grid={ev_b.get('grid')!r}")
@@ -104,7 +116,22 @@ def check_inputs(regs, ev_b, require_done):
         base = baseline_by_file(ev)
         if base is None or set(base) != set(base_b) or max(abs(base[f] - base_b[f]) for f in base) > 1e-6:
             raise ValueError(f"{_prov(ev, 'ckpt')}: per-cube baselines differ from B's (different cubes or prior)")
-        check_yswap_baseline(_need(ev, 'yswap'), base, f"{_prov(ev, 'ckpt')}: the regressor's y-swap")
+        where = f"{_prov(ev, 'ckpt')}: the regressor's y-swap"
+        check_yswap_baseline(_need(ev, 'yswap'), base, where)
+        check_yswap_n(ev['yswap'], ev['provenance'].get('yswap_n'), 'yswap_n', where)
+
+
+def check_yswap_n(ys, declared, declared_key, where):
+    """Plan deviation 1 pre-registers the proposed rule on YSWAP_N stratified cubes: the y-swap must hold exactly
+    YSWAP_N cubes, and the size its producer declares (`declared`: an evaluation's provenance.yswap_n, a
+    yswap_one_step record's n; None when it declares none) must be YSWAP_N too."""
+    files = _need(ys, 'files', where)
+    n = None if files is None else len(files)
+    if n != YSWAP_N:
+        raise ValueError(f'{where} has {n} cubes; the proposed rule is pre-registered on {YSWAP_N} stratified cubes '
+                         f'(plan deviation 1)')
+    if declared is not None and declared != YSWAP_N:
+        raise ValueError(f'{where} declares {declared_key} {declared}, not the pre-registered {YSWAP_N}')
 
 
 def check_yswap_baseline(ys, base, where):
@@ -126,8 +153,10 @@ def _same(key, got, want):
 
 def check_b_records(ev_b, b_yswap=None, b_diag=None, b_path=None):
     """--b_yswap must be B's own (scripts/yswap_one_step.py provenance: mode residual, B's checkpoint, d and prior, meta
-    checked; its per-cube baseline is B's on its cubes). --b_diag's provenance.b_eval (scripts/diagnose_b.py merge)
-    must name the --b file; that comparison needs `b_path`, which main always passes."""
+    checked; its per-cube baseline is B's on its cubes), leak-free (provenance.x_t 'noise': B's ddim1 read-out starts
+    from pure noise, while the default q_sample x_t feeds B 0.00635 x the true residual at t = 999; a record without
+    x_t predates the option and used q_sample) and of YSWAP_N cubes. --b_diag's provenance.b_eval
+    (scripts/diagnose_b.py merge) must name the --b file; that comparison needs `b_path`, which main always passes."""
     if b_yswap is not None:
         prov = _need(b_yswap, 'provenance', '--b_yswap record')
         for key, want in (('mode', 'residual'), ('checkpoint', _prov(ev_b, 'ckpt')), ('d', _prov(ev_b, 'd')),
@@ -135,7 +164,16 @@ def check_b_records(ev_b, b_yswap=None, b_diag=None, b_path=None):
             got = _need(prov, key, '--b_yswap provenance')
             if not _same(key, got, want):
                 raise ValueError(f"--b_yswap is not B's y-swap: provenance.{key} is {got!r}, B's evaluation has {want!r}")
-        check_yswap_baseline(_need(b_yswap, 'yswap', '--b_yswap record'), baseline_by_file(ev_b), '--b_yswap')
+        x_t = prov.get('x_t', 'q_sample')
+        if x_t != 'noise':
+            note = '' if 'x_t' in prov else ' (no provenance.x_t: a record from before --x_t existed)'
+            raise ValueError(f"--b_yswap was made with x_t = {x_t!r}{note}, not 'noise': B's one-step read-out (ddim1) "
+                             f"starts from pure noise, while x_t = q_sample(true residual, {ONE_STEP_T}) = 0.00635 r + "
+                             f"0.99998 eps leaks the true residual to B; use scripts/yswap_one_step.py --t {ONE_STEP_T} "
+                             f"--x_t noise")
+        ys = _need(b_yswap, 'yswap', '--b_yswap record')
+        check_yswap_baseline(ys, baseline_by_file(ev_b), '--b_yswap')
+        check_yswap_n(ys, b_yswap.get('n'), 'n', '--b_yswap')
     if b_diag is not None:
         named = _need(_need(b_diag, 'provenance', 'b_diagnostics'), 'b_eval', 'b_diagnostics provenance')
         if b_path is not None and os.path.realpath(named) != os.path.realpath(b_path):
@@ -241,7 +279,8 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
     ap.add_argument('--reg', nargs='+', required=True)
     ap.add_argument('--b', default=B_EVAL)
-    ap.add_argument('--b_yswap', default=None, help="B's t = 999 y-swap (scripts/yswap_one_step.py --t 999 --n 32)")
+    ap.add_argument('--b_yswap', default=None,
+                    help="B's leak-free t = 999 y-swap (scripts/yswap_one_step.py --t 999 --n 32 --x_t noise)")
     ap.add_argument('--b_diag', default=None, help="B's step-0 diagnostics (scripts/diagnose_b.py merge); adds the "
                                                    "report-only comparison with the mean of B's K one-step draws")
     ap.add_argument('--k', type=float, default=DEFAULT_K)

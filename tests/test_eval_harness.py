@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import numpy as np
 import pytest
 import torch
@@ -554,6 +555,14 @@ def test_eval_output_path_separates_runs_and_grids():
         .endswith('eval/standard_xhat/d4/standard_xhat_d4_b64__checkpoint_epoch_100.json')
 
 
+def test_the_module_docstring_names_every_output_suffix():
+    """F6: the documented output pattern covers the direct grid's suffix, which eval_output_path writes."""
+    from scripts import eval_warmstart as ew
+    assert eval_output_path('regress', 4, 'regress_l1_d4_b64', '/x/runs/regress_l1_d4_b64/checkpoint_epoch_100.pth',
+                            grid='direct').endswith('eval/regress/d4/regress_l1_d4_b64__checkpoint_epoch_100__direct.json')
+    assert '<run_name>__<ckpt>[__quick|__direct].json' in ew.__doc__
+
+
 # ----------------------------------------------------------------------------- scripts/yswap_one_step.py (fix item 1 (b))
 def test_yswap_one_step_defaults_and_refuses_the_results_tree(tmp_path):
     from data_loader.warmstart_paths import RESULTS_ROOT
@@ -621,3 +630,182 @@ def test_yswap_one_step_end_to_end_on_cpu(data_root, tmp_path):
         assert s['means']['true'] == r['yswap'][f't{t}']['true']
         d = np.subtract(pc['swap_full'], pc['true'])
         assert s['paired']['swap_full_minus_true']['mean'] == pytest.approx(d.mean())
+
+
+# ----------------------------------------------------------------------------- final fix wave F1: x_t = 'noise'
+CPU = torch.device('cpu')
+DDIM1 = dict(name='ddim1', method='ddim', n_steps=1)
+
+
+def _tiny_b_batch():
+    """4 cubes of B's shapes at 16 x 16 (64 bands, 30 sensor channels at d = 4)."""
+    torch.manual_seed(0)
+    x = torch.rand(4, 64, 16, 16) * 1.6 - 0.8
+    return x, torch.rand(4, 30, 4, 4), (x + 0.05 * torch.randn_like(x)).clamp(-1, 1)
+
+
+def _tiny_b():
+    """A tiny random-weight residual (B-architecture) model and a v-prediction CPU trainer, as B is evaluated."""
+    torch.manual_seed(0)
+    return build_model('residual', 8, CPU), DiffusionTrainer(device=CPU, prediction_type='v', snr_gamma=None)
+
+
+def test_yswap_noise_x_t_true_is_bs_ddim1_read_out_for_the_same_noise():
+    """F1: with x_t='noise' every variant's x_t is the sampler's own x_T (randn after seed 1234), so at t = 999 the
+    y-swap's 'true' per-cube RMSE IS reconstruct(mode residual, ddim1) seeded with 1234: B's real one-step read-out,
+    which never sees the true residual. The default q_sample x_t = 0.00635 r + 0.99998 eps carries the true residual,
+    and a network that reads x_t scores differently on it (the leak)."""
+    model, tr = _tiny_b()
+    batch, sigma_d = _tiny_b_batch(), 0.05
+    assert DDIM1 == next(c for c in sampler_grid('full') if c['name'] == 'ddim1')
+    ref = metrics(reconstruct(model, tr, 'residual', batch, DDIM1, sigma_d, seed=1234), batch[0])['rmse_pct'].tolist()
+    res = yswap_check(model, tr, 'residual', batch, t_values=(999,), sigma_d=sigma_d, x_t='noise')
+    assert res['per_cube']['999']['true'] == ref                                     # exactly, cube by cube
+    leaky = yswap_check(model, tr, 'residual', batch, t_values=(999,), sigma_d=sigma_d)
+    assert leaky['per_cube']['999']['true'] != ref
+    assert set(res) == set(leaky) == {'t999', 'passes', 'files', 'per_cube', 'baseline_per_cube'}   # the same record
+
+
+def test_yswap_x_t_feeds_every_variant_one_shared_eps_and_the_default_is_q_sample():
+    """F1: the default (and x_t='q_sample') is unchanged -- x_t = q_sample(true target, t) with the eps of seed 1234,
+    the same for every variant; x_t='noise' feeds every variant that eps itself."""
+    seen = []
+
+    class Recorder(torch.nn.Module):
+        def forward(self, x_t, cond, t):
+            seen.append(x_t.clone())
+            return torch.zeros_like(x_t)
+    torch.manual_seed(0)
+    x, y, x0_hat = torch.rand(4, 4, 8, 8) * 2 - 1, torch.rand(4, 3, 2, 2), torch.rand(4, 4, 8, 8) * 2 - 1
+    tr, sigma_d = _cpu_trainer(), 0.1
+    target = (x - x0_hat) / sigma_d
+    torch.manual_seed(1234)
+    eps = torch.randn(x.shape)
+    for kw in ({}, {'x_t': 'q_sample'}):
+        seen.clear()
+        yswap_check(Recorder(), tr, 'residual', (x, y, x0_hat), t_values=(100, 999), sigma_d=sigma_d, **kw)
+        assert len(seen) == 8
+        for i, tv in enumerate((100, 999)):
+            want = tr.sqrt_alpha_bars[tv] * target + tr.sqrt_one_minus_alpha_bars[tv] * eps
+            assert all(torch.allclose(s, want, rtol=0, atol=1e-6) for s in seen[4 * i:4 * i + 4]), (kw, tv)
+    seen.clear()
+    yswap_check(Recorder(), tr, 'residual', (x, y, x0_hat), t_values=(999,), sigma_d=sigma_d, x_t='noise')
+    assert len(seen) == 4 and all(torch.equal(s, eps) for s in seen)
+
+
+def test_yswap_noise_x_t_is_refused_off_the_one_step_t_and_ignored_by_the_regressor():
+    """F1: 'noise' is the ddim1 sampler's x_T, defined only at t = 999 (refused at any other t); an unknown x_t is
+    refused; mode regress always calls on its zero x_t at REGRESS_T, so x_t does not change its record."""
+    from model.residual_wrapper import REGRESS_T
+    batch = (torch.zeros(4, 4, 8, 8), torch.zeros(4, 3, 2, 2), torch.zeros(4, 4, 8, 8))
+    for tv in ((100,), (300, 999), (100, 300)):
+        with pytest.raises(ValueError, match=r"x_t='noise'.*t = 999"):
+            yswap_check(ZeroModel(), _cpu_trainer(), 'residual', batch, t_values=tv, sigma_d=0.05, x_t='noise')
+    with pytest.raises(ValueError, match='x_t must be one of'):
+        yswap_check(ZeroModel(), _cpu_trainer(), 'residual', batch, t_values=(999,), sigma_d=0.05, x_t='zeros')
+
+    class Spy(torch.nn.Module):
+        def forward(self, x_t, cond, t):
+            assert t.tolist() == [REGRESS_T] * x_t.shape[0] and float(x_t.abs().max()) == 0.0
+            return cond['x0_hat'] + cond['sensor'].mean((1, 2, 3), keepdim=True)
+    torch.manual_seed(0)
+    x = torch.rand(4, 4, 8, 8) * 1.6 - 0.8
+    rb = (x, torch.rand(4, 3, 2, 2), 0.9 * x)
+    tr = DiffusionTrainer(device=CPU, prediction_type='direct', snr_gamma=None)
+    assert yswap_check(Spy(), tr, 'regress', rb, sigma_d=0.1, x_t='noise') == yswap_check(Spy(), tr, 'regress', rb,
+                                                                                           sigma_d=0.1)
+
+
+def _no_work(*args, **kwargs):
+    raise AssertionError('work started before the guards')
+
+
+def _fake_yswap_world(tmp_path, monkeypatch, mode='residual'):
+    """scripts/yswap_one_step.py main over a synthetic 4-cube batch (yswap_batch stubbed) and a tiny real model saved
+    as a checkpoint (check_meta stubbed True); the real yswap_check, summary and writer run."""
+    from types import SimpleNamespace
+    from scripts import yswap_one_step as yo
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    torch.manual_seed(0)
+    model = build_model(mode, 8, CPU)
+    ckpt, prior = tmp_path / 'checkpoint_epoch_100.pth', tmp_path / 'prior.npz'
+    torch.save({'model_state_dict': model.state_dict()}, str(ckpt))
+    prior.write_bytes(b'stub prior')
+    files = [f'MatFlower60/Train/P0{22 + i % 3}/img{i}_1.mat' for i in range(4)]
+    batch = _tiny_b_batch()
+    ds = SimpleNamespace(sigma_d=0.05, img_list=[str(tmp_path / f) for f in files])
+    monkeypatch.setattr(yo, 'yswap_batch', lambda root, prior_path, d, n: (ds, batch))
+    monkeypatch.setattr(yo, 'check_meta', lambda *a: True)
+    argv = ['--checkpoint', str(ckpt), '--mode', mode, '--base_channels', '8', '--prior', str(prior),
+            '--data_root', str(tmp_path), '--n', '4', '--t', '999']
+    if mode == 'regress':
+        argv += ['--prediction_type', 'direct']
+    return yo, model, batch, files, argv
+
+
+def test_yswap_one_step_records_x_t_in_its_provenance(tmp_path, monkeypatch):
+    """F1: --x_t (default q_sample) reaches yswap_check and the record's provenance; with --x_t noise at t = 999 the
+    record's 'true' cubes are B's ddim1 read-out; mode regress records its zero x_t whatever --x_t says."""
+    yo, model, batch, files, argv = _fake_yswap_world(tmp_path, monkeypatch)
+    assert yo.get_parser().parse_args(['--checkpoint', 'c', '--mode', 'residual', '--out', 'o']).x_t == 'q_sample'
+    with pytest.raises(SystemExit):
+        yo.get_parser().parse_args(['--checkpoint', 'c', '--mode', 'residual', '--out', 'o', '--x_t', 'zero'])
+    tr = DiffusionTrainer(device=CPU, prediction_type='v', snr_gamma=None)
+    ref = metrics(reconstruct(model, tr, 'residual', batch, DDIM1, 0.05, seed=1234), batch[0])['rmse_pct'].tolist()
+    noise = yo.main(argv + ['--x_t', 'noise', '--out', str(tmp_path / 'n.json')])
+    assert noise['provenance']['x_t'] == 'noise' and noise['provenance']['noise_seed'] == 1234 and noise['files'] == files
+    assert json.load(open(tmp_path / 'n.json'))['yswap']['per_cube']['999']['true'] == ref
+    leaky = yo.main(argv + ['--out', str(tmp_path / 'q.json')])
+    assert leaky['provenance']['x_t'] == 'q_sample' and leaky['yswap']['per_cube']['999']['true'] != ref
+    yo, _, _, _, argv_r = _fake_yswap_world(tmp_path / 'r', monkeypatch, mode='regress')
+    r = yo.main(argv_r + ['--x_t', 'noise', '--out', str(tmp_path / 'r.json')])
+    assert r['provenance']['x_t'] == 'zero' and set(r['yswap']['per_cube']) == {'999'}
+
+
+def test_yswap_one_step_refuses_noise_off_999_before_any_work(tmp_path, monkeypatch):
+    yo, _, _, _, argv = _fake_yswap_world(tmp_path, monkeypatch)
+    monkeypatch.setattr(yo.torch, 'load', _no_work)
+    monkeypatch.setattr(yo, 'yswap_batch', _no_work)
+    with pytest.raises(ValueError, match=r"x_t='noise'.*t = 999"):
+        yo.main(argv + ['--t', '300', '999', '--x_t', 'noise', '--out', str(tmp_path / 'o.json')])
+    assert not (tmp_path / 'o.json').exists()
+
+
+# ----------------------------------------------------------------------------- final fix wave F4 / F5: yswap_one_step
+def test_yswap_one_step_never_clobbers_an_output(tmp_path, monkeypatch):
+    """F4: an existing --out is refused before any work (its bytes untouched), and the record is written to a
+    temporary file first, so a crash while writing leaves no --out behind."""
+    yo, _, _, _, argv = _fake_yswap_world(tmp_path, monkeypatch)
+    out = tmp_path / 'diag' / 'ys.json'
+    out.parent.mkdir()
+    out.write_text('{"earlier": "record"}')
+    real_load = yo.torch.load
+    monkeypatch.setattr(yo.torch, 'load', _no_work)
+    with pytest.raises(SystemExit, match=re.escape(str(out)) + ' exists'):
+        yo.main(argv + ['--out', str(out)])
+    assert out.read_text() == '{"earlier": "record"}'
+    monkeypatch.setattr(yo.torch, 'load', real_load)
+    fresh = tmp_path / 'diag' / 'fresh.json'
+
+    def crash(obj, f, **kw):
+        f.write('{"provenance": ')
+        raise OSError('disk full')
+    monkeypatch.setattr(yo.json, 'dump', crash)
+    with pytest.raises(OSError, match='disk full'):
+        yo.main(argv + ['--out', str(fresh)])
+    assert not fresh.exists()
+
+
+def test_yswap_one_step_records_the_git_head_at_launch(tmp_path, monkeypatch):
+    """F5: the record's git_head is the HEAD when the command started, not a commit that landed during the run."""
+    yo, _, _, _, argv = _fake_yswap_world(tmp_path, monkeypatch)
+    head = ['a' * 40]
+    monkeypatch.setattr(yo, 'git_head', lambda: head[0])
+    real = yo.yswap_check
+
+    def commit_lands(*a, **k):
+        head[0] = 'b' * 40
+        return real(*a, **k)
+    monkeypatch.setattr(yo, 'yswap_check', commit_lands)
+    rec = yo.main(argv + ['--out', str(tmp_path / 'o.json')])
+    assert rec['provenance']['git_head'] == 'a' * 40 and head[0] == 'b' * 40

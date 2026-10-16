@@ -165,3 +165,42 @@ def test_the_planned_regress_launches_are_accepted(env, tmp_path, run_name, gpu,
     assert (run / 'launches').read_text().strip() == '1'
     a = stub_lines(tmp_path, 1)[0]
     assert '--mode regress' in a and f'--device cuda:{gpu}' in a and a.endswith(f'--save_dir {run} ' + ' '.join(extra))
+
+
+# ----------------------------------------------------------------------------- final fix wave F2: seed <-> RUN_NAME
+@pytest.mark.parametrize('run_name, mode, gpu, extra', [
+    ('regress_l1_d4_b64', 'regress', 0, L1),                                  # Task 7 Step 1, verbatim
+    ('regress_l2_d4_b64', 'regress', 1, L2),
+    ('regress_l1_s43_d4_b64', 'regress', 0, L1 + ('--seed', '43')),           # Task 7 Step 5, verbatim
+    ('regress_l2_s43_d4_b64', 'regress', 1, L2 + ('--seed', '43')),
+    ('regress_l1_s43_d4_b64', 'regress', 0, L1 + ('--seed=43',)),
+    ('regress_l1_s43_d4_b64', 'regress', 0, L1 + ('--seed', '42', '--seed', '43')),   # the last one wins
+    ('regress_l1_d4_b64', 'regress', 0, L1 + ('--seed', '42')),               # the trainer's default, spelled out
+    (None, 'residual', 0, ()),                                                # the Phase 1a pilot driver's launches
+    (None, 'standard', 1, ()),
+    (None, 'standard_xhat', 0, ()),
+])
+def test_the_planned_launches_pass_the_seed_guard(env, tmp_path, run_name, mode, gpu, extra):
+    r = launch(env, run_name, mode, gpu, *extra)
+    assert r.returncode == 0, r.stdout + r.stderr
+    run = tmp_path / 'root' / 'runs' / (run_name or f'{mode}_d4_b64')
+    a = stub_lines(tmp_path, 1)[0]
+    assert f'--mode {mode}' in a and f'--device cuda:{gpu}' in a
+    assert a.endswith(f'--save_dir {run}' + ''.join(' ' + x for x in extra))
+
+
+@pytest.mark.parametrize('run_name, extra, why', [
+    ('regress_l1_s43_d4_b64', L1, "names seed 43 but --seed is ''"),          # would train seed 42 under the s43 name
+    ('regress_l2_s43_d4_b64', L2 + ('--seed', '44'), "names seed 43 but --seed is '44'"),
+    ('regress_l1_s43_d4_b64', L1 + ('--seed', '43', '--seed', '42'), "names seed 43 but --seed is '42'"),   # last wins
+    ('regress_l1_s43_d4_b64', L1 + ('--seed=42',), "names seed 43 but --seed is '42'"),
+    ('regress_l1_d4_b64_s43', L1, "names seed 43 but --seed is ''"),          # _s<N> at the end of the name
+    ('regress_l1_d4_b64', L1 + ('--seed', '43'), "--seed 43 but RUN_NAME='regress_l1_d4_b64' names no _s<N>_"),
+    ('', L1 + ('--seed=43',), "--seed 43 but RUN_NAME='' names no _s<N>_"),  # the fallback regress_d4_b64 is seed 42
+    ('regress_l1_s43_d4_b64', L1 + ('--seed', '4x3'), "--seed '4x3' is not a non-negative integer"),
+])
+def test_a_regress_seed_that_contradicts_the_run_name_is_refused(env, tmp_path, run_name, extra, why):
+    r = launch(env, run_name, 'regress', 0, *extra)
+    out = r.stdout + r.stderr
+    assert r.returncode != 0 and why in out and 'not launching' in out, out
+    assert not (tmp_path / 'root').exists() and not (tmp_path / 'stub_args').exists()

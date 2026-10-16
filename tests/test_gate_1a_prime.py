@@ -2,13 +2,25 @@
 report-only comparison with B's K-draw mean, CLI; fix round 1: the k-SE margins and the iid SE of every rule, the pair
 kinds, go_1b's PASS condition, the spec ratio's value, the input refusals and the B-record ownership checks."""
 import json
+import re
 
 import numpy as np
 import pytest
 
 from scripts import gate_1a_prime as gp
 
-FILES = [f'MatFlower60/Train/P0{22 + i % 3}/img{i // 2}_{i % 2}.mat' for i in range(12)]   # 12 images, 1 cube each
+PREREGISTERED_YSWAP_N = gp.YSWAP_N        # read at import, before the fixture below overrides it
+
+
+@pytest.fixture(autouse=True)
+def eight_cube_yswaps(monkeypatch):
+    """Final-review F3: the gate refuses y-swaps of other than YSWAP_N = 32 cubes (plan deviation 1). The fixtures
+    below score 12 cubes with 8-cube y-swaps, so every test runs with the override YSWAP_N = 8; the 32-cube rule
+    itself is tested on its own fixture (test_the_gate_enforces_the_preregistered_yswap_size)."""
+    monkeypatch.setattr(gp, 'YSWAP_N', 8)
+
+
+FILES =[f'MatFlower60/Train/P0{22 + i % 3}/img{i // 2}_{i % 2}.mat' for i in range(12)]   # 12 images, 1 cube each
 BASE = np.linspace(2.0, 3.0, 12)
 SPREAD = np.array([-0.05, 0.03, -0.02, 0.04, -0.01, 0.02, -0.03, 0.01, 0.0, 0.05, -0.04, 0.0])
 CLUSTERED = [f'MatFlower60/Train/P022/img{i // 2}_{i % 2}.mat' for i in range(12)]          # 6 images x 2 patches
@@ -66,9 +78,10 @@ def b_eval(vals, **prov):
 
 
 def b_yswap_rec(ys=GOOD_YS, **prov):
-    """B's y-swap record as scripts/yswap_one_step.py writes it: the provenance the gate checks plus the y-swap."""
+    """B's y-swap record as scripts/yswap_one_step.py --x_t noise writes it: the provenance the gate checks plus the
+    y-swap."""
     p = dict(checkpoint=B_CKPT, checkpoint_sha256='s' * 64, mode='residual', d=4, base_channels=64, prediction_type='v',
-             prior_sha256='p' * 64, meta_checked=True)
+             prior_sha256='p' * 64, meta_checked=True, x_t='noise')
     p.update(prov)
     return dict(provenance=p, yswap=ys)
 
@@ -374,3 +387,110 @@ def test_main_writes_the_named_record(tmp_path):
         gp.main(['--reg', str(pr), '--b', str(other), '--b_diag', str(pd), '--no_require_done',
                  '--out', str(tmp_path / 'y.json')])
     assert not (tmp_path / 'y.json').exists()
+
+
+# ----------------------------------------------------------------------------- final fix wave
+def test_b_yswap_must_be_leak_free():
+    """F1: B's one-step read-out (ddim1) starts from pure noise, so --b_yswap must be the y-swap fed that noise
+    (scripts/yswap_one_step.py --x_t noise). A q_sample record -- and a record from before --x_t existed, which is one
+    -- feeds B 0.00635 x the true residual at t = 999 and is refused as a leak."""
+    reg = reg_eval(BASE - 0.3 + SPREAD, GOOD_YS)
+    assert gp.gate([reg], B, b_yswap_rec(), require_done=False)['b']['validity']['valid']
+    pre_fix = b_yswap_rec()
+    del pre_fix['provenance']['x_t']
+    for rec in (b_yswap_rec(x_t='q_sample'), pre_fix):
+        with pytest.raises(ValueError, match=r"--b_yswap was made with x_t = 'q_sample'.*leaks the true residual.*"
+                                             r"--x_t noise"):
+            gp.gate([reg], B, rec, require_done=False)
+    with pytest.raises(ValueError, match=r"x_t = 'zero'.*not 'noise'"):
+        gp.gate([reg], B, b_yswap_rec(x_t='zero'), require_done=False)
+
+
+def test_duplicate_or_unlabelled_regressors_are_refused():
+    """F2: the gate pairs regressors on (loss_type, train_seed); two runs with the same pair, and a run without either
+    label, are refused instead of being classed 'other'."""
+    l1 = reg_eval(BASE - 0.3 + SPREAD, GOOD_YS, loss='l1', run='regress_l1_d4_b64',
+                  ckpt='/r/regress_l1_d4_b64/checkpoint_epoch_100.pth')
+    l2 = reg_eval(BASE - 0.4 + SPREAD, TARGET_YS, loss='l2', run='regress_l2_d4_b64')
+    assert [p['kind'] for p in gp.gate([l1, l2], B, require_done=False)['pairs']] == ['loss_pair']
+    again = reg_eval(BASE - 0.35 + SPREAD, GOOD_YS, loss='l2', run='regress_l2_copy',
+                     ckpt='/r/regress_l2_copy/checkpoint_epoch_100.pth')
+    with pytest.raises(ValueError, match=r"duplicate runs: /r/regress_l2_d4_b64/checkpoint_epoch_100\.pth and "
+                                         r"/r/regress_l2_copy/checkpoint_epoch_100\.pth are both loss_type 'l2', "
+                                         r"train_seed 42"):
+        gp.gate([l1, l2, again], B, require_done=False)
+    with pytest.raises(ValueError, match='duplicate runs'):
+        gp.gate([l2, l2], B, require_done=False)                                # the same evaluation twice
+    for kw, shown in ((dict(loss=None), 'loss_type=None, train_seed=42'), (dict(seed=None), "loss_type='l2', train_seed=None")):
+        unlabelled = reg_eval(BASE - 0.4 + SPREAD, TARGET_YS, **kw)
+        for regs in ([unlabelled], [l1, unlabelled]):
+            with pytest.raises(ValueError, match=r'regress_l2_d4_b64/checkpoint_epoch_100\.pth: provenance ' +
+                               re.escape(shown) + ': the gate pairs regressors on both'):
+                gp.gate(regs, B, require_done=False)
+
+
+N_BIG = 40                                                                       # an evaluation that can hold 32 cubes
+BIG_FILES = [f'MatFlower60/Train/P0{22 + i % 3}/big{i}_1.mat' for i in range(N_BIG)]   # 40 images, 1 cube each
+BIG_BASE = np.linspace(2.0, 3.0, N_BIG)
+BIG_NOISE = np.random.default_rng(0).normal(0.0, 0.03, N_BIG)
+
+
+def big_row(name, vals):
+    d = vals - BIG_BASE
+    return dict(name=name, nfe=1, files=list(BIG_FILES), rmse_pct=float(vals.mean()),
+                rmse_pct_se=float(vals.std(ddof=1) / np.sqrt(N_BIG)), per_item={'rmse_pct': [list(vals), list(vals)]},
+                paired_rmse_diff=float(d.mean()), paired_rmse_se=float(d.std(ddof=1) / np.sqrt(N_BIG)))
+
+
+def big_yswap(n):
+    """GOOD_YS's shape on the first n of the 40 cubes: uses its condition, the gain vanishes when swapped."""
+    b, e = BIG_BASE[:n], BIG_NOISE[:n]
+    true, swap = b - 0.15 + e, b + 0.05 + 0.5 * e
+    return {'t999': dict(true=float(true.mean()), swap_full=float(swap.mean())), 'passes': False,
+            'per_cube': {'999': dict(true=list(true), swap_full=list(swap), swap_sensor_only=list(true), zero=list(swap))},
+            'baseline_per_cube': list(b), 'files': BIG_FILES[:n]}
+
+
+def big_eval(name, vals, ys=None, **prov):
+    p = dict(mode='residual', d=4, base_channels=64, prediction_type='v', prior_sha256='p' * 64, meta_checked=True,
+             ckpt=B_CKPT) if name == 'ddim1' else \
+        dict(mode='regress', d=4, base_channels=64, prediction_type='direct', prior_sha256='p' * 64, meta_checked=True,
+             ckpt='/r/regress_l2_d4_b64/checkpoint_epoch_100.pth', loss_type='l2', train_seed=42, yswap_n=32)
+    p.update(prov)
+    ev = dict(provenance=p, grid='full' if name == 'ddim1' else 'direct', rows=[big_row(name, vals)],
+              run_name='residual_d4_b64' if name == 'ddim1' else 'regress_l2_d4_b64',
+              baseline=dict(rmse_pct=float(BIG_BASE.mean())), baseline_files=list(BIG_FILES),
+              baseline_per_item={'rmse_pct': list(BIG_BASE)})
+    if ys is not None:
+        ev['yswap'] = ys
+    return ev
+
+
+def test_the_gate_enforces_the_preregistered_yswap_size(monkeypatch):
+    """F3: the proposed rule is pre-registered on 32 stratified cubes (plan deviation 1). With the real YSWAP_N, 32-cube
+    y-swaps are judged; a regressor's or B's y-swap of any other size, or one whose producer declares another size
+    (provenance.yswap_n, the record's n), is refused."""
+    assert PREREGISTERED_YSWAP_N == 32
+    monkeypatch.setattr(gp, 'YSWAP_N', PREREGISTERED_YSWAP_N)                  # undo the 8-cube fixture override
+    big_b = big_eval('ddim1', BIG_BASE - 0.1 + BIG_NOISE)
+
+    def reg(n=32, **prov):
+        return big_eval('direct', BIG_BASE - 0.3 + BIG_NOISE, big_yswap(n), **prov)
+
+    def b_ys(n=32, declared=32):
+        return dict(b_yswap_rec(big_yswap(n)), n=declared)
+    g = gp.gate([reg()], big_b, b_ys(), require_done=False)
+    assert g['models'][0]['verdict'] == 'PASS' and g['models'][0]['validity']['n'] == 32
+    assert g['b']['validity']['n'] == 32 and g['b']['verdict_under_proposed_rule'] == 'PASS'
+    for n in (8, 31, 33):
+        with pytest.raises(ValueError, match=rf"the regressor's y-swap has {n} cubes; the proposed rule is "
+                                             rf"pre-registered on 32 stratified cubes"):
+            gp.gate([reg(n, yswap_n=n)], big_b, require_done=False)
+        with pytest.raises(ValueError, match=rf"--b_yswap has {n} cubes; the proposed rule is pre-registered on 32"):
+            gp.gate([reg()], big_b, b_ys(n, declared=n), require_done=False)
+    with pytest.raises(ValueError, match=r"the regressor's y-swap declares yswap_n 16, not the pre-registered 32"):
+        gp.gate([reg(yswap_n=16)], big_b, require_done=False)
+    with pytest.raises(ValueError, match=r"--b_yswap declares n 8, not the pre-registered 32"):
+        gp.gate([reg()], big_b, b_ys(declared=8), require_done=False)
+    with pytest.raises(ValueError, match=r"has 8 cubes; the proposed rule is pre-registered on 32"):
+        gp.gate([reg_eval(BASE - 0.3 + SPREAD, GOOD_YS)], B, require_done=False)    # the 8-cube fixtures, unpatched

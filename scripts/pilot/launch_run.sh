@@ -3,9 +3,11 @@
 # Usage: [RUN_NAME=<dir name>] launch_run.sh residual|standard|standard_xhat|regress GPU [extra args]   (regress needs --prediction_type direct --loss_type l1|l2)
 # Refuses (exit 1; nothing started, the launch not counted) when a non-empty RUN_NAME is not <MODE>_[A-Za-z0-9_]+ (no
 # '/' or '..'; an exported RUN_NAME cannot redirect another mode's launch), when a regress launch has no --loss_type l1|l2
-# (the trainer's default is l1) or one that contradicts an _l1_ / _l2_ in RUN_NAME, when the GPU is busy, another
-# launch_run.sh holds the run's .launch.lock, the run has a DONE file (delete it to train further), or its pid file
-# names a live process.
+# (the trainer's default is l1) or one that contradicts an _l1_ / _l2_ in RUN_NAME, when a regress RUN_NAME names a seed
+# (_s<N>_, or _s<N> at its end) that --seed does not pass, or a regress --seed other than the trainer's default 42 is
+# given under a RUN_NAME that names none (the last --seed N / --seed=N wins, as in argparse), when the GPU is busy,
+# another launch_run.sh holds the run's .launch.lock, the run has a DONE file (delete it to train further), or its pid
+# file names a live process.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 PY=${PILOT_PY:-/home/grads/c/chaoyi_he/Desktop/conda/envs/hsi/bin/python}     # tests point PILOT_PY at a stub
@@ -16,10 +18,12 @@ if [[ -n "${RUN_NAME:-}" && ! "$RUN_NAME" =~ $NAME_RE ]]; then
   echo "RUN_NAME='$RUN_NAME' is not ${MODE}_[A-Za-z0-9_]+; not launching"; exit 1
 fi
 if [[ "$MODE" == regress ]]; then
-  LOSS=""; PREV=""
-  for A in "$@"; do                                       # the last --loss_type wins, as in argparse
+  LOSS=""; SEED=""; PREV=""
+  for A in "$@"; do                                       # the last --loss_type / --seed wins, as in argparse
     [[ "$PREV" == --loss_type ]] && LOSS=$A
     [[ "$A" == --loss_type=* ]] && LOSS=${A#--loss_type=}
+    [[ "$PREV" == --seed ]] && SEED=$A
+    [[ "$A" == --seed=* ]] && SEED=${A#--seed=}
     PREV=$A
   done
   if [[ "$LOSS" != l1 && "$LOSS" != l2 ]]; then
@@ -30,6 +34,18 @@ if [[ "$MODE" == regress ]]; then
       echo "RUN_NAME='$RUN_NAME' names $L but --loss_type is $LOSS; not launching"; exit 1
     fi
   done
+  if [[ -n "$SEED" && ! "$SEED" =~ ^[0-9]+$ ]]; then
+    echo "--seed '$SEED' is not a non-negative integer; not launching"; exit 1
+  fi
+  SEED_RE='_s([0-9]+)(_|$)'
+  if [[ "${RUN_NAME:-}" =~ $SEED_RE ]]; then              # a seed-N run (e.g. regress_l1_s43_d4_b64) must pass --seed N
+    NAME_SEED=${BASH_REMATCH[1]}
+    if [[ -z "$SEED" ]] || (( 10#$SEED != 10#$NAME_SEED )); then
+      echo "RUN_NAME='$RUN_NAME' names seed $NAME_SEED but --seed is '$SEED'; not launching"; exit 1
+    fi
+  elif [[ -n "$SEED" ]] && (( 10#$SEED != 42 )); then     # names without _s<N>_ are the trainer's default seed 42
+    echo "--seed $SEED but RUN_NAME='${RUN_NAME:-}' names no _s<N>_ (only seed-42 runs omit it); not launching"; exit 1
+  fi
 fi
 RUN=$ROOT/runs/${RUN_NAME:-${MODE}_d4_b64}     # RUN_NAME overrides the run directory (e.g. regress_l2_d4_b64)
 FREE=$(nvidia-smi --query-gpu=memory.free --format=csv,noheader,nounits --id="$GPU")

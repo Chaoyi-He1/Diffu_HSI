@@ -9,8 +9,9 @@ Mode regress (the one-step regressor) is scored on the one-row direct grid; its 
 t = REGRESS_T on 32 cubes (--yswap_n).
 
 Baselines go to results/residual_warmstart/eval/baseline_d<d>.json; checkpoint evaluations to
-results/residual_warmstart/eval/<mode>/d<d>/<run_name>__<ckpt>[__quick].json with a `provenance` record. A checkpoint carrying
-a `meta` dict must agree with the CLI args, the prior's sigma_d and the prior file's sha256 (else ValueError).
+results/residual_warmstart/eval/<mode>/d<d>/<run_name>__<ckpt>[__quick|__direct].json (no suffix for --grid full)
+with a `provenance` record. A checkpoint carrying a `meta` dict must agree with the CLI args, the prior's sigma_d and
+the prior file's sha256 (else ValueError).
 
 Metrics are on the [0, 1] display scale of (x + 1) / 2: RMSE in % of range, PSNR with peak 1, SAM in degrees.
 """
@@ -245,20 +246,37 @@ def reconstruct(model, trainer, mode, batch, cfg, sigma_d, seed):
 
 
 # ----------------------------------------------------------------------------- y-swap
-def _one_step_x0(model, trainer, mode, x_target, cond, t_val):
+YSWAP_NOISE_SEED = 1234
+YSWAP_X_T = ('q_sample', 'noise')      # the network's x_t in the one-step y-swap (see yswap_check)
+
+
+def _one_step_x0(model, trainer, mode, x_target, cond, t_val, x_t='q_sample'):
     B = x_target.shape[0]
     t = torch.full((B,), t_val, device=trainer.device, dtype=torch.long)
-    torch.manual_seed(1234)
-    x_t, _ = trainer.q_sample(x_target, t)
+    torch.manual_seed(YSWAP_NOISE_SEED)
+    if x_t == 'noise':                   # the ddim1 sampler's x_T, drawn as trainer.sample draws it (same seed, shape)
+        xt = torch.randn(tuple(x_target.shape), device=trainer.device)
+    else:
+        xt, _ = trainer.q_sample(x_target, t)
     with torch.no_grad():
-        x0_pred, _ = trainer._model_to_x0_eps(model(x_t, cond, t), x_t, t)
+        x0_pred, _ = trainer._model_to_x0_eps(model(xt, cond, t), xt, t)
     return x0_pred
+
+
+def check_yswap_x_t(x_t, t_values, n_timesteps):
+    """x_t must be one of YSWAP_X_T; 'noise' is the ddim1 sampler's start x_T and is defined only at its one call,
+    t = n_timesteps - 1 (999). Raises ValueError otherwise."""
+    if x_t not in YSWAP_X_T:
+        raise ValueError(f'x_t must be one of {YSWAP_X_T}, got {x_t!r}')
+    if x_t == 'noise' and any(int(t) != n_timesteps - 1 for t in t_values):
+        raise ValueError(f"x_t='noise' is the ddim1 sampler's pure-noise start x_T, defined only at its one call "
+                         f"t = {n_timesteps - 1}; got t = {list(t_values)}")
 
 
 YSWAP_RATIO = 0.9          # spec §7: the true condition must score <= 0.9 x swap_full at every t of the check
 
 
-def yswap_check(model, trainer, mode, batch, t_values=(100, 300), sigma_d=None, files=None):
+def yswap_check(model, trainer, mode, batch, t_values=(100, 300), sigma_d=None, files=None, x_t='q_sample'):
     """One-step x0 error of `model` under the true condition and under swapped / zeroed conditions.
 
     Only the network's inputs (`cond`) are swapped; every variant is composed with the TRUE x0_hat
@@ -271,7 +289,16 @@ def yswap_check(model, trainer, mode, batch, t_values=(100, 300), sigma_d=None, 
     `baseline_per_cube` (the prior x0_hat's RMSE %, as baseline_eval scores it) and `files` (the cubes in batch
     order, None when not given).
 
-    Mode regress: one deterministic call per variant at t = REGRESS_T (t_values is ignored)."""
+    x_t (final-review F1) is the network's x_t, the same for every variant (one eps, seed YSWAP_NOISE_SEED):
+      'q_sample' (default; spec §7 at t = 100 / 300 and every Phase 1a record): x_t = q_sample(TRUE target, t). At
+                 t = 999 that is 0.00635 r + 0.99998 eps: it carries the true residual r, which B reads, and B's real
+                 one-step read-out (ddim1) never sees it -- a leak that flatters 'true' (and every variant).
+      'noise':   x_t = eps, exactly the ddim1 sampler's x_T (trainer.sample draws randn of the batch shape after the
+                 same seed), so at t = 999 'true' is reconstruct(mode, ddim1) seeded with YSWAP_NOISE_SEED. Defined
+                 only at t = n_timesteps - 1 = 999 (ValueError at any other t): elsewhere a sampler never feeds pure
+                 noise.
+    Mode regress: one deterministic call per variant at t = REGRESS_T on its zero x_t (t_values and x_t do not
+    apply)."""
     x, y_d, x0_hat = [b.to(trainer.device) for b in batch]
     if x.shape[0] < 2:
         raise ValueError('y-swap check needs a batch of at least 2 items')
@@ -279,6 +306,7 @@ def yswap_check(model, trainer, mode, batch, t_values=(100, 300), sigma_d=None, 
         raise ValueError('yswap_check in residual and regress modes needs sigma_d (the residual scale of this d)')
     if mode == 'regress':
         t_values = (REGRESS_T,)          # one deterministic call: the noise level does not apply
+    check_yswap_x_t(x_t, t_values, trainer.n_timesteps)
     k = x.shape[0] // 2
     target = (x - x0_hat) / sigma_d if mode in ('residual', 'regress') else x
     conds = {
@@ -297,7 +325,7 @@ def yswap_check(model, trainer, mode, batch, t_values=(100, 300), sigma_d=None, 
                 with torch.no_grad():
                     pred = regress_forward(model, c)
             else:
-                pred = _one_step_x0(model, trainer, mode, target, c, tv)
+                pred = _one_step_x0(model, trainer, mode, target, c, tv, x_t)
             x_hat = (x0_hat + sigma_d * pred) if mode in ('residual', 'regress') else pred
             rmse = metrics(x_hat.clamp(-1, 1), x)['rmse_pct']
             row[name], cubes[name] = float(rmse.mean()), rmse.tolist()

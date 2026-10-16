@@ -372,3 +372,44 @@ def test_outputs_are_never_clobbered(tmp_path, monkeypatch):
         with pytest.raises(SystemExit, match='one of the --inputs'):
             db.main(['merge', '--inputs', p, '--b_eval', str(tmp_path / 'missing.json'), '--out', out])
     assert open(p, 'rb').read() == before
+
+
+# ----------------------------------------------------------------------------- final fix wave F4 / F5
+def test_merge_refuses_an_existing_output_before_any_work(tmp_path, monkeypatch):
+    """F4: merge never overwrites: an --out that exists (an earlier b_diagnostics.json, or a shard that is not one of
+    the inputs) is refused before any shard is read, its bytes untouched."""
+    p, other = str(tmp_path / 's.npz'), str(tmp_path / 'other.npz')
+    db.save_shard(p, {'t999': _tiny_row([0, 1])}, dict(device='cuda:0'))
+    db.save_shard(other, {'t999': _tiny_row([2, 3])}, dict(device='cuda:0'))
+    earlier = tmp_path / 'b_diagnostics.json'
+    earlier.write_text('{"rows": "earlier"}')
+    before = open(other, 'rb').read()
+    monkeypatch.setattr(db, 'load_shard', _no_work)
+    for out in (str(earlier), other):
+        with pytest.raises(SystemExit, match=re.escape(out) + ' exists'):
+            db.main(['merge', '--inputs', p, '--b_eval', str(tmp_path / 'missing.json'), '--out', out])
+    assert earlier.read_text() == '{"rows": "earlier"}' and open(other, 'rb').read() == before
+
+
+def test_sample_records_the_launch_head_and_times_each_row(tmp_path, monkeypatch, capsys):
+    """F5: the shard's git_head is the HEAD when sample started (a commit landing during the run does not change it),
+    and each row prints its own seconds (beside the running total), which the shard meta keeps as row_seconds."""
+    from types import SimpleNamespace
+    rec, subset, cube, data_root, ckpt, prior = _fake_sample_world(tmp_path, monkeypatch)
+    clock, head, fake = [1000.0], ['a' * 40], db.reconstruct
+    monkeypatch.setattr(db, 'time', SimpleNamespace(time=lambda: clock[0]))
+    monkeypatch.setattr(db, 'git_head', lambda: head[0])
+
+    def timed(model, trainer, mode, batch, cfg, sigma_d, seed):
+        head[0] = 'b' * 40                                       # a commit lands while the shard is being sampled
+        clock[0] += 5.0 if cfg['name'] == 'ddim10' else 1.0      # 4 calls per row: ddim10 20 s, t999 4 s
+        return fake(model, trainer, mode, batch, cfg, sigma_d, seed)
+    monkeypatch.setattr(db, 'reconstruct', timed)
+    out = tmp_path / 's.npz'
+    db.main(['sample', '--rows', 'ddim10', 't999', '--draws', '0', '2', '--device', 'cpu', '--checkpoint', str(ckpt),
+             '--prior', str(prior), '--data_root', str(data_root), '--out', str(out)])
+    printed = capsys.readouterr().out
+    assert '(20 s this row, 20 s since start)' in printed and '(4 s this row, 24 s since start)' in printed
+    meta = db.load_shard(str(out))[1]
+    assert meta['git_head'] == 'a' * 40 and head[0] == 'b' * 40
+    assert meta['row_seconds'] == {'ddim10': 20.0, 't999': 4.0} and meta['seconds'] == 24.0

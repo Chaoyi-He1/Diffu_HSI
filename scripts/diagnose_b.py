@@ -7,9 +7,10 @@ output over K noise draws beat a single draw? (Phase 1a RESULTS note, Decision s
   sample  reconstructs every cube of the requested rows for each requested draw k with the harness's own seeding
           (torch.manual_seed(k * 1000 + batch index), batch 8, dataset order) -- so draws 0 and 1 reproduce B's
           stored evaluation when sampled on CUDA (the sampler draws its noise from the device's generator; a CPU
-          shard draws independent noise) -- and saves per-cube running sums to a new .npz shard (never overwritten).
+          shard draws independent noise) -- and saves per-cube running sums to a new .npz shard (never overwritten;
+          its meta records the git HEAD at launch and each row's seconds).
   merge   adds shards with distinct, disjoint draws of one checkpoint and prior, sampled at batch 8 (the t999 row is
-          required), reloads the cubes and B's evaluation, and writes the statistics JSON (never over an input).
+          required), reloads the cubes and B's evaluation, and writes the statistics JSON (never over an existing file).
 
 Rows: ddim10 and t999 (the ddim1 sampler: one call at t = 999) on the 200-cube subset; ddpm1000 on the 50-cube DDPM
 subset, as the harness scores it.
@@ -207,6 +208,7 @@ def consistency(d, ev_b, row):
 
 
 def cmd_sample(args):
+    head = git_head()                                     # the HEAD at launch (final-review F5), before any work
     check_out(args.out)
     if os.path.exists(args.out):
         raise SystemExit(f'{args.out} exists; sample never overwrites a shard (choose another --out)')
@@ -215,8 +217,9 @@ def cmd_sample(args):
     device = torch.device(args.device)
     trainer = DiffusionTrainer(device=device, prediction_type='v', loss_type='l1', snr_gamma=None)
     ck = torch.load(args.checkpoint, map_location='cpu', weights_only=False)
-    model, rows, t0 = None, {}, time.time()
+    model, rows, row_seconds, t0 = None, {}, {}, time.time()
     for row in args.rows:
+        t_row = time.time()
         ds = dataset_for(args.data_root, args.prior, args.d, load_subset(args.data_root, ROWS[row][1]))
         if model is None:
             check_meta(ck, SimpleNamespace(ckpt=args.checkpoint, mode='residual', d=args.d, base_channels=args.base_channels,
@@ -230,11 +233,13 @@ def cmd_sample(args):
             args.draws, len(ds))
         rows[row] = dict(files=[os.path.relpath(f, args.data_root) for f in ds.img_list], draws=list(args.draws),
                          sum_x=sum_x, sum_x2=sum_x2, err=err)
+        now = time.time()
+        row_seconds[row] = now - t_row
         print(f'{row}: {len(ds)} cubes x {len(args.draws)} draws, mean single-draw RMSE {err.mean():.4f} % '
-              f'({time.time() - t0:.0f} s)', flush=True)
+              f'({row_seconds[row]:.0f} s this row, {now - t0:.0f} s since start)', flush=True)
     meta = dict(checkpoint=os.path.abspath(args.checkpoint), checkpoint_sha256=file_sha256(args.checkpoint),
                 prior_sha256=file_sha256(args.prior), device=str(device), batch_size=args.batch_size,
-                git_head=git_head(), torch=torch.__version__, seconds=time.time() - t0)
+                git_head=head, torch=torch.__version__, seconds=time.time() - t0, row_seconds=row_seconds)
     os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
     save_shard(args.out, rows, meta)
     print('wrote', args.out)
@@ -244,6 +249,8 @@ def cmd_merge(args):
     check_out(args.out)
     if os.path.realpath(args.out) in {os.path.realpath(p) for p in args.inputs}:
         raise SystemExit(f'--out {args.out} is one of the --inputs; merge never overwrites a shard')
+    if os.path.exists(args.out):
+        raise SystemExit(f'{args.out} exists; merge never overwrites a file (choose another --out)')
     loaded = [load_shard(p) for p in args.inputs]
     for field in ('checkpoint_sha256', 'prior_sha256'):                   # checked only where a shard records it
         seen = sorted({str(m[field]) for _, m in loaded if field in m})
