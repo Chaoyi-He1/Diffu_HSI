@@ -7,9 +7,9 @@ output over K noise draws beat a single draw? (Phase 1a RESULTS note, Decision s
   sample  reconstructs every cube of the requested rows for each requested draw k with the harness's own seeding
           (torch.manual_seed(k * 1000 + batch index), batch 8, dataset order) -- so draws 0 and 1 reproduce B's
           stored evaluation when sampled on CUDA (the sampler draws its noise from the device's generator; a CPU
-          shard draws independent noise) -- and saves per-cube running sums to an .npz shard.
-  merge   adds shards with disjoint draws (the t999 row is required), reloads the cubes and B's evaluation, and
-          writes the statistics JSON.
+          shard draws independent noise) -- and saves per-cube running sums to a new .npz shard (never overwritten).
+  merge   adds shards with distinct, disjoint draws of one checkpoint and prior, sampled at batch 8 (the t999 row is
+          required), reloads the cubes and B's evaluation, and writes the statistics JSON (never over an input).
 
 Rows: ddim10 and t999 (the ddim1 sampler: one call at t = 999) on the 200-cube subset; ddpm1000 on the 50-cube DDPM
 subset, as the harness scores it.
@@ -57,6 +57,7 @@ B_EVAL = os.path.join(EVAL_DIR, 'residual', 'd4', 'residual_d4_b64__checkpoint_e
 DIAG_DIR = os.path.join(RESULTS_ROOT, 'diagnostics')
 ROWS = {'ddim10': ('ddim10', 'files'), 't999': ('ddim1', 'files'), 'ddpm1000': ('ddpm1000', 'ddpm1000_subset')}
 SCALE = 2500.0      # E = 2500 * mean squared error on [-1, 1] = (RMSE % of the [0, 1] scale)^2
+HARNESS_BATCH = 8   # B's stored evaluation seeds per batch index of batch-8 loaders; other batch sizes draw other noise
 
 
 def under(path, root):
@@ -128,10 +129,15 @@ def jackknife_se(stat, files):
 
 
 def merge_shards(shards):
-    """Add shards row by row; their draws must be disjoint and their cube lists identical."""
+    """Add shards row by row; their draws must be distinct within and disjoint across shards, their cube lists
+    identical."""
     out = {}
     for sh in shards:
         for row, d in sh.items():
+            draws = list(d['draws'])
+            repeated = sorted({k for k in draws if draws.count(k) > 1})
+            if repeated:
+                raise ValueError(f'{row}: draws {repeated} repeat within a shard')
             if row not in out:
                 out[row] = dict(files=list(d['files']), draws=list(d['draws']), sum_x=d['sum_x'].copy(),
                                 sum_x2=d['sum_x2'].copy(), err=d['err'].copy())
@@ -202,6 +208,10 @@ def consistency(d, ev_b, row):
 
 def cmd_sample(args):
     check_out(args.out)
+    if os.path.exists(args.out):
+        raise SystemExit(f'{args.out} exists; sample never overwrites a shard (choose another --out)')
+    if len(set(args.draws)) != len(args.draws):
+        raise ValueError(f'--draws {args.draws} repeat a draw; each draw k is one independent noise seed')
     device = torch.device(args.device)
     trainer = DiffusionTrainer(device=device, prediction_type='v', loss_type='l1', snr_gamma=None)
     ck = torch.load(args.checkpoint, map_location='cpu', weights_only=False)
@@ -232,7 +242,17 @@ def cmd_sample(args):
 
 def cmd_merge(args):
     check_out(args.out)
+    if os.path.realpath(args.out) in {os.path.realpath(p) for p in args.inputs}:
+        raise SystemExit(f'--out {args.out} is one of the --inputs; merge never overwrites a shard')
     loaded = [load_shard(p) for p in args.inputs]
+    for field in ('checkpoint_sha256', 'prior_sha256'):                   # checked only where a shard records it
+        seen = sorted({str(m[field]) for _, m in loaded if field in m})
+        if len(seen) > 1:
+            raise ValueError(f'shards disagree on {field}: {seen}; merge only draws of one checkpoint and prior')
+    bad_batch = [(p, m['batch_size']) for p, (_, m) in zip(args.inputs, loaded)
+                 if 'batch_size' in m and m['batch_size'] != HARNESS_BATCH]
+    if bad_batch:
+        raise ValueError(f'batch_size must be {HARNESS_BATCH} (the harness seeds per batch index): {bad_batch}')
     non_cuda = [m.get('device') for _, m in loaded if not str(m.get('device', '')).startswith('cuda')]
     if non_cuda:
         print(f'WARNING: shards sampled on {non_cuda}: the sampler noise comes from the device generator, so draws 0/1 '
@@ -316,7 +336,8 @@ def get_parser():
     s.add_argument('--rows', nargs='+', choices=list(ROWS), required=True)
     s.add_argument('--draws', type=int, nargs='+', required=True)
     s.add_argument('--device', default='cuda:0')
-    s.add_argument('--batch_size', type=int, default=8, help='8 reproduces the stored evaluation (seed per batch index)')
+    s.add_argument('--batch_size', type=int, default=HARNESS_BATCH,
+                   help=f'{HARNESS_BATCH} reproduces the stored evaluation (seed per batch index); merge refuses others')
     s.add_argument('--base_channels', type=int, default=64)
     s.add_argument('--d', type=int, default=4)
     s.add_argument('--data_root', default=DATA_ROOT)
