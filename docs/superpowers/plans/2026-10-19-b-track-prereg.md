@@ -47,3 +47,34 @@ A per-cube RMSE loss (the metric itself) and training-step regularisation (weigh
 ## E1 — the ensemble's gate evaluation (pre-registered; awaiting the user's go before the gate look)
 
 Exactly one ensemble is evaluated on the gate: **L1@25 + L2@25 + L1@50 + L2@50 with transpose TTA** (the spike's best; 8 NFE; the four checkpoints exist from Phase 1a′ and were kept as pre-chosen milestones). Its residual prediction is the mean of the eight calls, composed with the true x̂₀ and clamped as before; the y-swap uses the same mean. The gate's verdict rules are unchanged (PASS against the baseline and B's ddim1 by 2 SE, the one-step validity rule, target 1.9985 %). The 4-NFE version without TTA is reported alongside as a secondary row only if the harness scores it in the same run; nothing else from the spike touches the gate. The selection of the four checkpoints and of the transpose came from the monitoring split, which shares all 113 gate source images with the gate, so the gate number after this selection is not an image-independent hold-out; this is stated with the result.
+
+## B.1 result (2026-10-19)
+
+`regress_l1_sel_d4_b64`: DONE = 100 at 10:28, 7.49 h on GPU 1, 0 skipped steps, 100 checkpoints kept. Monitoring loss (every epoch, 800 non-gate files): minimum 0.41920 at epoch 17, 0.45876 at epoch 100 (the Phase 1a′ L1 run: 0.4208 at 15, 0.4586 at 100). The pre-registered rule selects **epoch 17**. Two gate evaluations, as pre-registered (CPU, `--seeds 0 1`):
+
+| checkpoint | record | RMSE % (200 gate cubes) | − baseline | − B ddim1 | − B 8-draw mean | validity (a) / (b) | spec ratio | verdict | target 1.9985 |
+|---|---|---|---|---|---|---|---|---|---|
+| epoch 17 (selected) | `gate_1a_prime__regress_l1_sel_d4_b64__nodone.json` | **1.9621 ± 0.0439** | −0.3890 ± 0.0223 (cl 0.0242), 16.5 % | −0.2805 ± 0.0182 (cl 0.0193) | −0.2519 ± 0.0182 | +0.7369 ± 0.0734 / +0.3693 ± 0.0683, valid | 0.736 | PASS | **met** |
+| epoch 100 (control) | `gate_1a_prime__regress_l1_sel_d4_b64.json` | 2.1338 ± 0.0476 | −0.2174 ± 0.0244 (cl 0.0261), 9.2 % | −0.1088 ± 0.0205 | −0.0802 ± 0.0206 | +0.8029 ± 0.0770 / +0.5847 ± 0.0752, valid | 0.733 | PASS | not met |
+
+- The epoch-17 record is gated with `--no_require_done` (the gate's final-checkpoint guard; the run is DONE at 100 and the selection was fixed above before the look). The epoch-100 control replicates Phase 1a′'s L1 (2.1422) to within 0.008.
+- The selection used the monitoring split, which shares all 113 gate source images with the gate cubes, so the 1.9621 % is a post-selection number on a hold-out that is not image-independent. The selection itself used one pre-registered rule and one look.
+- `go_1b` is false because the plan's rule requires two training seeds (Phase 1a′ plan, Deviation 5).
+
+## B.5 — the second seed (pre-registered before launch)
+
+Run `regress_l1_sel_s43_d4_b64`: identical to B.1 with `--seed 43`. Selection rule identical (lowest monitoring loss, ties → earlier); exactly one selected checkpoint and the epoch-100 control are gated. `go_1b` is declared true if both seeds' selected checkpoints are PASS and at or below 1.9985 % (the gate's seed-pair logic compares records at one epoch, so the pair verdict is computed from the two single-run gate records under this rule and stated with both numbers). Launch:
+
+```
+RUN_NAME=regress_l1_sel_s43_d4_b64 bash scripts/pilot/launch_run.sh regress <gpu> --prediction_type direct --loss_type l1 --seed 43 --val_every 1 --save_every 1 --keep_last 100
+```
+
+## B.6 — L2 with the same selection (pre-registered before launch) and E2
+
+Run `regress_l2_sel_d4_b64`: the Phase 1a′ L2 configuration (`--loss_type l2`, seed 42) with `--val_every 1 --save_every 1 --keep_last 100`, on the idle GPU 0, side by side with B.5. Same selection rule; one selected checkpoint and the epoch-100 control are gated. Purpose: the L1-vs-L2 comparison at selected checkpoints, and E2.
+
+**E2 (pre-registered; awaits the user's go like E1):** exactly one ensemble of the two SELECTED checkpoints (L1 sel from B.1, L2 sel from B.6) with transpose TTA (4 calls per cube), scored with the ensemble harness. It replaces E1 as the ensemble of record if both runs finish; E1 (the four Phase 1a′ milestone checkpoints) stays pre-registered as written.
+
+```
+RUN_NAME=regress_l2_sel_d4_b64 bash scripts/pilot/launch_run.sh regress 0 --prediction_type direct --loss_type l2 --val_every 1 --save_every 1 --keep_last 100
+```
