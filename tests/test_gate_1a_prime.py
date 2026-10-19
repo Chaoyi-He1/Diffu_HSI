@@ -2,6 +2,7 @@
 report-only comparison with B's K-draw mean, CLI; fix round 1: the k-SE margins and the iid SE of every rule, the pair
 kinds, go_1b's PASS condition, the spec ratio's value, the input refusals and the B-record ownership checks."""
 import json
+import os
 import re
 
 import numpy as np
@@ -494,3 +495,82 @@ def test_the_gate_enforces_the_preregistered_yswap_size(monkeypatch):
         gp.gate([reg()], big_b, b_ys(declared=8), require_done=False)
     with pytest.raises(ValueError, match=r"has 8 cubes; the proposed rule is pre-registered on 32"):
         gp.gate([reg_eval(BASE - 0.3 + SPREAD, GOOD_YS)], B, require_done=False)    # the 8-cube fixtures, unpatched
+
+
+# ----------------------------------------------------------------------------- B-track E1: regressor-ensemble records
+ENS_MEMBERS = (('regress_l1_d4_b64', 25), ('regress_l2_d4_b64', 50))
+ENS_LABEL = 'ens:regress_l1_d4_b64@25,regress_l2_d4_b64@50'
+
+
+def ens_eval(vals, ys, root='/r', members=ENS_MEMBERS, tta='transpose', loss='l1+l2', seed=42):
+    """A regressor-ensemble evaluation as scripts/eval_warmstart.py writes it: provenance.ckpt is the first member and
+    provenance.ensemble lists them all."""
+    ckpts = [os.path.join(str(root), run, f'checkpoint_epoch_{ep}.pth') for run, ep in members]
+    name = f'ensemble{len(members)}__' + '+'.join(f'{run}@{ep}' for run, ep in members) + \
+        ('' if tta == 'none' else f'__tta-{tta}')
+    ens = dict(ckpts=ckpts, runs=[run for run, _ in members], epochs=[ep for _, ep in members],
+               loss_types=[run.split('_')[1] for run, _ in members], train_seeds=[seed] * len(members), tta=tta,
+               n_calls=len(members) * (2 if tta == 'transpose' else 1))
+    return reg_eval(vals, ys, loss=loss, seed=seed, ckpt=ckpts[0], run=name, ensemble=ens)
+
+
+def test_ensemble_evaluation_is_judged_and_needs_every_member_done(tmp_path):
+    for run in ('regress_l1_d4_b64', 'regress_l2_d4_b64', 'regress_l1_s43_d4_b64', 'residual_d4_b64'):
+        (tmp_path / run).mkdir()
+        (tmp_path / run / 'DONE').write_text('100\n')
+    b = b_eval(BASE - 0.1 + SPREAD, ckpt=str(tmp_path / 'residual_d4_b64' / 'checkpoint_epoch_100.pth'))
+    ens = ens_eval(BASE - 0.4 + SPREAD, TARGET_YS, root=tmp_path)            # milestone members at epochs 25 and 50
+    single = reg_eval(BASE - 0.3 + SPREAD, GOOD_YS, loss='l1', seed=43, run='regress_l1_s43_d4_b64',
+                      ckpt=str(tmp_path / 'regress_l1_s43_d4_b64' / 'checkpoint_epoch_100.pth'))
+    g = gp.gate([ens, single], b)               # no 'different epochs' refusal: the check compares singles only
+    m = g['models'][0]
+    assert m['verdict'] == 'PASS' and m['epoch'] == ENS_LABEL and m['ckpt'] == ens['provenance']['ensemble']['ckpts']
+    assert m['loss_type'] == 'l1+l2' and m['train_seed'] == 42 and m['run_name'] == ens['run_name']
+    assert g['models'][1]['epoch'] == 100 and 'ensemble' not in g['models'][1]
+    (tmp_path / 'regress_l2_d4_b64' / 'DONE').unlink()
+    with pytest.raises(ValueError, match=r'ensemble member \S*regress_l2_d4_b64/checkpoint_epoch_50\.pth: no DONE '
+                                         r'file next to it: the run regress_l2_d4_b64 has not finished'):
+        gp.gate([ens], b)
+    assert gp.gate([ens], b, require_done=False)['models'][0]['verdict'] == 'PASS'
+    (tmp_path / 'regress_l2_d4_b64' / 'DONE').write_text('40\n')            # a member past its run's final epoch
+    with pytest.raises(ValueError, match=r'ensemble member \S*regress_l2_d4_b64/checkpoint_epoch_50\.pth is past'):
+        gp.gate([ens], b)
+
+
+def test_ensemble_forms_no_pairs():
+    ens = ens_eval(BASE - 0.4 + SPREAD, TARGET_YS, members=(('regress_l1_d4_b64', 100), ('regress_l2_d4_b64', 90)))
+    l1 = reg_eval(BASE - 0.3 + SPREAD, GOOD_YS, loss='l1', run='regress_l1_d4_b64',
+                  ckpt='/r/regress_l1_d4_b64/checkpoint_epoch_100.pth')
+    g = gp.gate([ens, l1], B, require_done=False)      # 'l1+l2' vs 'l1' at one seed: not a loss_pair
+    assert [p['kind'] for p in g['pairs']] == ['other'] and 'go_1b' not in g['pairs'][0] and g['go_1b'] is False
+    assert g['best'] == ens['run_name'] and g['best_verdict'] == 'PASS'      # best logic unchanged
+    tta1 = ens_eval(BASE - 0.45 + SPREAD, TARGET_YS, members=(('regress_l1_d4_b64', 100),), loss='l1')
+    s43 = reg_eval(BASE - 0.45 + SPREAD, TARGET_YS, loss='l1', seed=43, run='regress_l1_s43_d4_b64',
+                   ckpt='/r/regress_l1_s43_d4_b64/checkpoint_epoch_100.pth')
+    g = gp.gate([tta1, s43], B, require_done=False)    # one TTA'd checkpoint vs an 'l1' seed 43: not a seed_pair
+    assert [m['verdict'] for m in g['models']] == ['PASS', 'PASS'] and all(m['target_met'] for m in g['models'])
+    assert [p['kind'] for p in g['pairs']] == ['other'] and 'go_1b' not in g['pairs'][0] and g['go_1b'] is False
+
+
+def test_ensembles_are_told_apart_by_their_members_and_tta():
+    with_tta = ens_eval(BASE - 0.4 + SPREAD, TARGET_YS, tta='transpose')
+    without = ens_eval(BASE - 0.38 + SPREAD, TARGET_YS, tta='none')         # the same loss_type and train_seed
+    g = gp.gate([with_tta, without], B, require_done=False)
+    assert [m['run_name'] for m in g['models']] == [with_tta['run_name'], without['run_name']]
+    with pytest.raises(ValueError, match=rf'duplicate runs: .* are the same ensemble {re.escape(ENS_LABEL)} with '
+                                         rf"tta 'transpose'"):
+        gp.gate([with_tta, with_tta], B, require_done=False)
+    one_tta = ens_eval(BASE - 0.4 + SPREAD, TARGET_YS, members=(('regress_l2_d4_b64', 100),), loss='l2')
+    plain = reg_eval(BASE - 0.3 + SPREAD, GOOD_YS)                          # the plain l2 seed 42 run, same labels
+    assert len(gp.gate([one_tta, plain], B, require_done=False)['models']) == 2
+    with pytest.raises(ValueError, match="provenance loss_type='l1\\+l2', train_seed=None"):
+        gp.gate([ens_eval(BASE - 0.4 + SPREAD, TARGET_YS, seed=None)], B, require_done=False)
+
+
+def test_print_report_lists_ensemble_members(capsys):
+    gp.print_report(gp.gate([ens_eval(BASE - 0.4 + SPREAD, TARGET_YS)], B, require_done=False))
+    out = capsys.readouterr().out
+    assert f'epoch {ENS_LABEL}' in out
+    assert 'ensemble of 2 members: regress_l1_d4_b64@25, regress_l2_d4_b64@50; tta transpose, 4 calls' in out
+    gp.print_report(gp.gate([reg_eval(BASE - 0.3 + SPREAD, GOOD_YS)], B, require_done=False))
+    assert 'ensemble of' not in capsys.readouterr().out

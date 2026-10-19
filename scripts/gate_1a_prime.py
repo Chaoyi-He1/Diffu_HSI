@@ -25,6 +25,12 @@ per-cube baseline on its cubes: the regressor's own y-swap against the regressor
 against B's (within YSWAP_BASELINE_TOL). --b_yswap must also be B's by provenance (mode residual, B's checkpoint, d,
 prior, meta checked) and leak-free: made with scripts/yswap_one_step.py --x_t noise, B's own pure-noise x_T (the
 default q_sample x_t leaks the true residual to B at t = 999). --b_diag's provenance.b_eval must name the --b file.
+
+A regressor-ensemble evaluation (provenance.ensemble: scripts/eval_warmstart.py with several --ckpt and/or --tta) is
+judged by the same rules; its epoch is the label ens:<run>@<epoch>,... and its ckpt the member list. It is exempt from
+the equal-epoch check (its members are milestone checkpoints), every member's run must be DONE (a member need not be
+the final checkpoint), it is told apart from the other regressors by its members and TTA, and it never forms a
+loss_pair or seed_pair.
 """
 import argparse
 import json
@@ -80,6 +86,37 @@ def paired_by_file(row_x, row_y):
     return _paired(np.array([v - y[f] for f, v in zip(row_x['files'], per_cube(row_x))]), row_x['files'])
 
 
+def _ensemble(ev):
+    """provenance.ensemble of a regressor-ensemble evaluation; None for a single checkpoint's."""
+    return _need(ev, 'provenance').get('ensemble')
+
+
+def ensemble_members(ens):
+    """An ensemble's members as '<run>@<epoch>', in their order."""
+    runs, epochs = _need(ens, 'runs', 'provenance.ensemble'), _need(ens, 'epochs', 'provenance.ensemble')
+    return [f'{run}@{epoch}' for run, epoch in zip(runs, epochs)]
+
+
+def ensemble_label(ens):
+    """'ens:<run>@<epoch>,...': an ensemble's epoch label."""
+    return 'ens:' + ','.join(ensemble_members(ens))
+
+
+def check_members_done(ev):
+    """check_done for an ensemble: every member's run must have finished (a DONE file next to its checkpoint). A member
+    need not be its run's final checkpoint (ensembles use milestone checkpoints), but it cannot be past it."""
+    ens = _ensemble(ev)
+    for ckpt, run in zip(_need(ens, 'ckpts', 'provenance.ensemble'), _need(ens, 'runs', 'provenance.ensemble')):
+        done = os.path.join(os.path.dirname(ckpt), 'DONE')
+        if not os.path.exists(done):
+            raise ValueError(f'ensemble member {ckpt}: no DONE file next to it: the run {run} has not finished')
+        with open(done) as f:
+            final = int(f.read().strip())
+        if ckpt_epoch(ckpt) > final:
+            raise ValueError(f'ensemble member {ckpt} is past the final checkpoint of the run {run} '
+                             f'(DONE says epoch {final})')
+
+
 def check_inputs(regs, ev_b, require_done):
     for ev in regs:
         if _prov(ev, 'mode') != 'regress' or ev.get('grid') != 'direct' or _prov(ev, 'prediction_type') != 'direct':
@@ -91,8 +128,13 @@ def check_inputs(regs, ev_b, require_done):
         if None in key:
             raise ValueError(f'{ckpt}: provenance loss_type={key[0]!r}, train_seed={key[1]!r}: the gate pairs regressors '
                              f'on both, so neither may be None')
+        ens = _ensemble(ev)
+        if ens is not None:                      # never paired: an ensemble is told apart by its members and TTA
+            key = ('ensemble', ensemble_label(ens), ens.get('tta'))
         if key in runs:
-            raise ValueError(f'duplicate runs: {runs[key]} and {ckpt} are both loss_type {key[0]!r}, train_seed {key[1]!r}')
+            what = (f'the same ensemble {key[1]} with tta {key[2]!r}' if ens is not None else
+                    f'both loss_type {key[0]!r}, train_seed {key[1]!r}')
+            raise ValueError(f'duplicate runs: {runs[key]} and {ckpt} are {what}')
         runs[key] = ckpt
     if _prov(ev_b, 'mode') != 'residual' or ev_b.get('grid') != 'full':
         raise ValueError(f"--b must be B's full-grid residual evaluation, got mode={_prov(ev_b, 'mode')!r} "
@@ -105,12 +147,15 @@ def check_inputs(regs, ev_b, require_done):
         vals = {str(_prov(ev, key)) for ev in evs}
         if len(vals) != 1:
             raise ValueError(f'evaluations differ in provenance.{key}: {sorted(vals)}')
-    epochs = {_prov(ev, 'ckpt'): ckpt_epoch(_prov(ev, 'ckpt')) for ev in regs}
-    if len(set(epochs.values())) != 1:
+    epochs = {_prov(ev, 'ckpt'): ckpt_epoch(_prov(ev, 'ckpt')) for ev in regs if _ensemble(ev) is None}   # singles
+    if len(set(epochs.values())) > 1:
         raise ValueError(f'the regressors stopped at different epochs: {epochs}')
     if require_done:
         for ev in evs:
-            check_done(ev)
+            if _ensemble(ev) is not None:
+                check_members_done(ev)
+            else:
+                check_done(ev)
     base_b = baseline_by_file(ev_b)
     for ev in regs:
         base = baseline_by_file(ev)
@@ -191,12 +236,18 @@ def judge(ev, ev_b, k):
     verdict_if_valid = 'PASS' if vs_base['pass'] and vs_b['pass'] else ('PASS_NOT_OVER_B' if vs_base['pass'] else 'FAIL')
     baseline = float(_need(ev, 'baseline')['rmse_pct'])
     prov = ev['provenance']
-    return dict(run_name=ev.get('run_name'), ckpt=prov['ckpt'], epoch=ckpt_epoch(prov['ckpt']),
-                loss_type=prov.get('loss_type'), train_seed=prov.get('train_seed'), rmse_pct=rr['rmse_pct'],
-                rmse_pct_se=rr['rmse_pct_se'], baseline_rmse_pct=baseline, target_rmse_pct=TARGET_FRACTION * baseline,
-                target_met=bool(rr['rmse_pct'] <= TARGET_FRACTION * baseline), vs_baseline=vs_base, vs_b_ddim1=vs_b,
-                validity=validity, verdict_if_valid=verdict_if_valid, invalid_reason=validity['invalid_reason'],
-                verdict=verdict_if_valid if validity['valid'] else 'INVALID')
+    ens = _ensemble(ev)
+    m = dict(run_name=ev.get('run_name'),
+             ckpt=prov['ckpt'] if ens is None else list(_need(ens, 'ckpts', 'provenance.ensemble')),
+             epoch=ckpt_epoch(prov['ckpt']) if ens is None else ensemble_label(ens),
+             loss_type=prov.get('loss_type'), train_seed=prov.get('train_seed'), rmse_pct=rr['rmse_pct'],
+             rmse_pct_se=rr['rmse_pct_se'], baseline_rmse_pct=baseline, target_rmse_pct=TARGET_FRACTION * baseline,
+             target_met=bool(rr['rmse_pct'] <= TARGET_FRACTION * baseline), vs_baseline=vs_base, vs_b_ddim1=vs_b,
+             validity=validity, verdict_if_valid=verdict_if_valid, invalid_reason=validity['invalid_reason'],
+             verdict=verdict_if_valid if validity['valid'] else 'INVALID')
+    if ens is not None:
+        m['ensemble'] = dict(members=ensemble_members(ens), tta=ens.get('tta'), n_calls=ens.get('n_calls'))
+    return m
 
 
 def vs_b_kmean(ev, b_diag, k=DEFAULT_K):
@@ -227,7 +278,9 @@ def gate(regs, ev_b, b_yswap=None, k=DEFAULT_K, require_done=True, b_diag=None, 
         ('PASS' if b['vs_baseline']['pass'] else 'FAIL') if b['validity']['valid'] else 'INVALID')
     pairs = []
     for (i, mi), (j, mj) in combinations(enumerate(models), 2):
-        if mi['loss_type'] != mj['loss_type'] and mi['train_seed'] == mj['train_seed']:
+        if 'ensemble' in mi or 'ensemble' in mj:            # an ensemble is never one side of a loss or seed pair
+            kind = 'other'
+        elif mi['loss_type'] != mj['loss_type'] and mi['train_seed'] == mj['train_seed']:
             kind = 'loss_pair'
         elif mi['loss_type'] == mj['loss_type'] and mi['train_seed'] != mj['train_seed']:
             kind = 'seed_pair'
@@ -255,6 +308,10 @@ def print_report(g):
         print(f"{m['run_name']} ({m['loss_type']}, seed {m['train_seed']}, epoch {m['epoch']}): {m['verdict']}  "
               f"RMSE {m['rmse_pct']:.4f} ± {m['rmse_pct_se']:.4f} %  target {m['target_rmse_pct']:.4f} "
               f"{'met' if m['target_met'] else 'not met'}")
+        if 'ensemble' in m:
+            e = m['ensemble']
+            print(f"   ensemble of {len(e['members'])} members: {', '.join(e['members'])}; tta {e['tta']}, "
+                  f"{e['n_calls']} calls per cube")
         print(f"   - baseline {v['diff']:+.4f} ± {v['se']:.4f} (clustered {v['se_cluster']:.4f})  "
               f"- B ddim1 {vb['diff']:+.4f} ± {vb['se']:.4f} (clustered {vb['se_cluster']:.4f})")
         if m['vs_b_t999_kmean'] is not None:

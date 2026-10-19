@@ -4,9 +4,15 @@
   python scripts/eval_warmstart.py --d 4 --ckpt results/residual_warmstart/residual/d4/checkpoint_epoch_200.pth \
          --mode residual --base_channels 256 [--seeds 0 1] [--device cuda:0] [--grid quick]
   python scripts/eval_warmstart.py --d 4 --ckpt <run>/checkpoint_epoch_100.pth --mode regress --prediction_type direct --grid direct
+  python scripts/eval_warmstart.py --d 4 --ckpt <run_a>/checkpoint_epoch_25.pth <run_b>/checkpoint_epoch_50.pth ... \
+         --mode regress --prediction_type direct --grid direct [--tta transpose]
 
 Mode regress (the one-step regressor) is scored on the one-row direct grid; its y-swap is one deterministic call at
-t = REGRESS_T on 32 cubes (--yswap_n).
+t = REGRESS_T on 32 cubes (--yswap_n). Several --ckpt paths (an ensemble) and --tta transpose (each call also made on
+the patch transposed in its two spatial dims, and that prediction transposed back) are for mode regress only: the
+residual is the mean over the members and the TTA calls, in the direct row and in every y-swap variant, and the record
+goes to eval/regress/d<d>/ensemble<N>__<run>@<epoch>+...[__tta-transpose]__direct.json (never overwritten) with
+provenance.ensemble.
 
 Baselines go to results/residual_warmstart/eval/baseline_d<d>.json; checkpoint evaluations to
 results/residual_warmstart/eval/<mode>/d<d>/<run_name>__<ckpt>[__quick|__direct].json (no suffix for --grid full)
@@ -31,6 +37,7 @@ from data_loader.hfd_residual import HFDResidualData, limit_worker_threads, resi
 from model.diffusion_trainer import DiffusionTrainer  # noqa: E402
 from model.residual_wrapper import MODES, REGRESS_T, build_residual_model, regress_forward  # noqa: E402
 from scripts.paired_stats import cluster_se  # noqa: E402
+from scripts.gate_1a import ckpt_epoch  # noqa: E402
 # Defined once (fix item 15) and re-exported from here: scripts/make_baseline_record.py and the tests import them from
 # this module, and check_meta / checkpoint_eval use file_sha256 and git_head.
 from data_loader.warmstart_paths import (DATA_ROOT, EVAL_DIR, PRIOR, RESULTS_ROOT, SUBSET,  # noqa: E402,F401
@@ -217,18 +224,56 @@ def sampler_grid(which='full'):
     raise ValueError(f"grid must be 'full', 'quick' or 'direct', got {which!r}")
 
 
-def reconstruct(model, trainer, mode, batch, cfg, sigma_d, seed):
+TTA_CHOICES = ('none', 'transpose')     # the other dihedral transforms do not map the loader's top-left-anchored stride-d
+#                                       sensor grid onto itself; the transpose does
+
+
+def _members(model):
+    return list(model) if isinstance(model, (list, tuple)) else [model]
+
+
+def regress_calls(n_members, tta='none'):
+    """Network calls of one regressor reconstruction: one per member, twice with --tta transpose."""
+    return n_members * (2 if tta == 'transpose' else 1)
+
+
+def regress_predict(models, cond, tta='none'):
+    """The regressor's residual prediction: regress_forward(member, cond), averaged over the members (one model or a
+    list) and, with tta 'transpose', over a second call on x0_hat and the sensor image transposed in their two spatial
+    dims whose prediction is transposed back. One model without TTA returns its one call unchanged."""
+    if tta not in TTA_CHOICES:
+        raise ValueError(f'tta must be one of {TTA_CHOICES}, got {tta!r}')
+    models = _members(models)
+    total, n = None, 0
+    with torch.no_grad():
+        for m in models:
+            preds = [regress_forward(m, cond)]
+            if tta == 'transpose':
+                tc = {k: cond[k].transpose(2, 3).contiguous() for k in ('sensor', 'x0_hat')}
+                preds.append(regress_forward(m, tc).transpose(2, 3))
+            for p in preds:
+                total, n = (p if total is None else total + p), n + 1
+    return total if n == 1 else total / n
+
+
+def _check_regress_only(model, mode, tta):
+    if mode != 'regress' and (isinstance(model, (list, tuple)) or tta != 'none'):
+        raise ValueError(f"ensembles and tta are for mode 'regress' only (mode={mode!r}, tta={tta!r})")
+
+
+def reconstruct(model, trainer, mode, batch, cfg, sigma_d, seed, tta='none'):
     """batch = (x, y_d, x0_hat) tensors. Returns x_hat [B, 64, H, W] clamped to [-1, 1]. Mode regress takes the
-    'direct' cfg only (one deterministic call; `seed` unused) and every other mode takes a sampler cfg."""
+    'direct' cfg only (one deterministic call; `seed` unused) and every other mode takes a sampler cfg. In mode regress
+    `model` may be a list (an ensemble) and tta 'transpose' (see regress_predict); trainer.last_nfe counts the calls."""
     x, y_d, x0_hat = [b.to(trainer.device) for b in batch]
     cond = {'sensor': y_d, 'x0_hat': x0_hat}
     if (cfg['method'] == 'direct') != (mode == 'regress'):
         raise ValueError(f"the direct cfg is for mode 'regress' only, and mode 'regress' takes only the direct cfg "
                          f"(mode={mode!r}, method={cfg['method']!r})")
+    _check_regress_only(model, mode, tta)
     if mode == 'regress':
-        with torch.no_grad():
-            r = regress_forward(model, cond)
-        trainer.last_nfe = 1
+        r = regress_predict(model, cond, tta)
+        trainer.last_nfe = regress_calls(len(_members(model)), tta)
         return (x0_hat + sigma_d * r).clamp(-1, 1)        # clamping the cube = clamping r to the feasible envelope
     torch.manual_seed(seed)
     kw = dict(n_steps=cfg['n_steps'], method=cfg['method'], progress=False)
@@ -276,7 +321,7 @@ def check_yswap_x_t(x_t, t_values, n_timesteps):
 YSWAP_RATIO = 0.9          # spec §7: the true condition must score <= 0.9 x swap_full at every t of the check
 
 
-def yswap_check(model, trainer, mode, batch, t_values=(100, 300), sigma_d=None, files=None, x_t='q_sample'):
+def yswap_check(model, trainer, mode, batch, t_values=(100, 300), sigma_d=None, files=None, x_t='q_sample', tta='none'):
     """One-step x0 error of `model` under the true condition and under swapped / zeroed conditions.
 
     Only the network's inputs (`cond`) are swapped; every variant is composed with the TRUE x0_hat
@@ -298,8 +343,10 @@ def yswap_check(model, trainer, mode, batch, t_values=(100, 300), sigma_d=None, 
                  only at t = n_timesteps - 1 = 999 (ValueError at any other t): elsewhere a sampler never feeds pure
                  noise.
     Mode regress: one deterministic call per variant at t = REGRESS_T on its zero x_t (t_values and x_t do not
-    apply)."""
+    apply); `model` may be a list (an ensemble) and tta 'transpose', and every variant then scores regress_predict's
+    mean."""
     x, y_d, x0_hat = [b.to(trainer.device) for b in batch]
+    _check_regress_only(model, mode, tta)
     if x.shape[0] < 2:
         raise ValueError('y-swap check needs a batch of at least 2 items')
     if mode in ('residual', 'regress') and sigma_d is None:
@@ -322,8 +369,7 @@ def yswap_check(model, trainer, mode, batch, t_values=(100, 300), sigma_d=None, 
         row, cubes = {}, {}
         for name, c in conds.items():
             if mode == 'regress':
-                with torch.no_grad():
-                    pred = regress_forward(model, c)
+                pred = regress_predict(model, c, tta)
             else:
                 pred = _one_step_x0(model, trainer, mode, target, c, tv, x_t)
             x_hat = (x0_hat + sigma_d * pred) if mode in ('residual', 'regress') else pred
@@ -377,6 +423,48 @@ def check_meta(ck, args, sigma_d, prior_sha256):
     return True
 
 
+MEMBER_AGREE = META_ARGS + ('sigma_d', 'prior_sha256')     # an ensemble's members may differ in args and epoch only
+
+
+def _meta_of(ck):
+    return (ck.get('meta') if isinstance(ck, dict) else None) or {}
+
+
+def check_members(cks, ckpts):
+    """An ensemble's members must agree on MEMBER_AGREE in their checkpoints' meta (sigma_d within 1e-9; a missing key
+    counts as '<missing>'); they may differ in args (loss_type, seed) and epoch. Raises ValueError naming the member and
+    every field it differs in from the first member."""
+    ref = _meta_of(cks[0])
+    for ck, path in zip(cks[1:], ckpts[1:]):
+        meta, bad = _meta_of(ck), []
+        for k in MEMBER_AGREE:
+            a, b = ref.get(k, '<missing>'), meta.get(k, '<missing>')
+            if k == 'sigma_d' and '<missing>' not in (a, b):
+                same = abs(float(a) - float(b)) < 1e-9
+            else:
+                same = a == b
+            if not same:
+                bad.append(f'{k}: {b!r} vs {a!r}')
+        if bad:
+            raise ValueError(f'ensemble member {path} does not match the first member {ckpts[0]}: ' + '; '.join(bad))
+
+
+def _run_of(ckpt):
+    return os.path.basename(os.path.dirname(os.path.abspath(ckpt)))
+
+
+def ensemble_name(ckpts, tta='none'):
+    """ensemble<N>__<run>@<epoch>+...[__tta-<tta>]: the run name of a regressor ensemble, members in the given order
+    (a member's run is its checkpoint's directory, its epoch the checkpoint_epoch_<N>.pth number)."""
+    return (f'ensemble{len(ckpts)}__' + '+'.join(f'{_run_of(p)}@{ckpt_epoch(p)}' for p in ckpts)
+            + ('' if tta == 'none' else f'__tta-{tta}'))
+
+
+def ensemble_output_path(d, ckpts, tta='none'):
+    """eval/regress/d<d>/<ensemble_name>__direct.json (an ensemble is a regressor, scored on the direct grid)."""
+    return os.path.join(EVAL_DIR, 'regress', f'd{d}', ensemble_name(ckpts, tta) + '__direct.json')
+
+
 def checkpoint_eval(args):
     grid = getattr(args, 'grid', 'full')
     if (args.mode == 'regress') != (grid == 'direct'):
@@ -385,25 +473,62 @@ def checkpoint_eval(args):
     if (args.mode == 'regress') != (args.prediction_type == 'direct'):
         raise ValueError(f"--mode regress needs --prediction_type direct, and 'direct' needs --mode regress "
                          f"(got mode={args.mode!r}, prediction_type={args.prediction_type!r})")
+    ckpts = [args.ckpt] if isinstance(args.ckpt, str) else list(args.ckpt)
+    tta = getattr(args, 'tta', None) or 'none'
+    combined = len(ckpts) > 1 or tta != 'none'     # an ensemble, or one checkpoint with TTA: named and recorded as one
+    if combined:
+        if args.mode != 'regress':
+            raise ValueError(f'an ensemble ({len(ckpts)} checkpoints) and --tta {tta} are for --mode regress only '
+                             f'(got mode={args.mode!r})')
+        if tta not in TTA_CHOICES:
+            raise ValueError(f'--tta must be one of {TTA_CHOICES}, got {tta!r}')
+        seen = set()
+        for p in ckpts:                                    # a repeated member would silently weigh double
+            if os.path.realpath(p) in seen:
+                raise SystemExit(f'ensemble member {p} is listed twice')
+            seen.add(os.path.realpath(p))
+        if getattr(args, 'run_name', None):
+            raise ValueError(f'--run_name {args.run_name!r} does not apply to an ensemble: its name is built from its '
+                             f'members ({ensemble_name(ckpts, tta)})')
+        path = ensemble_output_path(args.d, ckpts, tta)
+        if os.path.exists(path):
+            raise SystemExit(f'{path} exists: an ensemble evaluation is never overwritten')
+        run_name = ensemble_name(ckpts, tta)
+    elif not isinstance(args.ckpt, str):                   # a one-element list: exactly the one-path evaluation
+        args = argparse.Namespace(**dict(vars(args), ckpt=ckpts[0]))
     yswap_n = getattr(args, 'yswap_n', None) or (32 if args.mode == 'regress' else 8)
     device = torch.device(args.device)
-    run_name = getattr(args, 'run_name', None) or os.path.basename(os.path.dirname(os.path.abspath(args.ckpt)))
+    if not combined:
+        run_name = getattr(args, 'run_name', None) or os.path.basename(os.path.dirname(os.path.abspath(args.ckpt)))
     trainer = DiffusionTrainer(device=device, prediction_type=args.prediction_type, loss_type='l1', snr_gamma=None)
-    model = build_model(args.mode, args.base_channels, device)
-    ck = torch.load(args.ckpt, map_location='cpu', weights_only=False)
-    targs = ((ck.get('meta') or {}).get('args') or {}) if isinstance(ck, dict) else {}
+    models = [build_model(args.mode, args.base_channels, device) for _ in ckpts]
+    cks = [torch.load(p, map_location='cpu', weights_only=False) for p in ckpts]
+    if combined:
+        check_members(cks, ckpts)                                               # before any data is touched
+    targs = [((ck.get('meta') or {}).get('args') or {}) if isinstance(ck, dict) else {} for ck in cks]
     ds_all = dataset_for(args.data_root, args.prior, args.d, load_subset(args.data_root, 'files'))
     sigma_d = ds_all.sigma_d
     prior_sha256 = file_sha256(args.prior)
-    meta_checked = check_meta(ck, args, sigma_d, prior_sha256)                 # before any expensive work
-    sd = ck.get('model_state_dict', ck)
-    model.load_state_dict(sd, strict=True)
+    checks = [check_meta(ck, argparse.Namespace(**dict(vars(args), ckpt=p)) if combined else args, sigma_d,
+                         prior_sha256) for ck, p in zip(cks, ckpts)]            # before any expensive work
+    meta_checked = all(checks) if combined else checks[0]
+    for m, ck in zip(models, cks):
+        m.load_state_dict(ck.get('model_state_dict', ck), strict=True)
+    del cks
+    model = models if combined else models[0]
     ds_ddpm = dataset_for(args.data_root, args.prior, args.d, load_subset(args.data_root, 'ddpm1000_subset'))
     provenance = dict(mode=args.mode, d=args.d, base_channels=args.base_channels, prediction_type=args.prediction_type,
                       n_timesteps=trainer.n_timesteps, sigma_d=sigma_d, prior_s=float(ds_all.prior['s']),
                       prior_sha256=prior_sha256, prior_path=os.path.abspath(args.prior),
-                      ckpt=os.path.abspath(args.ckpt), git_head=git_head(), meta_checked=meta_checked,
-                      loss_type=targs.get('loss_type'), train_seed=targs.get('seed'), yswap_n=yswap_n)
+                      ckpt=os.path.abspath(ckpts[0]), git_head=git_head(), meta_checked=meta_checked,
+                      loss_type=targs[0].get('loss_type'), train_seed=targs[0].get('seed'), yswap_n=yswap_n)
+    if combined:
+        loss_types, seeds = [t.get('loss_type') for t in targs], [t.get('seed') for t in targs]
+        provenance['loss_type'] = None if None in loss_types else '+'.join(sorted(set(loss_types)))
+        provenance['train_seed'] = seeds[0] if len(set(seeds)) == 1 else None       # the gate refuses None
+        provenance['ensemble'] = dict(ckpts=[os.path.abspath(p) for p in ckpts], runs=[_run_of(p) for p in ckpts],
+                                      epochs=[ckpt_epoch(p) for p in ckpts], loss_types=loss_types, train_seeds=seeds,
+                                      tta=tta, n_calls=regress_calls(len(ckpts), tta))
     base = baseline_eval(args.data_root, args.prior, args.d, ds_all.img_list)
     n_seeds = len(args.seeds)
     rows = []
@@ -414,7 +539,7 @@ def checkpoint_eval(args):
         for si, seed in enumerate(args.seeds):
             for bi, batch in enumerate(loader):
                 t0 = time.time()
-                x_hat = reconstruct(model, trainer, args.mode, batch, cfg, sigma_d, seed * 1000 + bi)
+                x_hat = reconstruct(model, trainer, args.mode, batch, cfg, sigma_d, seed * 1000 + bi, tta=tta)
                 if trainer.device.type == 'cuda':
                     torch.cuda.synchronize(trainer.device)          # queued GPU work belongs to this cube's time
                 secs += time.time() - t0
@@ -434,16 +559,20 @@ def checkpoint_eval(args):
               f"seed-std {agg['rmse_pct_seed_std']:.3f} sam={agg['sam_deg']:.2f}")
     ds_ys, batch = yswap_batch(args.data_root, args.prior, args.d, yswap_n)
     ys = yswap_check(model, trainer, args.mode, batch, sigma_d=sigma_d,
-                     files=[os.path.relpath(f, args.data_root) for f in ds_ys.img_list])
+                     files=[os.path.relpath(f, args.data_root) for f in ds_ys.img_list], tta=tta)
     print('y-swap:', json.dumps(ys))
-    out = dict(provenance=provenance, ckpt=args.ckpt, mode=args.mode, d=args.d, sigma_d=sigma_d, seeds=args.seeds,
+    out = dict(provenance=provenance, ckpt=ckpts[0], mode=args.mode, d=args.d, sigma_d=sigma_d, seeds=args.seeds,
                grid=grid, run_name=run_name,
                baseline=base['mean'], baseline_per_item=base['per_item'], baseline_files=base['files'], rows=rows,
                yswap=ys, yswap_files=[os.path.relpath(f, args.data_root) for f in ds_ys.img_list])
-    path = eval_output_path(args.mode, args.d, run_name, args.ckpt, grid)      # spec S12; baselines stay in EVAL_DIR
+    if not combined:
+        path = eval_output_path(args.mode, args.d, run_name, args.ckpt, grid)  # spec S12; baselines stay in EVAL_DIR
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, 'w') as f:
-        json.dump(out, f, indent=1)
+    try:
+        with open(path, 'x' if combined else 'w') as f:                        # an ensemble record: never overwritten
+            json.dump(out, f, indent=1)
+    except FileExistsError:
+        raise SystemExit(f'{path} exists: an ensemble evaluation is never overwritten')
     print('wrote', path)
 
 
@@ -451,7 +580,10 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--d', type=int, required=True)
     ap.add_argument('--baseline', action='store_true')
-    ap.add_argument('--ckpt'); ap.add_argument('--mode', choices=list(MODES))
+    ap.add_argument('--ckpt', nargs='+', help='one checkpoint, or several (an ensemble; --mode regress only)')
+    ap.add_argument('--mode', choices=list(MODES))
+    ap.add_argument('--tta', choices=list(TTA_CHOICES), default='none',
+                    help="'transpose': average each regressor call with one on the transposed patch (--mode regress)")
     ap.add_argument('--grid', choices=['full', 'quick', 'direct'], default='full')
     ap.add_argument('--run_name', default=None)
     ap.add_argument('--base_channels', type=int, default=64)
@@ -462,6 +594,8 @@ def main():
     ap.add_argument('--device', default='cuda:0' if torch.cuda.is_available() else 'cpu')
     ap.add_argument('--data_root', default=DATA_ROOT); ap.add_argument('--prior', default=PRIOR)
     args = ap.parse_args()
+    if args.ckpt is not None and len(args.ckpt) == 1:
+        args.ckpt = args.ckpt[0]                         # one path: checkpoint_eval sees the string it always saw
     if args.baseline:
         out = baseline_eval(args.data_root, args.prior, args.d)
         os.makedirs(EVAL_DIR, exist_ok=True)
