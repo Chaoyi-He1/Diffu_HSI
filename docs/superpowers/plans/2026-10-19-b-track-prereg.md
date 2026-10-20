@@ -96,3 +96,27 @@ Analysis that precedes it (CPU, monitoring files only): `diagnostics/regress_spa
 | B ddim1 | 0.109 = 0.330 % rms (54 % worse) | 5.655 = 2.378 % rms (8.9 ± 0.3 % removed) | 2.304 % |
 
 The baseline's measured-pixel error equals the d = 1 baseline (0.263 % on the 1000 validation files): with noise-free y the 30 → 64 spectral inverse is already solved where a sample exists, and 99.9 % of the baseline's error energy sits on the interpolated pixels. The share of the regressor's energy gain that comes from the measured pixels is 0.0 % (bootstrap over files): **at d = 4 the whole gain is spatial fill-in of a known spectrum, none of it spectral.** By class the regressor keeps 0.61 / 0.75 / 0.64 of the baseline's interpolated energy on P022 / P023 / P024 (98 / 608 / 94 files). Consequence for B.7: at d = 8 the measured-pixel error stays at the d = 1 level while 63 / 64 pixels are interpolated, so the regressor's gain is bounded by how much of an 8 × 8-sample spatial fill-in a conditional-mean estimate can recover; the d = 2 case (3 / 4 interpolated, baseline 1.034 %) is the easy end.
+
+## B.6 result (2026-10-19 19:50, CPU; records `eval/regress/d4/regress_l2_sel_d4_b64__checkpoint_epoch_{18,100}__direct.json`, gates `gate_1a_prime__regress_l2_sel_d4_b64__nodone.json` (epoch 18, the pre-registered non-final exception) and `gate_1a_prime__regress_l2_sel_d4_b64.json` (epoch 100))
+
+Run `regress_l2_sel_d4_b64`: DONE = 100 after 9.1 h on GPU 0 (319 s/epoch, 0 skipped non-finite steps, 100 checkpoints kept). Pre-registered selection = **epoch 18** (monitoring loss 0.64514; epoch 100 = 0.77871; epoch 1 = 0.76492), applied once after DONE.
+
+| checkpoint | gate RMSE (200 cubes) | vs baseline 2.3512 | vs B ddim1 2.2426 | validity (t = 999, 32 cubes) | verdict |
+|---|---|---|---|---|---|
+| epoch 18 (selected) | **1.9908 ± 0.0437 %** | −0.3604 ± 0.0217 (clustered 0.0245) = 15.3 % | −0.2518 ± 0.0180 | swap_full − true +0.7293 ± 0.0809, swap_full − baseline +0.3686 ± 0.0766 → valid; spec 0.9 ratio 0.738 | **PASS; target 1.9985 met at the point estimate**, by 0.008 (inside one SE: the target is not met with a 2-SE margin) |
+| epoch 100 (control) | 2.1852 ± 0.0492 % | −0.1659 ± 0.0248 = 7.1 % | −0.0574 ± 0.0212 | valid; ratio 0.733 | PASS; target not met; replicates the Phase 1a′ L2 2.1829 |
+
+Reading: checkpoint selection gives L2 the same jump as L1 (2.185 → 1.991 against L1's 2.134 → 1.962), so the overfitting-after-epoch-20 picture holds for both losses; the L2 regressor stays a little behind the L1 one at the point estimates (no paired L1-vs-L2 test was run). go_1b is untouched by B.6 (it needs the two L1 seeds). E2 (the selected L1 + selected L2 ensemble with transpose TTA) remains pre-registered and waits for the user's go.
+
+## B.5 result and go_1b (2026-10-19 20:18, CPU; records `eval/regress/d4/regress_l1_sel_s43_d4_b64__checkpoint_epoch_{17,100}__direct.json`, gates `gate_1a_prime__regress_l1_sel_s43_d4_b64__nodone.json` (epoch 17), `gate_1a_prime__regress_l1_sel_s43_d4_b64.json` (epoch 100) and the pre-registered two-seed look `gate_1a_prime__regress_l1_sel_d4_b64+regress_l1_sel_s43_d4_b64__nodone.json`)
+
+Run `regress_l1_sel_s43_d4_b64` (seed 43): DONE = 100 after 9.25 h on GPU 1 (0 skipped non-finite steps, 100 checkpoints kept). Pre-registered selection = **epoch 17** (monitoring loss 0.41918; epoch 100 = 0.45958; epoch 1 = 0.46553), the same epoch as seed 42 (0.41920).
+
+| checkpoint | gate RMSE (200 cubes) | vs baseline 2.3512 | vs B ddim1 2.2426 | validity (t = 999, 32 cubes) | verdict |
+|---|---|---|---|---|---|
+| seed 43, epoch 17 (selected) | **1.9516 ± 0.0430 %** | −0.3996 ± 0.0233 (clustered 0.0258) = 17.0 % | −0.2910 ± 0.0196 | swap_full − true +0.7854 ± 0.1035, swap_full − baseline +0.3934 ± 0.0865 → valid; spec 0.9 ratio 0.721 | **PASS; target 1.9985 met** (margin 0.047 ≈ 1.1 SE) |
+| seed 43, epoch 100 (control) | 2.1286 ± 0.0469 % | −0.2226 ± 0.0258 = 9.5 % | −0.1140 ± 0.0221 | valid; ratio 0.713 | PASS; target not met; replicates 2.1422 (Phase 1a′) and 2.1338 (B.1 control) |
+
+**go_1b = TRUE under the B.5 rule:** both L1 seeds' selected checkpoints PASS at ≤ 1.9985 % (seed 42: 1.9621 ± 0.0439; seed 43: 1.9516 ± 0.0430), both valid, both spec ratios below 0.9; the two-seed gate call reports `seed_pair +0.0105 ± 0.0080` (the seeds agree within 1.3 SE) and prints `go_1b True`. Caveats carried from B.1: the selected checkpoints are non-final (`--no_require_done`, the pre-registered exception); selection used the monitoring split, which shares all 113 gate source images, so gate numbers after selection are not image-independent (each record was looked at once, as pre-registered); each seed's target margin is about one SE, so "target met" holds at the point estimate rather than by 2 SE, and the two-seed replication is what makes the margin more than a seed accident.
+
+What go_1b means here: the Phase 1 gate for "a one-step residual estimator beats the linear baseline by 15 % at d = 4" is met, by a direct regressor rather than by a diffusion read-out; the question of what diffusion still adds (samples, uncertainty, perceptual quality at wide posteriors, a prior reusable across sensors and strides) is with the user, see the spatial-split result above.
