@@ -1,9 +1,10 @@
 #!/bin/bash
+cd "$(dirname "$0")/.."
 
 # Example script to run the 1D HSI diffusion model visualization
 # Make sure to update the model_path to point to your trained model checkpoint
 
-python visual_1d.py \
+python visual/visual_1d.py \
     --data_path "dataset/HASCID-Dataset" \
     --model_path "results/1d_hsi_diffusion/checkpoint_epoch_100.pth" \
     --save_path "results/1d_visualization" \

@@ -1,4 +1,5 @@
 #!/bin/bash
+cd "$(dirname "$0")/.."
 
 # Training script for 2D hyperspectral diffusion without VAE
 # This script runs the direct 2D diffusion training

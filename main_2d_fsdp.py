@@ -8,7 +8,7 @@ FSDP shards parameters, gradients, and optimizer states across all GPUs, giving
 Launch (single node, 4 GPUs):
     torchrun --standalone --nproc_per_node=4 main_2d_fsdp.py [args]
 
-Launch (multi-node SLURM, see job_fsdp.slurm):
+Launch (multi-node SLURM, see scripts/slurm/job_fsdp.slurm):
     torchrun --nproc_per_node=$GPUS_PER_NODE \\
              --nnodes=$SLURM_NNODES \\
              --node_rank=$SLURM_NODEID \\

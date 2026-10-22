@@ -10,3 +10,5 @@ logs/*
 .claude/
 *.log
 *.err
+.pytest_cache/
+.superpowers/
