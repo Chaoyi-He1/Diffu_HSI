@@ -24,6 +24,8 @@ RESULTS_ROOT = os.environ.get('RESIDUAL_WARMSTART_RESULTS', '/data/chaoyi_he/HSI
 PRIOR = os.path.join(RESULTS_ROOT, 'linear_prior_R1.npz')
 EVAL_DIR = os.path.join(RESULTS_ROOT, 'eval')
 SUBSET = os.path.join(REPO, 'tests', 'data', 'val_subset_200.json')
+UQ_DIR = os.path.join(RESULTS_ROOT, 'uq')                     # Phase 2a results (spec §6)
+SPLIT_JSON = os.path.join(UQ_DIR, 'split_halves.json')         # the cross-fitting split (spec §4.1)
 GATE_DEFAULT_MAX_NFE, GATE_DEFAULT_K = 10, 2.0
 
 
