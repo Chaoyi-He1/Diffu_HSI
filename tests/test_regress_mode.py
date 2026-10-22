@@ -62,7 +62,7 @@ def epoch(parts, args, e):
 
 
 def test_regress_mode_shares_bs_architecture_and_target():
-    assert MODES == ('residual', 'standard', 'standard_xhat', 'regress') and REGRESS_T == 999
+    assert MODES == ('residual', 'standard', 'standard_xhat', 'regress', 'residual_reg', 'varhead') and REGRESS_T == 999
     m = build_residual_model('regress', base_channels=8)
     assert isinstance(m, ResidualWrapper) and m.use_x0_hat and m.net.input_proj.in_channels == 128
     m.load_state_dict(build_residual_model('residual', base_channels=8).state_dict(), strict=True)   # only meta tells them apart
