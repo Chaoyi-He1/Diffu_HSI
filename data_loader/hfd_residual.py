@@ -43,6 +43,11 @@ class HFDResidualData(HFD_data):
         x0_hat = estimate_from_sensor(y_d.astype(np.float64), self.prior, self.d, H, W, self.A)
         return np.asarray(x64, dtype=np.float32), y_d, np.asarray(x0_hat, dtype=np.float32)
 
+    def raw_item(self, idx):
+        """(x64, y_d) without the x0_hat estimate: the Phase 2a cache dataset reads the centre from disk instead."""
+        x64, y_d = HFD_data.__getitem__(self, idx)
+        return np.asarray(x64, dtype=np.float32), np.asarray(y_d, dtype=np.float32)
+
 
 def limit_worker_threads(_worker_id):
     """DataLoader worker_init_fn: one BLAS (and OpenMP) thread per worker process.
