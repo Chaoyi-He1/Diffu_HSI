@@ -26,8 +26,18 @@ Reading: the half-data regressors leave residuals 3 % wider than the full regres
 
 ## Stage 1 — the residual diffusion and the variance head at d = 8
 
-- `residual_reg_d8_b64`: launched 2026-10-22 23:23 on GPU 0 (100 epochs, v-prediction, L1, centre x̂_R from the cache, σ_R = 0.089342). Expected ≈ 8.5 h.
-- `varhead_d8_b64`: launched 2026-10-22 23:23 on GPU 1 (40 epochs, Gaussian NLL, monitoring every epoch, every epoch saved). Expected ≈ 2.5 h; selection by the lowest monitoring NLL.
+- `residual_reg_d8_b64`: launched 2026-10-22 23:23 on GPU 0 (100 epochs, v-prediction, L1, centre x̂_R from the cache, σ_R = 0.089342); DONE = 100 at 08:21 on 2026-10-23 (8.97 h, 318 s/epoch, 0 skipped steps). Monitoring loss (fixed-RNG v-prediction L1, every 5 epochs) fell monotonically: 0.1124 (epoch 20), 0.1082 (40), 0.1047 (60), 0.1033 (80), 0.1030 (100) — the diffusion does not overfit the way the one-call regressors do, so the pre-registered epoch-100 checkpoint is evaluated. Checkpoints kept: 25, 50, 90, 100.
+- `varhead_d8_b64`: launched 2026-10-22 23:23 on GPU 1 (40 epochs, Gaussian NLL, monitoring every epoch, every epoch saved); DONE = 40 at 02:58 on 2026-10-23 (3.58 h, 297 s/epoch, 0 skipped steps). **Pre-registered selection = epoch 10** (monitoring NLL −0.2391; epoch 40 = −0.1262, i.e. the variance head overfits after epoch 10 as the regressors do). Pruned to epochs 10 and 40.
+- `regress_l1_sel_s43_d8_b64` (the optional second seed for the ensemble baseline, the B.5 recipe at d = 8): launched 2026-10-23 ≈ 03:00 on GPU 1 once the variance head freed it; DONE = 100 at 12:02 (9.05 h). **Selection = epoch 12** (monitoring loss 0.48175; epoch 100 = 0.54190), next to seed 42's epoch 11 (0.47862). Pruned to 12 / 25 / 50 / 100. The d = 8 ensemble baseline is therefore `regress_l1_sel_d8_b64@11` + `regress_l1_sel_s43_d8_b64@12` (two members; its predictive std has very few degrees of freedom, so it is a reported comparison only, as the spec says).
+- Stage 1 evaluation (T15): started 2026-10-23 ≈ 12:20 on GPU 1 — `uq_eval.py --d 8 --name d8_main`, centre `regress_l1_sel_d8_b64@11`, diffusion `residual_reg_d8_b64@100`, variance head `varhead_d8_b64@10`, ensemble as above, half-centre sensitivity row with `regress_l1_half1_d8_b64@15` + `regress_l1_half2_d8_b64@13`, cache `uq/d8/xr_cache`, K = 32, DDIM-10, followed by the single `uq_verdict.py` call.
+
+## Stage 2 — the d = 4 contrast (report only)
+
+Same recipe at `--ds 4`; the full centre is `regress_l1_sel_d4_b64@17`; the same split JSON.
+
+- `regress_l1_half1_d4_b64`: launched 2026-10-23 08:25 on GPU 0 (after the d = 8 diffusion finished); DONE = 40 at 10:21 (1.97 h, 155 s/epoch, 0 skipped). **Selection = epoch 12** (monitoring loss 0.43100; epoch 40 = 0.45764). Pruned to 12 and 40.
+- `regress_l1_half2_d4_b64`: launched 2026-10-23 ≈ 10:25 on GPU 0; DONE = 40 at ≈ 12:15 (≈ 1.9 h). **Selection = epoch 20** (monitoring loss 0.43155; epoch 40 = 0.44948). Pruned to 20 and 40.
+- d = 4 centre cache: building on GPU 0 since ≈ 12:20 (`half1@12`, `half2@20`, full `regress_l1_sel_d4_b64@17`); `residual_reg_d4_b64` launches on GPU 0 when it is done; `varhead_d4_b64` launches on GPU 1 after the d = 8 evaluation.
 
 ## Stage 0 — harness validation on the existing d = 4 assets (2026-10-22, GPU 0, ≈ 40 min)
 
