@@ -9,9 +9,11 @@ import pytest
 import torch
 
 import main_2d_residual_fsdp as tr
+from data_loader.warmstart_paths import file_sha256
 from model.diffusion_trainer import DiffusionTrainer
 from model.residual_wrapper import build_residual_model
 from model.varhead_trainer import VarheadTrainer
+from scripts.uq.split_halves import write_split
 
 CPU = torch.device('cpu')
 
@@ -37,6 +39,13 @@ class StubXRSet(torch.utils.data.Dataset):
 
     def checkpoint_extra(self):
         return dict(sigma_r=self.sigma_r, xr_cache_sha256='stubsha', centre=dict(run='stub', epoch=1, sha256='c', train_half=0), split_sha256='s')
+
+
+def split_file(tmp_path, name='split.json', seed=0):
+    """A tiny cross-fitting split on disk (its sha256 is what a half regressor's meta records)."""
+    path = str(tmp_path / name)
+    write_split(path, dict(seed=seed, half1=['MatFlower60/Train/P022/f0_1.mat'], half2=['MatFlower60/Train/P023/f1_1.mat']))
+    return path
 
 
 def args_for(tmp_path, mode, *extra):
@@ -77,12 +86,18 @@ def test_make_trainer_for_the_new_modes(tmp_path):
 
 
 def test_checkpoint_meta_carries_train_half_and_the_cache_extra(tmp_path):
-    a = args_for(tmp_path, 'regress', '--prediction_type', 'direct', '--train_half', '2')
+    sp = split_file(tmp_path)
+    a = args_for(tmp_path, 'regress', '--prediction_type', 'direct', '--train_half', '2', '--split_json', sp)
     m = tr.checkpoint_meta(a, 0.05, 3e-7, 'psha')
-    assert m['train_half'] == 2 and 'sigma_r' not in m
+    assert m['train_half'] == 2 and m['split_sha256'] == file_sha256(sp) and 'sigma_r' not in m
+    with pytest.raises(ValueError, match='split_sha256'):                     # never silently overwritten by an extra
+        tr.checkpoint_meta(a, 0.05, 3e-7, 'psha', extra=dict(split_sha256='other'))
+    m = tr.checkpoint_meta(args_for(tmp_path, 'regress', '--prediction_type', 'direct'), 0.05, 3e-7, 'psha')
+    assert m['train_half'] == 0 and 'split_sha256' not in m                   # a full-data regressor names no split
     a = args_for(tmp_path, 'residual_reg', '--xr_cache', '/c')
     m = tr.checkpoint_meta(a, 0.09, 3e-7, 'psha', extra=StubXRSet().checkpoint_extra())
     assert m['sigma_d'] == 0.09 and m['sigma_r'] == 0.05 and m['xr_cache_sha256'] == 'stubsha' and m['centre']['run'] == 'stub' and m['train_half'] == 0
+    assert m['split_sha256'] == 's'                                           # the cache's split
 
 
 def test_resume_refuses_a_rebuilt_cache_and_another_half(tmp_path):
@@ -91,11 +106,40 @@ def test_resume_refuses_a_rebuilt_cache_and_another_half(tmp_path):
     assert tr.check_resume_meta(ck, a, 0.05, 'psha', cache_sha='stubsha', warn=False)
     with pytest.raises(ValueError, match='xr_cache_sha256'):
         tr.check_resume_meta(ck, a, 0.05, 'psha', cache_sha='othersha', warn=False)
-    a1 = args_for(tmp_path, 'regress', '--prediction_type', 'direct', '--train_half', '1')
+    sp = split_file(tmp_path)
+    a1 = args_for(tmp_path, 'regress', '--prediction_type', 'direct', '--train_half', '1', '--split_json', sp)
     ck1 = dict(meta=tr.checkpoint_meta(a1, 0.05, 3e-7, 'psha'))
-    a2 = args_for(tmp_path, 'regress', '--prediction_type', 'direct', '--train_half', '2')
+    assert tr.check_resume_meta(ck1, a1, 0.05, 'psha', warn=False)
+    a2 = args_for(tmp_path, 'regress', '--prediction_type', 'direct', '--train_half', '2', '--split_json', sp)
     with pytest.raises(ValueError, match='train_half'):
         tr.check_resume_meta(ck1, a2, 0.05, 'psha', warn=False)
+    a1_other = args_for(tmp_path, 'regress', '--prediction_type', 'direct', '--train_half', '1',
+                        '--split_json', split_file(tmp_path, 'other_split.json', seed=1))
+    with pytest.raises(ValueError, match='split_sha256'):
+        tr.check_resume_meta(ck1, a1_other, 0.05, 'psha', warn=False)
+
+
+class StubBase:
+    """What make_datasets reads from an HFDResidualData: img_list and sigma_d."""
+    def __init__(self, files):
+        self.img_list, self.sigma_d = list(files), 0.09
+
+
+def test_make_datasets_takes_the_minimal_namespace_of_the_monitoring_scripts(monkeypatch):
+    """scripts/regress_monitoring_energy.py and scripts/diagnose_spatial_split.py pass only data_root, d, prior and
+    limit_files: no half filter, no cache wrap."""
+    gate = json.load(open(tr.SUBSET))['files']
+    train_files = [f'/root/MatFlower60/Train/P0{10 + i}/f{i}_1.mat' for i in range(4)]
+    val_files = [os.path.join('/root', f) for f in gate] + ['/root/MatFlower60/Train/P023/other.mat'] * 3
+    made = {}
+
+    def fake(root, split, **kw):
+        made[split] = StubBase(train_files if split == 'train' else val_files)
+        return made[split]
+    monkeypatch.setattr(tr, 'HFDResidualData', fake)
+    train, val = tr.make_datasets(SimpleNamespace(data_root='/root', d=4, prior='/nonexistent', limit_files=0))
+    assert train is made['train'] and val is made['test']
+    assert train.img_list == train_files and len(val.img_list) == 3
 
 
 def parts_for(args, ds):

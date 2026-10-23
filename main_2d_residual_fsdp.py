@@ -137,19 +137,21 @@ def make_datasets(args):
     assert n_before - len(val.img_list) == len(gate), \
         f'only {n_before - len(val.img_list)} of {len(gate)} gate files were found in the validation split ' \
         f'(path-form mismatch?); refusing to monitor on gate cubes'
-    if args.train_half:
-        half = set(read_split(args.split_json)[f'half{args.train_half}'])
+    # getattr: scripts/regress_monitoring_energy.py and scripts/diagnose_spatial_split.py pass only data_root, d, prior, limit_files
+    train_half, xr_cache, split_json = getattr(args, 'train_half', 0), getattr(args, 'xr_cache', ''), getattr(args, 'split_json', SPLIT_JSON)
+    if train_half:
+        half = set(read_split(split_json)[f'half{train_half}'])
         n_before = len(train.img_list)
         train.img_list = [f for f in train.img_list if os.path.relpath(f, args.data_root) in half]
         if len(train.img_list) != len(half):
-            raise ValueError(f'--train_half {args.train_half}: {len(train.img_list)} of the split\'s {len(half)} files are in the '
-                             f'{n_before}-file training list (split {args.split_json} vs data_root {args.data_root})')
-    if args.xr_cache:
-        train = XRCachedData(train, args.xr_cache, 'train', args.data_root)
-        val = XRCachedData(val, args.xr_cache, 'val', args.data_root)
+            raise ValueError(f'--train_half {train_half}: {len(train.img_list)} of the split\'s {len(half)} files are in the '
+                             f'{n_before}-file training list (split {split_json} vs data_root {args.data_root})')
+    if xr_cache:
+        train = XRCachedData(train, xr_cache, 'train', args.data_root)
+        val = XRCachedData(val, xr_cache, 'val', args.data_root)
     if args.limit_files:
         train.img_list = train.img_list[:args.limit_files]; val.img_list = val.img_list[:max(8, args.limit_files // 8)]
-    if args.xr_cache:
+    if xr_cache:
         train.check_files(); val.check_files()
     return train, val
 
@@ -211,16 +213,28 @@ def make_scheduler(optimizer, args):
 
 
 # ----------------------------------------------------------------------------- checkpoints
+def half_split_sha256(args):
+    """sha256 of the --split_json that defines a half regressor's half; None for --train_half 0 (or no such field)."""
+    return file_sha256(getattr(args, 'split_json', SPLIT_JSON)) if getattr(args, 'train_half', 0) else None
+
+
 def checkpoint_meta(args, sigma_d, prior_s, prior_sha256, extra=None):
     """What scripts/eval_warmstart.py::check_meta verifies (mode, d, base_channels, prediction_type, sigma_d, prior_sha256)
     plus provenance: n_timesteps, prior_s, the arguments, the checkout's git HEAD (None without git; uncommitted changes
     are not recorded) and the torch version. git_head and torch are never compared on resume or evaluation.
-    Phase 2a: always train_half; for the XR modes `extra` (XRCachedData.checkpoint_extra()) adds sigma_r, xr_cache_sha256,
-    centre and split_sha256, and sigma_d is sigma_r (decision D1)."""
+    Phase 2a: always train_half, and for a half regressor split_sha256 of its --split_json; for the XR modes `extra`
+    (XRCachedData.checkpoint_extra()) adds sigma_r, xr_cache_sha256, centre and the cache's split_sha256, and sigma_d is
+    sigma_r (decision D1). Raises ValueError rather than let the two split_sha256 overwrite each other."""
     meta = dict(mode=args.mode, d=args.d, base_channels=args.base_channels, prediction_type=args.prediction_type,
                 n_timesteps=N_TIMESTEPS, sigma_d=float(sigma_d), prior_s=float(prior_s), prior_sha256=prior_sha256, args=vars(args),
                 git_head=git_head(), torch=torch.__version__, train_half=int(getattr(args, 'train_half', 0)))
+    split_sha = half_split_sha256(args)
+    if split_sha is not None:
+        meta['split_sha256'] = split_sha   # which split defined this half regressor's half
     if extra:
+        if split_sha is not None and extra.get('split_sha256', split_sha) != split_sha:
+            raise ValueError(f'split_sha256: --split_json {getattr(args, "split_json", SPLIT_JSON)} has {split_sha!r} '
+                             f'but the dataset extra has {extra["split_sha256"]!r}')
         meta.update(extra)                 # XR modes: sigma_r, xr_cache_sha256, centre, split_sha256 (XRCachedData.checkpoint_extra)
     return meta
 
@@ -262,7 +276,8 @@ def check_resume_meta(ck, args, sigma_d, prior_sha256, path='<checkpoint>', warn
     """Refuse to resume a checkpoint whose `meta` differs from the current run (the provenance chain the gate relies on
     must not break silently: A' and B have identical parameter shapes, so strict loading would not notice a mode
     switch). Compares RESUME_META_KEYS and meta['args'] loss_type, seed and train_half exactly, sigma_d (|diff| < 1e-9),
-    prior_sha256 and, when cache_sha is given (the XR modes), xr_cache_sha256; raises ValueError naming every mismatch,
+    prior_sha256, when cache_sha is given (the XR modes) xr_cache_sha256 and, for a half regressor whose checkpoint
+    names its split, split_sha256 against the current --split_json; raises ValueError naming every mismatch,
     and also when the checkpoint has no meta. A scheduler T_max different from --num_epochs only warns (the cosine
     schedule keeps the checkpoint's T_max; the Task 3 smoke test deliberately resumes 2 -> 3 epochs). Returns True."""
     meta = ck.get('meta') if isinstance(ck, dict) else None
@@ -280,6 +295,10 @@ def check_resume_meta(ck, args, sigma_d, prior_sha256, path='<checkpoint>', warn
         bad.append(f'prior_sha256: checkpoint {meta.get("prior_sha256", "<missing>")!r} vs prior file {prior_sha256!r}')
     if cache_sha is not None and meta.get('xr_cache_sha256') != cache_sha:
         bad.append(f'xr_cache_sha256: checkpoint {meta.get("xr_cache_sha256", "<missing>")!r} vs cache {cache_sha!r} (the cache was rebuilt)')
+    split_sha = half_split_sha256(args)
+    if split_sha is not None and 'split_sha256' in meta and meta['split_sha256'] != split_sha:
+        bad.append(f'split_sha256: checkpoint {meta["split_sha256"]!r} vs split file {split_sha!r} '
+                   f'({getattr(args, "split_json", SPLIT_JSON)})')
     if bad:
         raise ValueError(f'checkpoint {path} does not match the current arguments: ' + '; '.join(bad))
     t_max = ck.get('scheduler_state_dict', {}).get('T_max')
