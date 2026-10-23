@@ -158,3 +158,18 @@ LPIPS / FID (pretrained on RGB natural images), downstream classification or det
 Create: `scripts/uq/__init__.py`, `scripts/uq/split_halves.py`, `scripts/uq/build_xr_cache.py`, `scripts/uq/metrics.py`, `scripts/uq_eval.py`, `scripts/uq_verdict.py`, `data_loader/xr_cache.py`, `tests/test_uq_split.py`, `tests/test_xr_cache.py`, `tests/test_uq_modes.py`, `tests/test_uq_metrics.py`, `tests/test_uq_eval.py`, `tests/test_uq_verdict.py`, `scripts/pilot/smoke_uq.sh`, `docs/superpowers/plans/2026-10-22-regressor-centred-uq-diffusion.md` (the implementation plan, written after this spec is approved).
 Modify: `main_2d_residual_fsdp.py` (`--train_half`, `--xr_cache`, the two modes, meta), `model/residual_wrapper.py`, `scripts/pilot/launch_run.sh`, `tests/test_launch_run_name.py`, `tests/test_regress_mode.py` (mode table), `data_loader/warmstart_paths.py` (`UQ_DIR`).
 Never: `data_loader/HFD_dataset.py`, anything under `results/residual_warmstart/{eval,diagnostics,runs}` from earlier phases.
+
+## As built (plan `docs/superpowers/plans/2026-10-22-regressor-centred-uq-diffusion.md`)
+
+- D1: the cached centre x̂_R travels in the existing `x0_hat` condition slot (`XRCachedData` returns `(x, y_d, x_r)` with `sigma_d = σ_R`); no separate `x_r` key. The checkpoint meta carries `sigma_r`, `centre`, `xr_cache_sha256`, `split_sha256`, `train_half`.
+- D2: `varhead` takes `--loss_type nll` explicitly (`l1`/`l2` refused for it, `nll` refused for every other mode).
+- D3: the cache's `val/` part holds all 1 000 test-split cubes centred by the full regressor; σ_full uses the 800 monitoring files; `uq_eval.py` recomputes x̂_R for the gate cubes in float32.
+- D4: `uq_eval.py` runs without `--diffusion` / `--varhead` for the Stage 0 dry run.
+- σ_R is the RMS (not the std) of the cross-fitted residual elements, the exact definition of σ_d.
+- R6: a half regressor's checkpoint meta records `split_sha256` of the split it was trained with; resume and the cache builder refuse a mismatch.
+- R8: the cache builder refuses a regressor whose `sigma_d` differs from the dataset's or whose `prior_sha256` differs from `--prior`; the cache meta records `prior_path` / `prior_sha256`; the split's halves are checked up front.
+- R9/R10 (amends §5.2's linear interpolation, §5.3, and the K of §2, §5.1 and §7): empirical coverage uses Weibull quantile positions (k/(K+1)) so a calibrated sampler's expected coverage equals the nominal level; this holds only for K ≥ `min_k_for(level)` (19 for the 90 % interval), below which `coverage_samples` warns and `uq_verdict` refuses a verdict (`--report_only` turns the refusal into a WARNING); therefore **K = 32 at both strides and in the Stage 0 dry run** (the spec's K = 16 at d = 4 is withdrawn); a deterministic ≈ +0.009 interpolation residual remains at the 90 % level for Gaussian posteriors.
+- R11 (amends §6): the stored figure cubes are `--store_cubes` evenly spaced cubes of the class-stratified y-swap batch (record key `stored_files`), not the first gate files; `uq_eval` also checks the sampler parameterisation (`prediction_type` v, 1000 steps) of the diffusion and B and the prior sha of every checkpoint, and records the cache's σ_full / σ_R ratio and flag in `provenance.xr_cache`.
+- `uq_eval` also refuses a `--centre`, ensemble member or `--b` with `train_half ≠ 0`, a one-member ensemble and an existing `<name>__cubes.npz`; the half regressors are therefore never ensemble members (the CPU smoke `scripts/pilot/smoke_uq.sh` uses a second full-data seed as its second member).
+- R12: `uq_verdict` runs the centre and K checks before the exists check; the reported AUSE key is `C3`.
+- Also: the mean CRPS of N(0,1) against N(0,1) is 1/√π (a plan test constant was corrected).
