@@ -4,6 +4,7 @@ Inputs are on the [0, 1] display scale (to01 converts the trainer's [-1, 1]); `s
 axis first; everything else broadcasts over the trailing element axes.
 """
 import math
+import warnings
 
 import numpy as np
 import torch
@@ -35,19 +36,33 @@ def crps_gaussian(mu, sigma, x):
     mu, x = np.asarray(mu, dtype=np.float64), np.asarray(x, dtype=np.float64)
     sigma = np.maximum(np.asarray(sigma, dtype=np.float64), 1e-12)
     z = (x - mu) / sigma
-    Phi = 0.5 * (1.0 + torch.erf(torch.from_numpy(z / math.sqrt(2.0))).numpy())
+    Phi = 0.5 * (1.0 + torch.erf(torch.from_numpy(np.asarray(z / math.sqrt(2.0)))).numpy())     # asarray: 0-d inputs give numpy scalars
     phi = np.exp(-0.5 * z * z) / math.sqrt(2.0 * math.pi)
     return sigma * (z * (2.0 * Phi - 1.0) + 2.0 * phi - 1.0 / math.sqrt(math.pi))
 
 
+def min_k_for(level):
+    """Smallest K for which the central `level` interval of K samples is a genuine pair of order statistics: the lower
+    Weibull position (1 - level) / 2 * (K + 1) must be >= 1. Rounded before the ceil: 2 / (1 - 0.9) is 20.000000000000004."""
+    return math.ceil(round(2.0 / (1.0 - level) - 1.0, 9))             # 19 for 0.9, 3 for 0.5
+
+
 def coverage_samples(samples, x, levels=(0.5, 0.9)):
-    """Fraction of elements whose truth lies in the central `level` interval of the K samples. The interval ends are
-    Weibull quantiles (position k / (K + 1)): under exchangeability P(x <= s_(k)) = k / (K + 1), so the expected coverage
-    of a calibrated sampler is the nominal level for any K >= 2 (the default linear, (K - 1) p, positions would give
-    about level (K - 1) / (K + 1), i.e. 0.47 / 0.85 at K = 32). Equality at an end counts as covered."""
+    """Fraction of elements whose truth lies in the central `level` interval of the K samples; equality at an end counts as
+    covered. The interval ends are Weibull quantiles (position k / (K + 1)): under exchangeability P(x <= s_(k)) =
+    k / (K + 1), so a calibrated sampler's expected coverage is the nominal level (the default linear positions would give
+    about level * (K - 1) / (K + 1), i.e. 0.47 / 0.85 at K = 32).
+
+    This holds only for K >= min_k_for(level) (19 for 0.9, 3 for 0.5). Below that the lower position is < 1, np.quantile
+    clips to [min, max] and the coverage collapses to (K - 1) / (K + 1) (cov90 = 0.60 / 0.78 / 0.88 / 0.90 at K = 4 / 8 / 16
+    / 19); such a call warns and still returns the numbers. Between order statistics the quantile is interpolated linearly
+    while the Gaussian CDF is not, which leaves a deterministic residual of about +0.009 at the 90 % level (K = 32)."""
     s, x = np.asarray(samples, dtype=np.float64), np.asarray(x, dtype=np.float64)
     out = {}
     for lv in levels:
+        if s.shape[0] < min_k_for(lv):
+            warnings.warn(f'coverage_samples: K={s.shape[0]} < {min_k_for(lv)} needed for the {lv:.0%} interval; '
+                          f'empirical coverage is biased low', UserWarning, stacklevel=2)
         lo, hi = np.quantile(s, [(1.0 - lv) / 2.0, 1.0 - (1.0 - lv) / 2.0], axis=0, method='weibull')
         out[lv] = float(np.mean((x >= lo) & (x <= hi)))
     return out
@@ -67,18 +82,21 @@ def sparsification_curve(score, err2, fractions=FRACTIONS):
     full = e.mean()
     out = np.empty(len(fractions))
     for j, f in enumerate(fractions):
-        i = int(round(f * n))
+        i = min(int(round(f * n)), n - 1)                             # n <= 24: round(0.98 n) reaches n
         out[j] = math.sqrt(tail[i] / (n - i) / full) if full > 0 else 1.0
     return out
 
 
 def ause(pred_std, err):
-    err2 = np.asarray(err, dtype=np.float64) ** 2
+    err = np.asarray(err, dtype=np.float64)
+    if not np.all(np.isfinite(err)):
+        raise ValueError('ause: err has non-finite values')            # a NaN error would make every curve 1 and AUSE 0
+    err2 = err ** 2
     return float(np.mean(sparsification_curve(pred_std, err2) - sparsification_curve(np.abs(err), err2)))
 
 
 def spread_ratio(pred_var, err):
-    return float(np.mean(pred_var) / np.mean(np.asarray(err, dtype=np.float64) ** 2))
+    return float(np.mean(np.asarray(pred_var, dtype=np.float64)) / np.mean(np.asarray(err, dtype=np.float64) ** 2))
 
 
 def _pad(u):

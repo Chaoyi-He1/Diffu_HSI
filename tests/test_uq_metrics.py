@@ -1,4 +1,6 @@
 """Phase 2a Task 7: every metric agrees with a closed form or a known ordering on synthetic data."""
+import warnings
+
 import numpy as np
 import pytest
 import torch
@@ -21,6 +23,16 @@ def test_crps_gaussian_is_the_textbook_formula_and_refuses_nothing():
     assert M.crps_gaussian(np.array([1.0]), np.array([0.0]), np.array([3.0]))[0] == pytest.approx(2.0, abs=1e-6)   # sigma -> 0: |x - mu|
 
 
+def test_crps_samples_of_two_samples_is_fair_not_biased():
+    # s = {0, 1}, x = 0: mean |s - x| = 0.5, fair pair term = |0 - 1| / 2 = 0.5, so CRPS = 0 (the biased 1/K^2 form gives 0.25)
+    assert M.crps_samples(np.array([[0.0], [1.0]]), np.array([0.0]))[0] == pytest.approx(0.0, abs=1e-15)
+
+
+def test_crps_gaussian_accepts_scalars():
+    v = M.crps_gaussian(0.0, 1.0, 0.0)
+    assert float(v) == pytest.approx(2 / np.sqrt(2 * np.pi) - 1 / np.sqrt(np.pi), abs=1e-12)
+
+
 def test_crps_samples_refuses_fewer_than_two_samples():
     with pytest.raises(ValueError, match='K'):
         M.crps_samples(np.zeros((1, 4)), np.zeros(4))
@@ -39,11 +51,24 @@ def test_coverage_of_gaussian_samples_is_near_nominal_and_boundaries_count():
     assert abs(cov[0.5] - 0.5) < 0.015 and abs(cov[0.9] - 0.9) < 0.015     # interpolating between order statistics leaves +0.009 at 0.9 (measured 0.0024 / 0.0096)
     big = M.coverage_samples(rng.standard_normal((512, 20_000)), x[:20_000])        # K = 512: near nominal
     assert abs(big[0.5] - 0.5) < 0.02 and abs(big[0.9] - 0.9) < 0.02
-    const = np.zeros((4, 3))
+    const = np.zeros((32, 3))
     assert M.coverage_samples(const, np.zeros(3)) == {0.5: 1.0, 0.9: 1.0}            # x == lo == hi is covered
     assert M.coverage_samples(const, np.ones(3)) == {0.5: 0.0, 0.9: 0.0}
     g = M.coverage_gaussian(np.zeros(100_000), np.ones(100_000), x)
     assert abs(g[0.5] - 0.5) < 0.01 and abs(g[0.9] - 0.9) < 0.01
+
+
+def test_min_k_for_and_coverage_warns_when_k_is_too_small_for_the_level():
+    assert M.min_k_for(0.9) == 19 and M.min_k_for(0.5) == 3
+    rng = np.random.default_rng(4)
+    x = rng.standard_normal(2000)
+    with pytest.warns(UserWarning, match=r'K=8 < 19 needed for the 90% interval'):
+        cov = M.coverage_samples(rng.standard_normal((8, 2000)), x)
+    assert 0.5 < cov[0.9] < 0.85                                  # still returned, biased low (about (K-1)/(K+1) = 0.78)
+    with warnings.catch_warnings():
+        warnings.simplefilter('error')                            # K = 32 and K = min_k_for(0.9) = 19 stay silent
+        M.coverage_samples(rng.standard_normal((32, 2000)), x)
+        assert abs(M.coverage_samples(rng.standard_normal((19, 20_000)), rng.standard_normal(20_000))[0.9] - 0.9) < 0.02
 
 
 def test_ause_is_zero_for_the_oracle_and_positive_for_a_random_ranking():
@@ -53,6 +78,20 @@ def test_ause_is_zero_for_the_oracle_and_positive_for_a_random_ranking():
     assert M.ause(rng.uniform(size=10_000), err) > 0.05
     curve = M.sparsification_curve(np.abs(err), err ** 2)
     assert curve.shape == (50,) and curve[0] == pytest.approx(1.0) and np.all(np.diff(curve) <= 1e-12)
+
+
+def test_sparsification_curve_by_hand_and_for_few_elements():
+    e2 = np.array([4.0, 1.0, 1.0, 0.0])                           # removing the worst element leaves [1, 1, 0], full mean 1.5
+    c = M.sparsification_curve(e2, e2, fractions=np.array([0.0, 0.5, 0.98]))
+    assert c[0] == pytest.approx(1.0) and c[1] == pytest.approx(np.sqrt(1 / 3)) and c[2] == pytest.approx(0.0)   # f=0.98 clamps to the last element
+    assert M.sparsification_curve(np.arange(10.0), np.arange(10.0) ** 2).shape == (50,)     # n = 10 used to index past the end
+
+
+def test_ause_refuses_non_finite_errors():
+    for bad in (np.nan, np.inf):
+        err = np.array([0.1, bad, 0.3, 0.2])
+        with pytest.raises(ValueError, match='err'):
+            M.ause(np.abs(err), err)
 
 
 def test_spread_ratio():
@@ -78,6 +117,14 @@ def test_hf_energy_ratio_and_grad_w1_detect_blur():
     assert M.hf_energy_ratio(b, x) < -0.5 and M.grad_w1(b, x) > 0.01
     assert M.laplacian(np.ones((2, 5, 5))).max() == pytest.approx(0.0)          # a flat image has no Laplacian
     assert M.sobel_mag(np.ones((5, 5))).max() == pytest.approx(0.0)
+
+
+def test_sobel_and_laplacian_of_ramps():
+    j = np.arange(8)[None, :] * np.ones((8, 1))                    # u[y, x] = x
+    s = M.sobel_mag(j)
+    assert np.allclose(s[:, 1:-1], 1.0)                            # (1 + 2 + 1) * (right - left = 2) / 8: pins the normalisation
+    assert np.allclose(s[:, 0], 0.0)                               # reflect padding: left neighbour of column 0 is column 1
+    assert np.allclose(M.laplacian(j ** 2)[:, 1:-1], 2.0)          # d2/dx2 of x^2
 
 
 def test_laplacian_and_sobel_use_reflect_padding_not_zeros():
