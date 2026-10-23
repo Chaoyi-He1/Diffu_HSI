@@ -47,10 +47,13 @@ from torch.utils.data.distributed import DistributedSampler
 REPO = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, REPO)
 from data_loader.hfd_residual import HFDResidualData, limit_worker_threads, residual_collate_fn  # noqa: E402
-from data_loader.warmstart_paths import DATA_ROOT, PRIOR, RESULTS_ROOT, SUBSET, file_sha256, git_head  # noqa: E402,F401
+from data_loader.warmstart_paths import DATA_ROOT, PRIOR, RESULTS_ROOT, SPLIT_JSON, SUBSET, file_sha256, git_head  # noqa: E402,F401
+from data_loader.xr_cache import XRCachedData  # noqa: E402
 from model.diffusion_trainer import DiffusionTrainer  # noqa: E402
 from model.regression_trainer import RegressionTrainer  # noqa: E402
-from model.residual_wrapper import MODES, build_residual_model, target_for  # noqa: E402
+from model.residual_wrapper import MODES, XR_MODES, build_residual_model, target_for  # noqa: E402
+from model.varhead_trainer import VarheadTrainer  # noqa: E402
+from scripts.uq.split_halves import read_split  # noqa: E402
 
 N_TIMESTEPS = 1000
 NO_DIST = SimpleNamespace(enabled=False, rank=0, world=1, local_rank=0)
@@ -71,9 +74,13 @@ def get_parser():
     ap.add_argument('--lr', type=float, default=1e-4); ap.add_argument('--lrf', type=float, default=0.033, help='eta_min = lr * lrf')
     ap.add_argument('--weight_decay', type=float, default=0.0); ap.add_argument('--grad_clip', type=float, default=1.0)
     ap.add_argument('--prediction_type', choices=['eps', 'x0', 'v', 'direct'], default='v',
-                    help="diffusion parameterisation; 'direct' is required by, and only allowed with, --mode regress")
-    ap.add_argument('--loss_type', choices=['l1', 'l2'], default='l1')
-    ap.add_argument('--snr_gamma', type=float, default=5.0, help='min-SNR-gamma loss weighting, <= 0 = off (ignored by --mode regress)')
+                    help="diffusion parameterisation; 'direct' is required by, and only allowed with, --mode regress / varhead")
+    ap.add_argument('--loss_type', choices=['l1', 'l2', 'nll'], default='l1')
+    ap.add_argument('--train_half', type=int, choices=[0, 1, 2], default=0,
+                    help='Phase 2a: train a regressor on half 1 or 2 of the cross-fitting split only (0 = all files)')
+    ap.add_argument('--split_json', default=SPLIT_JSON, help='the cross-fitting split (scripts/uq/split_halves.py)')
+    ap.add_argument('--xr_cache', default='', help='Phase 2a: regressor-centre cache dir (required by --mode residual_reg / varhead)')
+    ap.add_argument('--snr_gamma', type=float, default=5.0, help='min-SNR-gamma loss weighting, <= 0 = off (ignored by --mode regress / varhead)')
     ap.add_argument('--val_every', type=int, default=5, help='loss-only validation on the non-gate validation files every N epochs (0 = never)')
     ap.add_argument('--save_every', type=int, default=10); ap.add_argument('--keep_last', type=int, default=2)
     ap.add_argument('--keep_epochs', type=int, nargs='*', default=[25, 50, 100], help='milestone checkpoints exempt from pruning')
@@ -130,8 +137,20 @@ def make_datasets(args):
     assert n_before - len(val.img_list) == len(gate), \
         f'only {n_before - len(val.img_list)} of {len(gate)} gate files were found in the validation split ' \
         f'(path-form mismatch?); refusing to monitor on gate cubes'
+    if args.train_half:
+        half = set(read_split(args.split_json)[f'half{args.train_half}'])
+        n_before = len(train.img_list)
+        train.img_list = [f for f in train.img_list if os.path.relpath(f, args.data_root) in half]
+        if len(train.img_list) != len(half):
+            raise ValueError(f'--train_half {args.train_half}: {len(train.img_list)} of the split\'s {len(half)} files are in the '
+                             f'{n_before}-file training list (split {args.split_json} vs data_root {args.data_root})')
+    if args.xr_cache:
+        train = XRCachedData(train, args.xr_cache, 'train', args.data_root)
+        val = XRCachedData(val, args.xr_cache, 'val', args.data_root)
     if args.limit_files:
         train.img_list = train.img_list[:args.limit_files]; val.img_list = val.img_list[:max(8, args.limit_files // 8)]
+    if args.xr_cache:
+        train.check_files(); val.check_files()
     return train, val
 
 
@@ -149,16 +168,27 @@ def make_loader(ds, args, batch_size, shuffle, rank, world, device):
 
 
 def check_mode_args(args):
-    """--mode regress and --prediction_type direct go together (the meta records both; check_meta compares both)."""
-    if (args.mode == 'regress') != (args.prediction_type == 'direct'):
-        raise ValueError(f"--mode regress needs --prediction_type direct, and 'direct' needs --mode regress "
+    """regress and varhead are the one-call modes (--prediction_type direct); varhead's loss is the Gaussian NLL
+    (--loss_type nll, decision D2); the XR modes read their centre from --xr_cache; --train_half is for half regressors."""
+    if (args.mode in ('regress', 'varhead')) != (args.prediction_type == 'direct'):
+        raise ValueError(f"--mode regress / varhead need --prediction_type direct, and 'direct' needs one of them "
                          f"(got mode={args.mode!r}, prediction_type={args.prediction_type!r})")
+    if (args.mode == 'varhead') != (args.loss_type == 'nll'):
+        raise ValueError(f"--mode varhead needs --loss_type nll, and 'nll' needs --mode varhead "
+                         f"(got mode={args.mode!r}, loss_type={args.loss_type!r})")
+    if (args.mode in XR_MODES) != bool(args.xr_cache):
+        raise ValueError(f'--xr_cache is required by, and only allowed with, --mode {" / ".join(XR_MODES)} '
+                         f'(got mode={args.mode!r}, xr_cache={args.xr_cache!r})')
+    if args.train_half and args.mode != 'regress':
+        raise ValueError(f'--train_half is for the half-data regressors (--mode regress) only, got mode={args.mode!r}')
 
 
 def make_trainer(args, device):
     check_mode_args(args)
     if args.mode == 'regress':
         return RegressionTrainer(device=device, loss_type=args.loss_type, n_timesteps=N_TIMESTEPS)
+    if args.mode == 'varhead':
+        return VarheadTrainer(device=device, n_timesteps=N_TIMESTEPS)
     return DiffusionTrainer(device=device, n_timesteps=N_TIMESTEPS, loss_type=args.loss_type,
                             prediction_type=args.prediction_type, snr_gamma=args.snr_gamma if args.snr_gamma > 0 else None)
 
@@ -181,13 +211,18 @@ def make_scheduler(optimizer, args):
 
 
 # ----------------------------------------------------------------------------- checkpoints
-def checkpoint_meta(args, sigma_d, prior_s, prior_sha256):
+def checkpoint_meta(args, sigma_d, prior_s, prior_sha256, extra=None):
     """What scripts/eval_warmstart.py::check_meta verifies (mode, d, base_channels, prediction_type, sigma_d, prior_sha256)
     plus provenance: n_timesteps, prior_s, the arguments, the checkout's git HEAD (None without git; uncommitted changes
-    are not recorded) and the torch version. git_head and torch are never compared on resume or evaluation."""
-    return dict(mode=args.mode, d=args.d, base_channels=args.base_channels, prediction_type=args.prediction_type,
+    are not recorded) and the torch version. git_head and torch are never compared on resume or evaluation.
+    Phase 2a: always train_half; for the XR modes `extra` (XRCachedData.checkpoint_extra()) adds sigma_r, xr_cache_sha256,
+    centre and split_sha256, and sigma_d is sigma_r (decision D1)."""
+    meta = dict(mode=args.mode, d=args.d, base_channels=args.base_channels, prediction_type=args.prediction_type,
                 n_timesteps=N_TIMESTEPS, sigma_d=float(sigma_d), prior_s=float(prior_s), prior_sha256=prior_sha256, args=vars(args),
-                git_head=git_head(), torch=torch.__version__)
+                git_head=git_head(), torch=torch.__version__, train_half=int(getattr(args, 'train_half', 0)))
+    if extra:
+        meta.update(extra)                 # XR modes: sigma_r, xr_cache_sha256, centre, split_sha256 (XRCachedData.checkpoint_extra)
+    return meta
 
 
 def save_checkpoint(model, optimizer, scheduler, epoch, train_loss, meta, path, elapsed_hours, dist_ctx):
@@ -223,26 +258,28 @@ def load_checkpoint(path):
 RESUME_META_KEYS = ('mode', 'd', 'base_channels', 'prediction_type')
 
 
-def check_resume_meta(ck, args, sigma_d, prior_sha256, path='<checkpoint>', warn=True):
+def check_resume_meta(ck, args, sigma_d, prior_sha256, path='<checkpoint>', warn=True, cache_sha=None):
     """Refuse to resume a checkpoint whose `meta` differs from the current run (the provenance chain the gate relies on
     must not break silently: A' and B have identical parameter shapes, so strict loading would not notice a mode
-    switch). Compares RESUME_META_KEYS and meta['args'] loss_type and seed exactly, sigma_d (|diff| < 1e-9) and
-    prior_sha256; raises ValueError naming every mismatch, and also when the checkpoint has no meta. A scheduler T_max
-    different from --num_epochs only warns (the cosine schedule keeps the checkpoint's T_max; the Task 3 smoke test
-    deliberately resumes 2 -> 3 epochs). Returns True."""
+    switch). Compares RESUME_META_KEYS and meta['args'] loss_type, seed and train_half exactly, sigma_d (|diff| < 1e-9),
+    prior_sha256 and, when cache_sha is given (the XR modes), xr_cache_sha256; raises ValueError naming every mismatch,
+    and also when the checkpoint has no meta. A scheduler T_max different from --num_epochs only warns (the cosine
+    schedule keeps the checkpoint's T_max; the Task 3 smoke test deliberately resumes 2 -> 3 epochs). Returns True."""
     meta = ck.get('meta') if isinstance(ck, dict) else None
     if not meta:
         raise ValueError(f'checkpoint {path} carries no meta; refusing to resume (every checkpoint this script writes has one)')
     bad = [f'{k}: checkpoint {meta.get(k, "<missing>")!r} vs args {getattr(args, k)!r}'
            for k in RESUME_META_KEYS if k not in meta or meta[k] != getattr(args, k)]
     margs = meta.get('args') or {}
-    for k in ('loss_type', 'seed'):      # meta['args'] is vars(args) at save time; the L1/L2 runs differ only in loss_type
+    for k in ('loss_type', 'seed', 'train_half'):  # meta['args'] is vars(args) at save time; the L1/L2 runs differ only in loss_type
         if k in margs and margs[k] != getattr(args, k, None):
             bad.append(f'{k}: checkpoint {margs[k]!r} vs args {getattr(args, k, None)!r}')
     if 'sigma_d' not in meta or abs(float(meta['sigma_d']) - sigma_d) >= 1e-9:
         bad.append(f'sigma_d: checkpoint {meta.get("sigma_d", "<missing>")!r} vs prior {sigma_d!r}')
     if meta.get('prior_sha256') != prior_sha256:
         bad.append(f'prior_sha256: checkpoint {meta.get("prior_sha256", "<missing>")!r} vs prior file {prior_sha256!r}')
+    if cache_sha is not None and meta.get('xr_cache_sha256') != cache_sha:
+        bad.append(f'xr_cache_sha256: checkpoint {meta.get("xr_cache_sha256", "<missing>")!r} vs cache {cache_sha!r} (the cache was rebuilt)')
     if bad:
         raise ValueError(f'checkpoint {path} does not match the current arguments: ' + '; '.join(bad))
     t_max = ck.get('scheduler_state_dict', {}).get('T_max')
@@ -413,7 +450,8 @@ def build_everything(args, dist_ctx, device):
     resume_path = latest_checkpoint(args.save_dir) if args.resume == 'auto' else (args.resume or None)
     ck = load_checkpoint(resume_path) if resume_path else None
     if ck is not None:
-        check_resume_meta(ck, args, train_ds.sigma_d, file_sha256(args.prior), path=resume_path, warn=dist_ctx.rank == 0)
+        cache_sha = train_ds.checkpoint_extra()['xr_cache_sha256'] if args.xr_cache else None
+        check_resume_meta(ck, args, train_ds.sigma_d, file_sha256(args.prior), path=resume_path, warn=dist_ctx.rank == 0, cache_sha=cache_sha)
         check_wallclock_budget(ck, args, resume_path)                    # before DONE / STOPPED are touched
         model.load_state_dict(ck['model_state_dict'], strict=True)          # before the wrap, on CPU
     model = wrap_fsdp(model, args, dist_ctx) if dist_ctx.enabled else model.to(device)
@@ -435,7 +473,9 @@ def run_epochs(args, parts, dist_ctx, device):
         start_epoch, elapsed, sigma_d = parts.start_epoch, parts.elapsed, parts.train_ds.sigma_d
         train_loader = make_loader(parts.train_ds, args, args.batch_size, True, dist_ctx.rank, dist_ctx.world, device)
         val_loader = make_loader(parts.val_ds, args, args.batch_size, False, dist_ctx.rank, dist_ctx.world, device)
-    meta = checkpoint_meta(args, sigma_d, getattr(parts, 'train_ds', parts[0] if isinstance(parts, tuple) else None).prior['s'], file_sha256(args.prior) if os.path.exists(args.prior) else '')
+    ds_meta = parts[0] if isinstance(parts, tuple) else parts.train_ds
+    extra = ds_meta.checkpoint_extra() if hasattr(ds_meta, 'checkpoint_extra') else None
+    meta = checkpoint_meta(args, sigma_d, ds_meta.prior['s'], file_sha256(args.prior) if os.path.exists(args.prior) else '', extra=extra)
     t_start = time.time() - elapsed * 3600                           # before any rank-0-only work: the ranks' clocks agree
     done_path, stopped_path = os.path.join(args.save_dir, 'DONE'), os.path.join(args.save_dir, 'STOPPED')
     if dist_ctx.rank == 0:                                           # a live run never shows a stale DONE / STOPPED

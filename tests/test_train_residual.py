@@ -107,7 +107,7 @@ def test_save_load_roundtrip_meta_and_harness_check(tmp_path):
     assert all(k.startswith('net.') for k in ck['model_state_dict'])
     assert ck['meta'] == dict(mode='residual', d=4, base_channels=8, prediction_type='v', n_timesteps=1000,
                               sigma_d=ds.sigma_d, prior_s=3e-7, prior_sha256='deadbeef' * 8, args=vars(args),
-                              git_head=tr.git_head(), torch=torch.__version__)
+                              git_head=tr.git_head(), torch=torch.__version__, train_half=0)
     fresh = build_residual_model('residual', 8)
     fresh.load_state_dict(ck['model_state_dict'], strict=True)
     assert all(torch.equal(a, b) for a, b in zip(fresh.parameters(), model.parameters()))
