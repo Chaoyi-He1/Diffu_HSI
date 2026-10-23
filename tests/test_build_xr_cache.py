@@ -17,6 +17,8 @@ from scripts.uq.split_halves import write_split
 
 ROOT = '/fake/root'
 GATE = ['MatFlower60/Train/P023/0_1.mat']       # one "gate" file in the stub test split (excluded from sigma_full)
+TRAIN = [f'MatFlower60/Train/P00{1 + i % 2}/{i}_1.mat' for i in range(6)]
+VAL = GATE + ['MatFlower60/Train/P023/1_1.mat', 'MatFlower60/Train/P024/2_1.mat']
 
 
 class StubDS:
@@ -41,9 +43,9 @@ class StubDS:
         return self.x[i].numpy(), self.y[i].numpy(), self.xh[i].numpy()
 
 
-def fake_ckpt(tmp_path, name, train_half, d=4, mode='regress', scale=0.0, split_sha256=None):
+def fake_ckpt(tmp_path, name, train_half, d=4, mode='regress', scale=0.0, split_sha256=None, sigma_d=0.1, prior_sha256='p'):
     """A regressor checkpoint whose net predicts `scale` everywhere (a constant residual), with the trainer's meta
-    (a half regressor's meta also carries the split_sha256 of its split when one is given)."""
+    (split_sha256 and prior_sha256 only when not None, so a test can leave either key out)."""
     m = build_residual_model('regress', 8)
     with torch.no_grad():
         for p in m.parameters():
@@ -55,12 +57,42 @@ def fake_ckpt(tmp_path, name, train_half, d=4, mode='regress', scale=0.0, split_
     run = tmp_path / 'runs' / name
     run.mkdir(parents=True)
     path = run / 'checkpoint_epoch_3.pth'
-    meta = dict(mode=mode, d=d, base_channels=8, prediction_type='direct', sigma_d=0.1, prior_sha256='p',
+    meta = dict(mode=mode, d=d, base_channels=8, prediction_type='direct', sigma_d=sigma_d,
                 args=dict(train_half=train_half, loss_type='l1', seed=42), train_half=train_half)
-    if split_sha256 is not None:
-        meta['split_sha256'] = split_sha256
+    for key, value in (('split_sha256', split_sha256), ('prior_sha256', prior_sha256)):
+        if value is not None:
+            meta[key] = value
     torch.save(dict(model_state_dict=m.state_dict(), meta=meta), path)
     return str(path)
+
+
+def setup_run(tmp_path, monkeypatch, half1=None, half2=None, prior='unused', prior_sha256='p'):
+    """A split file (default: TRAIN's even files in half1, odd ones in half2), three regressors naming it whose nets
+    predict the constant residuals 1 (half1), 2 (half2) and 3 (full) so the test can tell them apart, the stub datasets
+    and the builder's args. Returns (args, split, the split's sha256, datasets)."""
+    split = dict(seed=0, half1=sorted(TRAIN[0::2]) if half1 is None else half1,
+                 half2=sorted(TRAIN[1::2]) if half2 is None else half2, images_per_class={})
+    sp = tmp_path / 'split.json'
+    write_split(str(sp), split)
+    sha = file_sha256(str(sp))
+    h1 = fake_ckpt(tmp_path, 'regress_l1_half1_d4_b64', 1, scale=1.0, split_sha256=sha, prior_sha256=prior_sha256)
+    h2 = fake_ckpt(tmp_path, 'regress_l1_half2_d4_b64', 2, scale=2.0, split_sha256=sha, prior_sha256=prior_sha256)
+    fu = fake_ckpt(tmp_path, 'regress_l1_sel_d4_b64', 0, scale=3.0, prior_sha256=prior_sha256)
+    monkeypatch.setattr(bx, 'gate_relpaths', lambda data_root: set(GATE))
+    ds = {'train': StubDS(TRAIN, 0), 'val': StubDS(VAL, 1)}
+    args = SimpleNamespace(d=4, half1=h1, half2=h2, full=fu, out=str(tmp_path / 'xr_cache'), split_json=str(sp),
+                           device='cpu', batch_size=4, num_workers=0, limit_files=0, data_root=ROOT, prior=prior)
+    return args, split, sha, ds
+
+
+def run_with(args, ds, **override):
+    return bx.run(SimpleNamespace(**{**vars(args), **override}), make_ds=lambda split_name: ds[split_name])
+
+
+def rms64(xs, xrs):
+    """RMS of x - x_r over a list of cubes: the float32 difference, squared and summed in float64."""
+    ss = sum(float(((x - xr).astype(np.float64) ** 2).sum()) for x, xr in zip(xs, xrs))
+    return float(np.sqrt(ss / sum(x.size for x in xs)))
 
 
 def test_ckpt_info_checks_role_mode_and_stride(tmp_path):
@@ -68,6 +100,7 @@ def test_ckpt_info_checks_role_mode_and_stride(tmp_path):
     p = fake_ckpt(tmp_path, 'regress_l1_half1_d4_b64', 1, split_sha256=sha)
     ck, info = bx.ckpt_info(p, 'half1', 1, 4)
     assert info['run'] == 'regress_l1_half1_d4_b64' and info['epoch'] == 3 and info['train_half'] == 1 and info['base_channels'] == 8 and len(info['sha256']) == 64
+    assert info['sigma_d'] == 0.1 and info['prior_sha256'] == 'p'
     with pytest.raises(ValueError, match='train_half'):
         bx.ckpt_info(p, 'half2', 2, 4)
     with pytest.raises(ValueError, match='d='):
@@ -95,46 +128,70 @@ def test_half_of():
 
 
 def test_run_crossfits_train_uses_full_on_val_and_writes_sigmas(tmp_path, monkeypatch):
-    train_files = [f'MatFlower60/Train/P00{1 + i % 2}/{i}_1.mat' for i in range(6)]
-    val_files = GATE + ['MatFlower60/Train/P023/1_1.mat', 'MatFlower60/Train/P024/2_1.mat']
-    split = dict(seed=0, half1=sorted(train_files[0::2]), half2=sorted(train_files[1::2]), images_per_class={})
-    sp = tmp_path / 'split.json'
-    write_split(str(sp), split)
-    sha = file_sha256(str(sp))
-    # half1's net sees H1 -> must centre H2; give the three nets different constant residuals to tell them apart
-    h1 = fake_ckpt(tmp_path, 'regress_l1_half1_d4_b64', 1, scale=1.0, split_sha256=sha)
-    h2 = fake_ckpt(tmp_path, 'regress_l1_half2_d4_b64', 2, scale=2.0, split_sha256=sha)
-    fu = fake_ckpt(tmp_path, 'regress_l1_sel_d4_b64', 0, scale=3.0)
-    monkeypatch.setattr(bx, 'gate_relpaths', lambda data_root: set(GATE))
-    ds = {'train': StubDS(train_files, 0), 'val': StubDS(val_files, 1)}
-    out = str(tmp_path / 'xr_cache')
-    args = SimpleNamespace(d=4, half1=h1, half2=h2, full=fu, out=out, split_json=str(sp), device='cpu', batch_size=4,
-                           num_workers=0, limit_files=0, data_root=ROOT, prior='unused')
+    args, split, sha, ds = setup_run(tmp_path, monkeypatch)
+    out = args.out
     # run() checks each half regressor against the sha256 of the split it reads, before writing anything
     stale = fake_ckpt(tmp_path, 'regress_l1_half1_stale', 1, scale=1.0, split_sha256='c' * 64)
     with pytest.raises(ValueError, match='split_sha256'):
-        bx.run(SimpleNamespace(**{**vars(args), 'half1': stale}), make_ds=lambda split_name: ds[split_name])
+        run_with(args, ds, half1=stale)
     assert not os.path.exists(out)
-    meta = bx.run(args, make_ds=lambda split_name: ds[split_name])
+    meta = run_with(args, ds)
     assert read_meta(out) == meta and meta['n_train'] == 6 and meta['n_val'] == 3 and meta['n_val_monitoring'] == 2
     assert meta['half1']['train_half'] == 1 and meta['half2']['train_half'] == 2 and meta['full']['train_half'] == 0
-    assert meta['split_sha256'] == sha
-    for i, f in enumerate(train_files):
+    assert meta['split_sha256'] == sha and meta['prior_sha256'] is None          # args.prior 'unused' does not exist
+    train_xr, val_xr = [], []
+    for i, f in enumerate(TRAIN):
         xr = np.load(cache_path(out, 'train', f))
         want_scale = 2.0 if f in split['half1'] else 1.0              # H1 cubes are centred by the half2 net
         expect = np.clip(ds['train'].xh[i].numpy() + 0.1 * want_scale, -1, 1)
         assert xr.dtype == np.float16 and np.abs(xr.astype(np.float32) - expect).max() < 2e-3
-    for i, f in enumerate(val_files):
+        train_xr.append(expect)
+    for i, f in enumerate(VAL):
         xr = np.load(cache_path(out, 'val', f))
         expect = np.clip(ds['val'].xh[i].numpy() + 0.1 * 3.0, -1, 1)
         assert np.abs(xr.astype(np.float32) - expect).max() < 2e-3
-    # sigma_r: RMS of x - x_r over the train cubes (float32 x_r), computed independently here
-    ss, n = 0.0, 0
-    for i, f in enumerate(train_files):
-        want_scale = 2.0 if f in split['half1'] else 1.0
-        xr = np.clip(ds['train'].xh[i].numpy() + 0.1 * want_scale, -1, 1)
-        ss += float(((ds['train'].x[i].numpy() - xr) ** 2).sum()); n += xr.size
-    assert abs(meta['sigma_r'] - np.sqrt(ss / n)) < 1e-6
-    assert meta['sigma_flag'] == (not 0.9 <= meta['sigma_ratio'] <= 1.1) and meta['dtype'] == 'float16'
+        val_xr.append(expect)
+    # sigma_r over the cross-fitted train cubes, sigma_full over the monitoring val files (VAL[0] is the gate file), both
+    # from the float32 x_r before the float16 cast, computed independently here
+    assert abs(meta['sigma_r'] - rms64([ds['train'].x[i].numpy() for i in range(len(TRAIN))], train_xr)) < 1e-9
+    assert abs(meta['sigma_full'] - rms64([ds['val'].x[i].numpy() for i in range(1, len(VAL))], val_xr[1:])) < 1e-9
+    assert meta['sigma_ratio'] == pytest.approx(meta['sigma_full'] / meta['sigma_r'])
+    assert meta['sigma_flag'] == (not 0.9 <= meta['sigma_ratio'] <= 1.1) and meta['sigma_flag'] is True   # ratio ~ 1.69
+    assert meta['dtype'] == 'float16'
     with pytest.raises(FileExistsError):
-        bx.run(args, make_ds=lambda split_name: ds[split_name])
+        run_with(args, ds)
+
+
+@pytest.mark.parametrize('role', ['half2', 'full'])
+def test_run_refuses_a_regressor_whose_sigma_d_is_not_the_datasets(tmp_path, monkeypatch, role):
+    args, _, sha, ds = setup_run(tmp_path, monkeypatch)
+    half = dict(half2=2, full=0)[role]
+    bad = fake_ckpt(tmp_path, f'regress_l1_{role}_other', half, scale=1.0, split_sha256=sha if half else None, sigma_d=0.2)
+    with pytest.raises(ValueError, match=r'sigma_d 0\.2'):
+        run_with(args, ds, **{role: bad})
+    assert not os.path.exists(args.out)          # both splits' datasets are checked before the first cube is written
+
+
+def test_run_checks_each_regressors_prior_sha256_against_the_prior_file(tmp_path, monkeypatch):
+    prior = tmp_path / 'prior.npz'
+    prior.write_bytes(b'any bytes stand in for the prior')
+    psha = file_sha256(str(prior))
+    args, _, sha, ds = setup_run(tmp_path, monkeypatch, prior=str(prior), prior_sha256=psha)
+    other = fake_ckpt(tmp_path, 'regress_l1_sel_other', 0, scale=3.0, prior_sha256='q' * 64)
+    missing = fake_ckpt(tmp_path, 'regress_l1_half1_missing', 1, scale=1.0, split_sha256=sha, prior_sha256=None)
+    with pytest.raises(ValueError, match="prior_sha256 'q{64}'"):
+        run_with(args, ds, full=other)
+    with pytest.raises(ValueError, match='prior_sha256 None'):
+        run_with(args, ds, half1=missing)
+    assert not os.path.exists(args.out)
+    meta = run_with(args, ds)
+    assert meta['prior_sha256'] == psha and meta['prior_path'] == str(prior) and meta['full']['prior_sha256'] == psha
+
+
+@pytest.mark.parametrize('half1, half2, msg', [(sorted(TRAIN[0::2] + TRAIN[1:2]), sorted(TRAIN[1::2]), 'both halves'),
+                                               (sorted(TRAIN[0::2]), sorted(TRAIN[1::2])[:-1], 'neither half')])
+def test_run_refuses_a_split_with_shared_or_missing_files(tmp_path, monkeypatch, half1, half2, msg):
+    args, _, _, ds = setup_run(tmp_path, monkeypatch, half1=half1, half2=half2)
+    with pytest.raises(ValueError, match=msg):
+        run_with(args, ds)
+    assert not os.path.exists(args.out)

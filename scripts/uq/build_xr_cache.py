@@ -7,7 +7,10 @@ Training cubes of half 1 are centred by the half-2 regressor and vice versa (cro
 (monitoring + gate) is centred by the full regressor (decision D3). sigma_r = RMS of x - x_r over all cross-fitted
 training cubes (float32, before the float16 cast; the definition of scripts/compute_residual_scale.py); sigma_full =
 the same over the monitoring files only. A sigma_full / sigma_r ratio outside [0.9, 1.1] sets sigma_flag (reported,
-not fatal). Each half regressor's meta must name the split read here (split_sha256). Refuses an existing cache.
+not fatal). Each half regressor's meta must name the split read here (split_sha256), every regressor must have the
+sigma_d of the dataset it centres and, when --prior exists, that prior's sha256 (prior_sha256). The split must put
+every training file in exactly one half. All of this is checked before the first cube is written. Refuses an
+existing cache.
 """
 import argparse
 import json
@@ -50,7 +53,8 @@ def ckpt_info(path, role, want_half, d, split_sha=None):
     m = re.search(r'checkpoint_epoch_(\d+)\.pth$', path)
     info = dict(path=os.path.abspath(path), run=os.path.basename(os.path.dirname(os.path.abspath(path))),
                 epoch=int(m.group(1)) if m else None, sha256=file_sha256(path), train_half=int(want_half),
-                base_channels=int(meta['base_channels']), sigma_d=float(meta['sigma_d']))
+                base_channels=int(meta['base_channels']), sigma_d=float(meta['sigma_d']),
+                prior_sha256=meta.get('prior_sha256'))
     return ck, info
 
 
@@ -90,13 +94,21 @@ def run(args, make_ds=None):
     split = read_split(args.split_json)
     split_sha = file_sha256(args.split_json)
     half1, half2 = set(split['half1']), set(split['half2'])
+    both = half1 & half2
+    if both:
+        raise ValueError(f'split {args.split_json}: {len(both)} files are in both halves, e.g. {sorted(both)[0]}')
     (ck1, i1), (ck2, i2), (ckf, i_f) = (ckpt_info(args.half1, 'half1', 1, args.d, split_sha),
                                         ckpt_info(args.half2, 'half2', 2, args.d, split_sha),
                                         ckpt_info(args.full, 'full', 0, args.d))
+    infos = dict(half1=i1, half2=i2, full=i_f)
+    prior_sha = file_sha256(args.prior) if os.path.exists(args.prior) else None     # the stub tests pass no prior file
+    if prior_sha is not None:
+        bad = [f"{role} checkpoint {info['path']}: prior_sha256 {info['prior_sha256']!r}" for role, info in infos.items()
+               if info['prior_sha256'] != prior_sha]
+        if bad:
+            raise ValueError(f'--prior {args.prior} has sha256 {prior_sha}, but ' + '; '.join(bad))
     if len({i1['base_channels'], i2['base_channels'], i_f['base_channels']}) != 1:
         raise ValueError('the three regressors differ in base_channels')
-    nets = {1: load_regressor(ck1, i1['base_channels'], device), 2: load_regressor(ck2, i2['base_channels'], device),
-            0: load_regressor(ckf, i_f['base_channels'], device)}
     gate = gate_relpaths(args.data_root)
     if make_ds is None:
         def make_ds(split_name):
@@ -112,11 +124,23 @@ def run(args, make_ds=None):
                     gate_abs = {os.path.normpath(os.path.join(args.data_root, f)) for f in gate}
                     ds.img_list = [f for f in ds.img_list if os.path.normpath(f) not in gate_abs][:max(8, args.limit_files // 8)]
             return ds
+    dss = {split_name: make_ds(split_name) for split_name in ('train', 'val')}   # both checked before the first write
+    for split_name, roles in (('train', ('half1', 'half2')), ('val', ('full',))):
+        for role in roles:
+            if abs(infos[role]['sigma_d'] - float(dss[split_name].sigma_d)) >= 1e-9:
+                raise ValueError(f"{role} checkpoint {infos[role]['path']}: sigma_d {infos[role]['sigma_d']!r}, but the "
+                                 f"{split_name} dataset (--prior {args.prior}, d={args.d}) has sigma_d {float(dss[split_name].sigma_d)!r}")
+    rels = {split_name: [os.path.relpath(f, args.data_root) for f in ds.img_list] for split_name, ds in dss.items()}
+    missing = [f for f in rels['train'] if f not in half1 and f not in half2]
+    if missing:
+        raise ValueError(f"split {args.split_json}: {len(missing)} of {len(rels['train'])} training files are in neither "
+                         f'half, e.g. {missing[0]}')
+    nets = {1: load_regressor(ck1, i1['base_channels'], device), 2: load_regressor(ck2, i2['base_channels'], device),
+            0: load_regressor(ckf, i_f['base_channels'], device)}
     stats, counts, t0 = {}, {}, time.time()
-    for split_name in ('train', 'val'):
-        ds = make_ds(split_name)
+    for split_name, ds in dss.items():
         sigma_d = float(ds.sigma_d)
-        rel = [os.path.relpath(f, args.data_root) for f in ds.img_list]
+        rel = rels[split_name]
         ss, n, n_sigma = 0.0, 0, 0
         pos = 0
         for x, y, xh in _loader(ds, args):
@@ -145,7 +169,7 @@ def run(args, make_ds=None):
         print(f'{split_name}: {len(rel)} cubes cached ({time.time() - t0:.0f} s), RMS residual {stats[split_name]:.6f} over {n_sigma} cubes', flush=True)
     ratio = stats['val'] / stats['train']
     meta = dict(d=int(args.d), split_path=os.path.abspath(args.split_json), split_sha256=split_sha,
-                half1=i1, half2=i2, full=i_f, sigma_r=stats['train'], sigma_full=stats['val'], sigma_ratio=ratio,
+                prior_path=os.path.abspath(args.prior), prior_sha256=prior_sha, half1=i1, half2=i2, full=i_f, sigma_r=stats['train'], sigma_full=stats['val'], sigma_ratio=ratio,
                 sigma_flag=bool(not 0.9 <= ratio <= 1.1), n_train=counts['train'][0], n_val=counts['val'][0],
                 n_val_monitoring=counts['val'][1], dtype='float16', git_head=git_head(), created=time.strftime('%Y-%m-%dT%H:%M:%S'),
                 limit_files=int(args.limit_files))
