@@ -204,3 +204,37 @@ def test_a_regress_seed_that_contradicts_the_run_name_is_refused(env, tmp_path, 
     out = r.stdout + r.stderr
     assert r.returncode != 0 and why in out and 'not launching' in out, out
     assert not (tmp_path / 'root').exists() and not (tmp_path / 'stub_args').exists()
+
+
+# ----------------------------------------------------------------------------- Phase 2a: half regressors and the new modes
+D8 = ('--ds', '8')
+XR = ('--xr_cache', '/tmp/xr_cache')
+
+
+@pytest.mark.parametrize('run_name, mode, gpu, extra', [
+    ('regress_l1_half1_d8_b64', 'regress', 0, L1 + D8 + ('--train_half', '1')),
+    ('regress_l1_half2_d8_b64', 'regress', 1, L1 + D8 + ('--train_half=2',)),
+    ('regress_l1_half1', 'regress', 0, L1 + ('--train_half', '1')),                   # _half<N> at the end
+    ('regress_l1_sel_d8_b64', 'regress', 0, L1 + D8 + ('--train_half', '0')),         # 0 = all files, no token needed
+    ('residual_reg_d8_b64', 'residual_reg', 0, D8 + XR),
+    ('varhead_d8_b64', 'varhead', 1, ('--prediction_type', 'direct', '--loss_type', 'nll') + D8 + XR),
+])
+def test_the_phase_2a_launches_are_accepted(env, tmp_path, run_name, mode, gpu, extra):
+    r = launch(env, run_name, mode, gpu, *extra)
+    assert r.returncode == 0, r.stdout + r.stderr
+    a = stub_lines(tmp_path, 1)[0]
+    assert f'--mode {mode}' in a and a.endswith(' '.join(extra))
+    wait_dead(tmp_path / 'root' / 'runs' / run_name)
+
+
+@pytest.mark.parametrize('run_name, mode, extra, why', [
+    ('regress_l1_half1_d8_b64', 'regress', L1 + ('--train_half', '2'), 'names half 1'),
+    ('regress_l1_half1_d8_b64', 'regress', L1, 'names half 1'),
+    ('regress_l1_sel_d8_b64', 'regress', L1 + ('--train_half', '2'), 'names no _half'),
+    ('varhead_d8_b64', 'varhead', ('--prediction_type', 'direct') + XR, 'needs --loss_type nll'),
+    ('varhead_d8_b64', 'varhead', ('--prediction_type', 'direct', '--loss_type', 'l1') + XR, 'needs --loss_type nll'),
+])
+def test_phase_2a_contradictions_are_refused_before_anything_starts(env, tmp_path, run_name, mode, extra, why):
+    r = launch(env, run_name, mode, 0, *extra)
+    assert r.returncode == 1 and why in r.stdout, r.stdout + r.stderr
+    assert not (tmp_path / 'root').exists() and not (tmp_path / 'stub_args').exists()
