@@ -9,8 +9,9 @@ the y-swap of the mean-of-K; one record per run under uq/d<d>/eval/<name>.json (
 
 --diffusion and --varhead are optional (the Stage 0 dry run scores the regressor, the ensemble and B only). Sample
 coverage is exact only for K >= scripts.uq.metrics.min_k_for(level) (19 for the 90 % interval); the record states
-this as coverage_min_k / coverage_exact. The first batch's samples (--store_cubes of them) go to
-uq/d<d>/eval/<name>__cubes.npz, also never overwritten.
+this as coverage_min_k / coverage_exact. The true-condition samples of --store_cubes cubes evenly spaced over the
+class-stratified y-swap batch go to uq/d<d>/eval/<name>__cubes.npz (record keys stored_cubes, stored_files), also
+never overwritten.
 """
 import argparse
 import json
@@ -27,7 +28,7 @@ if REPO not in sys.path:
     sys.path.insert(0, REPO)
 from data_loader.hfd_residual import residual_collate_fn  # noqa: E402
 from data_loader.warmstart_paths import DATA_ROOT, PRIOR, UQ_DIR, file_sha256, git_head  # noqa: E402
-from data_loader.xr_cache import meta_sha256  # noqa: E402
+from data_loader.xr_cache import meta_sha256, read_meta  # noqa: E402
 from model.diffusion_trainer import DiffusionTrainer  # noqa: E402
 from model.residual_wrapper import LOGVAR_RANGE, build_residual_model, compose, regress_forward, varhead_forward  # noqa: E402
 from scripts.eval_warmstart import class_of, dataset_for, load_subset, make_eval_loader, metrics, yswap_batch  # noqa: E402
@@ -36,6 +37,8 @@ from scripts.uq import metrics as M  # noqa: E402
 SAMPLERS = {'ddim10': dict(method='ddim', n_steps=10), 'ddpm1000': dict(method='ddpm', n_steps=1000)}
 PREREG_CENTRE = {8: ('regress_l1_sel_d8_b64', 11), 4: ('regress_l1_sel_d4_b64', 17)}      # spec §4.3; checked by uq_verdict
 N_TIMESTEPS = 1000
+SAMPLED_META = dict(prediction_type='v', n_timesteps=N_TIMESTEPS)     # run_eval's sampler; the diffusion and B must match
+XR_CACHE_KEYS = ('sigma_r', 'sigma_full', 'sigma_ratio', 'sigma_flag')  # copied from the cache meta into the provenance
 
 
 # ----------------------------------------------------------------------------- checkpoints
@@ -49,9 +52,13 @@ def ckpt_epoch(path):
     return int(m.group(1)) if m else None
 
 
+def train_half_of(meta):
+    return int((meta.get('args') or {}).get('train_half', 0) or 0)
+
+
 def ckpt_record(path, meta):
     return dict(path=os.path.abspath(path), run=os.path.basename(os.path.dirname(os.path.abspath(path))), epoch=ckpt_epoch(path),
-                sha256=file_sha256(path), mode=meta.get('mode'), d=meta.get('d'), train_half=int((meta.get('args') or {}).get('train_half', 0) or 0),
+                sha256=file_sha256(path), mode=meta.get('mode'), d=meta.get('d'), train_half=train_half_of(meta),
                 sigma_d=meta.get('sigma_d'), sigma_r=meta.get('sigma_r'), centre=meta.get('centre'), xr_cache_sha256=meta.get('xr_cache_sha256'))
 
 
@@ -68,11 +75,14 @@ def _load(ck, meta, device):
 
 
 def check_models(args, device):
-    """Load every checkpoint and refuse (ValueError) any that does not fit: each one's mode and d; the diffusion and the
-    variance head must have been trained around --centre (their meta centre.sha256) on the cache now on disk (--xr_cache,
-    when given) with one sigma_r; --centre_halves must be the half-1 and half-2 regressors; an ensemble needs >= 2
-    members; with --prior on disk every checkpoint's prior_sha256 must be that file's (the prior fixes x0_hat and
-    sigma_d). Returns (models, sigma_r or None, provenance)."""
+    """Load every checkpoint and refuse (ValueError) any that does not fit: each one's mode and d; the diffusion and B
+    must be v-prediction on N_TIMESTEPS steps (SAMPLED_META, how run_eval samples them); --centre, the ensemble members
+    and B must be full-data models (train_half 0) and --centre_halves the half-1 and half-2 regressors; the diffusion and
+    the variance head must have been trained around --centre (their meta centre.sha256) on one cache (equal
+    xr_cache_sha256) with one sigma_r, and on the cache now on disk when --xr_cache is given, whose sigma_r, sigma_full,
+    sigma_ratio and sigma_flag go into provenance.xr_cache; an ensemble needs >= 2 members; with --prior on disk every
+    checkpoint's prior_sha256 must be that file's (the prior fixes x0_hat and sigma_d).
+    Returns (models, sigma_r or None, provenance)."""
     if len(getattr(args, 'ensemble', None) or []) == 1:
         raise ValueError('--ensemble needs at least 2 members (the spread of one member is undefined)')
     models = dict(centre=None, diffusion=None, varhead=None, ensemble=[], b=None, halves=None)
@@ -82,44 +92,55 @@ def check_models(args, device):
     if prior_sha is not None:
         prov['prior'] = dict(path=os.path.abspath(prior), sha256=prior_sha)
 
-    def checked(path, mode):
+    def checked(path, mode, full=False, **extra):
         ck, meta = load_ckpt(path)
-        expect(meta, path, mode=mode, d=args.d, **({} if prior_sha is None else dict(prior_sha256=prior_sha)))
+        expect(meta, path, mode=mode, d=args.d, **extra, **({} if prior_sha is None else dict(prior_sha256=prior_sha)))
+        if full and train_half_of(meta) != 0:
+            raise ValueError(f'checkpoint {path}: train_half {train_half_of(meta)}, but it must be trained on the full '
+                             f'training set (train_half 0)')
         return ck, meta
 
-    ck, mc = checked(args.centre, 'regress')
+    ck, mc = checked(args.centre, 'regress', full=True)
     models['centre'], prov['centre'] = _load(ck, mc, device), ckpt_record(args.centre, mc)
-    centre_sha, sigma_r = prov['centre']['sha256'], None
+    centre_sha, sigma_r, xr_sha = prov['centre']['sha256'], None, None
     cache_sha = meta_sha256(args.xr_cache) if getattr(args, 'xr_cache', '') else None
     if cache_sha is not None:
-        prov['xr_cache'] = dict(dir=args.xr_cache, sha256=cache_sha)
-    for key, mode in (('diffusion', 'residual_reg'), ('varhead', 'varhead')):
+        cm = read_meta(args.xr_cache)
+        missing = [k for k in XR_CACHE_KEYS if k not in cm]
+        if missing:
+            raise ValueError(f'cache meta of {args.xr_cache} lacks {missing} (scripts/uq/build_xr_cache.py writes them)')
+        prov['xr_cache'] = dict(dir=args.xr_cache, sha256=cache_sha, **{k: cm[k] for k in XR_CACHE_KEYS})
+    for key, mode, extra in (('diffusion', 'residual_reg', SAMPLED_META), ('varhead', 'varhead', {})):
         path = getattr(args, key, None)
         if not path:
             continue
-        ck, meta = checked(path, mode)
+        ck, meta = checked(path, mode, **extra)
         if (meta.get('centre') or {}).get('sha256') != centre_sha:
             raise ValueError(f'{key} checkpoint {path} was trained around centre {meta.get("centre")!r} but --centre is '
                              f'{prov["centre"]["run"]}@{prov["centre"]["epoch"]} ({centre_sha[:12]}...)')
         if cache_sha is not None and meta.get('xr_cache_sha256') != cache_sha:
             raise ValueError(f'{key} checkpoint {path}: xr_cache_sha256 {meta.get("xr_cache_sha256")!r} differs from the cache '
                              f'on disk {cache_sha!r} (the cache was rebuilt)')
+        if xr_sha is not None and meta.get('xr_cache_sha256') != xr_sha:
+            raise ValueError(f'{key} checkpoint {path}: xr_cache_sha256 {meta.get("xr_cache_sha256")!r} differs from the '
+                             f'diffusion\'s {xr_sha!r} (the two were trained on different caches)')
+        xr_sha = meta.get('xr_cache_sha256')
         s = float(meta['sigma_r'])
         if sigma_r is not None and abs(s - sigma_r) >= 1e-9:
             raise ValueError(f'{key} sigma_r {s} differs from the diffusion sigma_r {sigma_r}')
         sigma_r = s
         models[key], prov[key] = _load(ck, meta, device), ckpt_record(path, meta)
     for path in (getattr(args, 'ensemble', None) or []):
-        ck, meta = checked(path, 'regress')
+        ck, meta = checked(path, 'regress', full=True)
         models['ensemble'].append(_load(ck, meta, device)); prov['ensemble'].append(ckpt_record(path, meta))
     if getattr(args, 'b', None):
-        ck, meta = checked(args.b, 'residual')
+        ck, meta = checked(args.b, 'residual', full=True, **SAMPLED_META)
         models['b'], prov['b'] = _load(ck, meta, device), ckpt_record(args.b, meta)
     if getattr(args, 'centre_halves', None):
         models['halves'], prov['halves'] = [], []
         for path, th in zip(args.centre_halves, (1, 2)):
             ck, meta = checked(path, 'regress')
-            if int((meta.get('args') or {}).get('train_half', 0) or 0) != th:
+            if train_half_of(meta) != th:
                 raise ValueError(f'--centre_halves: {path} is not a half-{th} regressor')
             models['halves'].append(_load(ck, meta, device)); prov['halves'].append(ckpt_record(path, meta))
     return models, sigma_r, prov
@@ -200,9 +221,9 @@ def _extend(acc, method, d):
 def run_eval(models, sigma_r, ds, loader, ys, args, provenance, device, store_dir=None):
     cfg = SAMPLERS[args.sampler]
     K, sigma_d = int(args.K), float(ds.sigma_d)
-    trainer = DiffusionTrainer(device=device, n_timesteps=N_TIMESTEPS, prediction_type='v', loss_type='l1', snr_gamma=None)
-    stored = None
-    if models['diffusion'] is not None and store_dir is not None and args.store_cubes:
+    trainer = DiffusionTrainer(device=device, loss_type='l1', snr_gamma=None, **SAMPLED_META)
+    stored, stored_files = None, None
+    if models['diffusion'] is not None and ys is not None and store_dir is not None and args.store_cubes:
         stored = os.path.join(store_dir, f'{args.name}__cubes.npz')
         if os.path.exists(stored):
             raise FileExistsError(f'{stored} exists; stored cubes are never overwritten (pick another --name)')
@@ -217,10 +238,6 @@ def run_eval(models, sigma_r, ds, loader, ys, args, provenance, device, store_di
         if models['diffusion'] is not None:
             s = draw_samples(models['diffusion'], trainer, cond, tuple(xr.shape), sigma_r, cfg, K, xr)
             _extend(acc, 'diffusion', sample_metrics(s, x))
-            if bi == 0 and stored is not None:
-                n = min(int(args.store_cubes), x.shape[0])
-                np.savez(stored, samples=s[:, :n].half().cpu().numpy(), x=x[:n].cpu().numpy(), x0_hat=xh[:n].cpu().numpy(),
-                         x_r=xr[:n].cpu().numpy(), files=np.array([os.path.relpath(f, args.data_root) for f in ds.img_list[:n]]))
         if models['varhead'] is not None:
             logvar = varhead_forward(models['varhead'], cond).clamp(*LOGVAR_RANGE)
             _extend(acc, 'varhead', gaussian_metrics(xr, sigma_r * torch.exp(0.5 * logvar), x))
@@ -241,10 +258,18 @@ def run_eval(models, sigma_r, ds, loader, ys, args, provenance, device, store_di
         files, x, y, xh = ys
         x, y, xh = x.to(device), y.to(device), xh.to(device)
         xr = regress_centre(models['centre'], y, xh, sigma_d)
-        k = x.shape[0] // 2
-        s_true = draw_samples(models['diffusion'], trainer, {'sensor': y, 'x0_hat': xr}, tuple(xr.shape), sigma_r, cfg, K, xr).mean(0)
+        B, k = x.shape[0], x.shape[0] // 2
+        rel = [os.path.relpath(f, args.data_root) for f in files]
+        s_all = draw_samples(models['diffusion'], trainer, {'sensor': y, 'x0_hat': xr}, tuple(xr.shape), sigma_r, cfg, K, xr)
+        if stored is not None:                   # the y-swap batch is the fixed, class-stratified subset: store from it
+            idx = np.unique(np.linspace(0, B - 1, min(int(args.store_cubes), B)).round().astype(int)).tolist()
+            stored_files = [rel[i] for i in idx]
+            np.savez(stored, samples=s_all[:, idx].half().cpu().numpy(), x=x[idx].cpu().numpy(), x0_hat=xh[idx].cpu().numpy(),
+                     x_r=xr[idx].cpu().numpy(), files=np.array(stored_files))
+        s_true = s_all.mean(0)
+        del s_all
         s_swap = draw_samples(models['diffusion'], trainer, {'sensor': y.roll(k, 0), 'x0_hat': xr.roll(k, 0)}, tuple(xr.shape), sigma_r, cfg, K, xr).mean(0)
-        yswap = dict(K=K, files=[os.path.relpath(f, args.data_root) for f in files], true=metrics(s_true, x)['rmse_pct'].tolist(),
+        yswap = dict(K=K, files=rel, true=metrics(s_true, x)['rmse_pct'].tolist(),
                      swap_full=metrics(s_swap, x)['rmse_pct'].tolist(), baseline=metrics(xh, x)['rmse_pct'].tolist(),
                      regressor=metrics(xr, x)['rmse_pct'].tolist())
     means = {m: {k: float(np.mean(v)) for k, v in d.items()} for m, d in acc.items()}
@@ -252,7 +277,7 @@ def run_eval(models, sigma_r, ds, loader, ys, args, provenance, device, store_di
                 classes=[class_of(f) for f in ds.img_list], sigma_d=sigma_d, sigma_r=sigma_r,
                 coverage_min_k={'0.5': M.min_k_for(0.5), '0.9': M.min_k_for(0.9)}, coverage_exact=bool(K >= M.min_k_for(0.9)),
                 per_cube=acc, means=means, yswap=yswap,
-                stored_cubes=stored, provenance=dict(provenance, git_head=git_head(), created=time.strftime('%Y-%m-%dT%H:%M:%S'),
+                stored_cubes=stored, stored_files=stored_files, provenance=dict(provenance, git_head=git_head(), created=time.strftime('%Y-%m-%dT%H:%M:%S'),
                                                       seeds=list(range(K)), device=str(device), batch_size=int(args.batch_size),
                                                       subset=args.subset, limit_files=int(args.limit_files), seconds=time.time() - t0))
 
