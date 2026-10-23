@@ -35,8 +35,8 @@ def test_coverage_of_gaussian_samples_is_near_nominal_and_boundaries_count():
     rng = np.random.default_rng(1)
     x = rng.standard_normal(100_000)
     s = rng.standard_normal((32, 100_000))
-    cov = M.coverage_samples(s, x)                                                   # K = 32: a fresh draw falls inside the interval
-    assert abs(cov[0.5] - 0.5 * 31 / 33) < 0.01 and abs(cov[0.9] - 0.9 * 31 / 33) < 0.01   # spanned by the order statistics w.p. (K-1)/(K+1) x level
+    cov = M.coverage_samples(s, x)       # K = 32; Weibull positions k/(K+1) make the expected coverage nominal for any K. 0.015 and not 0.01:
+    assert abs(cov[0.5] - 0.5) < 0.015 and abs(cov[0.9] - 0.9) < 0.015     # interpolating between order statistics leaves +0.009 at 0.9 (measured 0.0024 / 0.0096)
     big = M.coverage_samples(rng.standard_normal((512, 20_000)), x[:20_000])        # K = 512: near nominal
     assert abs(big[0.5] - 0.5) < 0.02 and abs(big[0.9] - 0.9) < 0.02
     const = np.zeros((4, 3))
@@ -89,3 +89,4 @@ def test_to01_converts_tensors_and_arrays():
     t = torch.tensor([-1.0, 0.0, 1.0])
     assert np.allclose(M.to01(t), [0.0, 0.5, 1.0]) and M.to01(t).dtype == np.float64
     assert np.allclose(M.to01(np.array([-1.0, 1.0])), [0.0, 1.0])
+    assert np.allclose(M.to01(torch.tensor([-1.0, 0.0, 1.0], dtype=torch.bfloat16)), [0.0, 0.5, 1.0])      # bf16 has no numpy dtype

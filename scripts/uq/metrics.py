@@ -13,7 +13,7 @@ Z = {0.5: 0.6744897501960817, 0.9: 1.6448536269514722}             # central-int
 
 
 def to01(t):
-    a = t.detach().cpu().numpy() if isinstance(t, torch.Tensor) else np.asarray(t)
+    a = t.detach().float().cpu().numpy() if isinstance(t, torch.Tensor) else np.asarray(t)      # float(): bf16 / fp16 have no numpy dtype
     return (a.astype(np.float64) + 1.0) / 2.0
 
 
@@ -41,10 +41,14 @@ def crps_gaussian(mu, sigma, x):
 
 
 def coverage_samples(samples, x, levels=(0.5, 0.9)):
+    """Fraction of elements whose truth lies in the central `level` interval of the K samples. The interval ends are
+    Weibull quantiles (position k / (K + 1)): under exchangeability P(x <= s_(k)) = k / (K + 1), so the expected coverage
+    of a calibrated sampler is the nominal level for any K >= 2 (the default linear, (K - 1) p, positions would give
+    about level (K - 1) / (K + 1), i.e. 0.47 / 0.85 at K = 32). Equality at an end counts as covered."""
     s, x = np.asarray(samples, dtype=np.float64), np.asarray(x, dtype=np.float64)
     out = {}
     for lv in levels:
-        lo, hi = np.quantile(s, [(1.0 - lv) / 2.0, 1.0 - (1.0 - lv) / 2.0], axis=0, method='linear')
+        lo, hi = np.quantile(s, [(1.0 - lv) / 2.0, 1.0 - (1.0 - lv) / 2.0], axis=0, method='weibull')
         out[lv] = float(np.mean((x >= lo) & (x <= hi)))
     return out
 
