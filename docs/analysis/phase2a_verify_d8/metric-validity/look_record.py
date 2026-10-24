@@ -1,0 +1,16 @@
+import json, numpy as np, os
+R='/data/chaoyi_he/HSI/Diffu/results/residual_warmstart/uq/d8'
+ev=os.path.join(R,'eval')
+print(os.listdir(ev)); print(os.listdir(R))
+rec=json.load(open(os.path.join(ev,'d8_main.json')))
+print({k:(type(v).__name__) for k,v in rec.items()})
+print('K',rec['K'],'sampler',rec['sampler'],'n',rec['n'],'sigma_r',rec['sigma_r'],'sigma_d',rec['sigma_d'])
+for m,d in rec['per_cube'].items(): print(m, sorted(d.keys()))
+for m,d in rec['means'].items(): print(m, {k:round(v,4) for k,v in d.items()})
+print('stored',rec['stored_cubes'], rec['stored_files'])
+ys=rec['yswap']; print('yswap files', len(ys['files']))
+gate=set(rec['files']); print('stored in gate:', [f in gate for f in rec['stored_files']])
+z=np.load(rec['stored_cubes'])
+for k in z.files: print(k, z[k].shape, z[k].dtype)
+print(z['files'])
+v=json.load(open(os.path.join(R,'verdict__d8_main.json'))); print(json.dumps(v,indent=1)[:4000])

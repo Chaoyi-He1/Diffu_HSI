@@ -29,7 +29,60 @@ Reading: the half-data regressors leave residuals 3 % wider than the full regres
 - `residual_reg_d8_b64`: launched 2026-10-22 23:23 on GPU 0 (100 epochs, v-prediction, L1, centre x̂_R from the cache, σ_R = 0.089342); DONE = 100 at 08:21 on 2026-10-23 (8.97 h, 318 s/epoch, 0 skipped steps). Monitoring loss (fixed-RNG v-prediction L1, every 5 epochs) fell monotonically: 0.1124 (epoch 20), 0.1082 (40), 0.1047 (60), 0.1033 (80), 0.1030 (100) — the diffusion does not overfit the way the one-call regressors do, so the pre-registered epoch-100 checkpoint is evaluated. Checkpoints kept: 25, 50, 90, 100.
 - `varhead_d8_b64`: launched 2026-10-22 23:23 on GPU 1 (40 epochs, Gaussian NLL, monitoring every epoch, every epoch saved); DONE = 40 at 02:58 on 2026-10-23 (3.58 h, 297 s/epoch, 0 skipped steps). **Pre-registered selection = epoch 10** (monitoring NLL −0.2391; epoch 40 = −0.1262, i.e. the variance head overfits after epoch 10 as the regressors do). Pruned to epochs 10 and 40.
 - `regress_l1_sel_s43_d8_b64` (the optional second seed for the ensemble baseline, the B.5 recipe at d = 8): launched 2026-10-23 ≈ 03:00 on GPU 1 once the variance head freed it; DONE = 100 at 12:02 (9.05 h). **Selection = epoch 12** (monitoring loss 0.48175; epoch 100 = 0.54190), next to seed 42's epoch 11 (0.47862). Pruned to 12 / 25 / 50 / 100. The d = 8 ensemble baseline is therefore `regress_l1_sel_d8_b64@11` + `regress_l1_sel_s43_d8_b64@12` (two members; its predictive std has very few degrees of freedom, so it is a reported comparison only, as the spec says).
-- Stage 1 evaluation (T15): started 2026-10-23 ≈ 12:20 on GPU 1 — `uq_eval.py --d 8 --name d8_main`, centre `regress_l1_sel_d8_b64@11`, diffusion `residual_reg_d8_b64@100`, variance head `varhead_d8_b64@10`, ensemble as above, half-centre sensitivity row with `regress_l1_half1_d8_b64@15` + `regress_l1_half2_d8_b64@13`, cache `uq/d8/xr_cache`, K = 32, DDIM-10, followed by the single `uq_verdict.py` call.
+- Stage 1 evaluation (T15): started 2026-10-23 17:12 on GPU 1 — `uq_eval.py --d 8 --name d8_main`, centre `regress_l1_sel_d8_b64@11`, diffusion `residual_reg_d8_b64@100`, variance head `varhead_d8_b64@10`, ensemble as above, half-centre sensitivity row with `regress_l1_half1_d8_b64@15` + `regress_l1_half2_d8_b64@13`, cache `uq/d8/xr_cache`, K = 32, DDIM-10, followed by the single `uq_verdict.py` call.
+
+## Stage 1 verdict (d = 8) — taken once, 2026-10-23 18:44
+
+Record `results/residual_warmstart/uq/d8/eval/d8_main.json` (200 gate cubes, K = 32 DDIM-10 samples, centre `regress_l1_sel_d8_b64@11`, `coverage_exact` true; 8 stored cubes from the y-swap batch in `d8_main__cubes.npz`); verdict `results/residual_warmstart/uq/d8/verdict__d8_main.json`, printed verbatim:
+
+```
+C1: FAIL  +0.1720 ± 0.0058 (cluster 0.0068)   [mean(CRPS_diffusion - CRPS_varhead) + 2 SE_cluster < 0]
+C2: FAIL  cov90 0.908 cov50 0.674   [0.85 <= cov90 <= 0.95 and 0.45 <= cov50 <= 0.55]
+P1: PASS  -0.3124 ± 0.0525 (cluster 0.0651)   [mean(|hf_single| - |hf_regressor|) + 2 SE_cluster < 0]
+P2: FAIL  +1.1695 ± 0.0394 (cluster 0.0442)   [mean(RMSE_single - RMSE_baseline) + 2 SE_cluster < 0]
+S1: FAIL  +0.0517 ± 0.0042 (cluster 0.0046)   [|mean(RMSE_meanK - RMSE_regressor)| <= 2 SE_cluster]
+S2: FAIL  +0.0125 ± 0.0114   [mean(RMSE_swap_full - RMSE_true) - 2 SE_iid > 0 on the y-swap cubes]
+calibration FAIL; perceptual FAIL; diffusion wins (a): False
+```
+
+| method (d = 8, gate) | RMSE % | log HF ratio | SAM ° | CRPS % | cov50 | cov90 | AUSE | spread ratio |
+|---|---|---|---|---|---|---|---|---|
+| baseline x̂₀ | 4.5799 | −3.266 | 2.94 | — | — | — | — | — |
+| regressor x̂_R (centre) | 4.2319 | −3.195 | 2.84 | — | — | — | — | — |
+| variance head (Gaussian around x̂_R) | 4.2319 | −3.195 | 2.84 | **1.7604** | 0.624 | 0.930 | **0.179** | 1.48 |
+| residual diffusion, mean of 32 | 4.2836 | −0.490 | 3.13 | 1.9325 | 0.674 | 0.908 | 0.375 | 1.05 |
+| residual diffusion, single sample | 5.7493 | +2.882 | 6.71 | | | | | |
+| 2-member ensemble (Gaussian) | 4.1905 | −3.246 | 2.82 | 2.1449 | 0.080 | 0.186 | 0.446 | 0.04 |
+| diffusion around the half regressors' average | 4.2824 (mean) | −0.493 | 3.13 | 1.9360 | 0.673 | 0.907 | 0.377 | 1.06 |
+
+**Result: the pre-registered success criterion of part (a) is not met at d = 8.** The variance head is the better uncertainty model: lower CRPS on 193 of 200 cubes, and a per-pixel spread that ranks the errors twice as well (AUSE 0.18 vs 0.37). The diffusion beats only the degenerate two-member ensemble.
+
+### Verification (2026-10-23, CPU; 6 independent verifiers + a synthesis; scripts and the full structured result in `docs/analysis/phase2a_verify_d8/`, large intermediates in `results/residual_warmstart/uq/d8/verify_d8_intermediates/`)
+
+Confirmed:
+- Two independent recomputations (one numpy from scratch, one by a 5000-draw cluster bootstrap over the 113 source images) reproduce every clause bit for bit. Calibration, perceptual and "wins" pass in 0 of 5000 bootstrap draws; C1, C2 and P2 fail in all of them; C1 fails in every class (P022 +0.157, P023 +0.186, P024 +0.101).
+- Provenance is clean: every checkpoint, the cache meta, the prior and the split re-hash to the record; σ_R = 0.089342 everywhere; the epochs are the selection rule's (centre 11, seed 43 at 12, halves 15 / 13, variance head 10, diffusion 100); the cache is truly cross-fitted.
+- C1 compares like with like (same scale, centre and elements; the fair CRPS of 32 draws from the variance head's Gaussian is 1.8641 against its closed form 1.8640 on the stored cubes; the only asymmetry, the [−1, 1] clamp on diffusion samples, favours the diffusion).
+
+Mechanism (diagnostic evidence, not gate evidence):
+- **The diffusion's predictive spread is nearly homoscedastic.** Across cubes, log spread rises with log error at slope 0.13 (variance head 0.72). Across the 64 sensor phases the spread varies 1.15× while the error varies 14×; at the measured grid pixels the spread is 3.6 % RMS against an error of 0.43 %. As a predictive distribution it is statistically indistinguishable from one constant-width Gaussian N(x̂_R, (0.5 σ_R)²): CRPS 1.9325 vs 1.9472, difference −0.015 ± 0.010 (cluster). The variance head's whole advantage (0.187 over that Gaussian) is localisation of the spread, which the diffusion lacks.
+- **The spread is white, high-frequency noise.** Lag-1 spatial autocorrelation 0.24–0.29 (true residual 0.87), adjacent-band correlation 0.29 (true residual 0.975), 61 % of its energy at high spatial frequency (true residual 10 %), coherence with the true residual ≈ 0 at every frequency.
+- **Likely upstream cause: the low-noise denoiser is under-fit.** At t ≤ 299 the network's x₀ error is worse than a linear per-pixel spectral filter fitted on training cubes (e.g. 0.29 vs 0.16 r-units at t = 99), and in calm regions worse than predicting zero; it leaves ≈ 0.29 r-units of noise in every spectral direction. A post hoc hybrid on the 8 stored cubes that replaces the network below t = 399 by that filter removes ≈ 60 % of the C1 gap (+0.161 → +0.061), but the samples then become under-dispersed. More sampling steps do not help (DDIM-50 and DDPM-1000 on one cube are slightly worse).
+- **The diffusion does use its condition**, but only to shape the spread, not the mean: under a swapped condition the std map follows the donor cube (Spearman 0.55 with the donor, 0.25 with its own), and the denoiser's x₀ error at t = 900 is 0.74 with the true condition, 0.93 swapped, 7.1 zeroed. The residual's conditional mean is ≈ 0 by construction (training-residual mean +0.0016 pct).
+
+**Three clauses of my pre-registered success criterion could not have been passed by any well-calibrated sampler — a design flaw of the spec, recorded here as such:**
+- **P2** (a single sample beats the baseline): a calibrated single draw has RMSE ≈ √2 × the regressor's (5.98 % here; observed 5.75 %), and the baseline/regressor ratio is 1.08 at d = 8 (1.20 at d = 4), below √2; passing needs a spread ratio below ≈ 0.18, which contradicts C2. So "diffusion wins (a)" was unreachable at either stride.
+- **S1** (the mean of K samples stays on the regressor): with spread variance v the mean of K draws carries an extra v/K; a perfectly centred sampler with this spread is expected to show +0.058 at K = 32 (observed +0.052). Debiased, S1 is −0.006 ± 0.004 and would pass; the rule as written needs K ≈ 256.
+- **S2** (y-swap): the samples are always composed with the TRUE centre and the residual's conditional mean is ≈ 0, so swapping the condition only changes the 1/K noise term; even an oracle-calibrated sampler would score +0.024 ± 0.019 and fail. S2 cannot detect condition use in this design.
+- **P1's PASS is an artefact** of the symmetric |log ratio| statistic: the single sample over-sharpens on 200/200 cubes (17.9× the truth's Laplacian energy), the regressor blurs on 200/200 (1/24); gradient W1 (0.0080 vs 0.0054) and SAM (6.71° vs 2.84°) say the sample is worse; x̂_R plus white noise would pass P1 by a wider margin.
+
+The calibration clauses C1 and C2 were attainable and failed on merit (C1 by 25 cluster SEs; C2's cov50 band is strict — the variance head itself has cov50 0.624 — but the diffusion's 0.674 comes from the homoscedastic spread: cov50 0.84 in the calmest decile, 0.33 in the most uncertain).
+
+### Pre-registered fix round (spec §5.7) — predictions recorded before it runs
+
+Ruling R15 (controller, 2026-10-23): the spec allows exactly one fix round when calibration fails; the plan (T15 step 3) runs it. (1) `d8_fix_k64`: K = 64 DDIM-10 on the gate, same thresholds, with the predictions below; (2) the DDPM-1000 arm is run at K = 8 on the 50-cube DDPM subset **report-only** (`uq_verdict --report_only`), because ruling R10 refuses a verdict at K < 19 and a K ≥ 19 DDPM run would cost ≈ 40 GPU-h for a gate it cannot plausibly change; it supplies the DDPM-1000 reference row that d8_main lacks. Both run only after the d = 4 trainings free a GPU. No other re-run.
+
+Predictions for `d8_fix_k64` (from the mechanism above): C1 unchanged within ≈ 1 SE (≈ +0.17; the fair CRPS is K-invariant); cov50 ≈ 0.67 (FAIL); S1 literal ≈ +0.023 (still FAIL; a perfectly centred sampler would show +0.029); P2 ≈ +1.17 (FAIL); S2 still underpowered; P1 ≈ unchanged (PASS, artefact). Prediction for the DDPM-1000 row: CRPS no better than DDIM-10, spread at least as wide and still white.
 
 ## Stage 2 — the d = 4 contrast (report only)
 
@@ -37,7 +90,8 @@ Same recipe at `--ds 4`; the full centre is `regress_l1_sel_d4_b64@17`; the same
 
 - `regress_l1_half1_d4_b64`: launched 2026-10-23 08:25 on GPU 0 (after the d = 8 diffusion finished); DONE = 40 at 10:21 (1.97 h, 155 s/epoch, 0 skipped). **Selection = epoch 12** (monitoring loss 0.43100; epoch 40 = 0.45764). Pruned to 12 and 40.
 - `regress_l1_half2_d4_b64`: launched 2026-10-23 ≈ 10:25 on GPU 0; DONE = 40 at ≈ 12:15 (≈ 1.9 h). **Selection = epoch 20** (monitoring loss 0.43155; epoch 40 = 0.44948). Pruned to 20 and 40.
-- d = 4 centre cache: building on GPU 0 since ≈ 12:20 (`half1@12`, `half2@20`, full `regress_l1_sel_d4_b64@17`); `residual_reg_d4_b64` launches on GPU 0 when it is done; `varhead_d4_b64` launches on GPU 1 after the d = 8 evaluation.
+- d = 4 centre cache (2026-10-23 17:12–17:18, GPU 0; `half1@12`, `half2@20`, full `regress_l1_sel_d4_b64@17`) → `uq/d4/xr_cache/` (5.0 GB): **σ_R = 0.040619**, σ_full = 0.040775, ratio **1.0038** (not flagged); σ_d at d = 4 is 0.051661 for reference. The cross-fit mismatch is smaller than at d = 8 (0.3 % against 3 %).
+- `residual_reg_d4_b64`: launched 2026-10-23 17:18 on GPU 0 (100 epochs, ≈ 9 h). `varhead_d4_b64` launches on GPU 1 after the d = 8 evaluation.
 
 ## Stage 0 — harness validation on the existing d = 4 assets (2026-10-22, GPU 0, ≈ 40 min)
 

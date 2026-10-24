@@ -1,0 +1,850 @@
+{
+  "summary": "Adversarially verify the Phase 2a d = 8 pre-registered verdict before it is written up",
+  "agentCount": 7,
+  "logs": [
+    "6/6 verifiers returned"
+  ],
+  "result": {
+    "verifiers": [
+      {
+        "lens": "recompute-numpy",
+        "claims": [
+          {
+            "id": "C1",
+            "statement": "C1 FAIL: mean(CRPS_diffusion - CRPS_varhead) = +0.1720 +- 0.0058 iid (cluster 0.0068, 113 clusters, n=200).",
+            "verdict": "CONFIRMED",
+            "evidence": "Own numpy recompute: mean 0.1720118049990721, iid SE 0.005805124025440598, cluster SE 0.006833697373668377, G=113. Identical to the verdict file down to float64 print precision. mean + 2 SE_c = +0.1857 > 0, so FAIL; mean/SE_c is about 25, so no flip is possible."
+          },
+          {
+            "id": "C2",
+            "statement": "C2 FAIL: diffusion empirical cov90 = 0.908, cov50 = 0.674.",
+            "verdict": "CONFIRMED",
+            "evidence": "Mean over cubes of per_cube.diffusion.cov90 = 0.9081964874267578 and cov50 = 0.67406005859375, matching the verdict exactly. Pooling over elements gives the same values because every cube has 64^3 elements. cov90 is inside [0.85, 0.95]; cov50 is 0.124 above 0.55. The FAIL comes from cov50 alone and is far from the boundary. The Gaussian-fit cov50 (0.674) also fails. An independent Weibull-position coverage on the 8 stored y-swap cubes gives per-cube values within about 0.005 of the record (cube P022/91_1 matches exactly: 0.9750 / 0.7828 vs 0.9750 / 0.7827)."
+          },
+          {
+            "id": "P1",
+            "statement": "P1 PASS: mean(|hf_single| - |hf_regressor|) = -0.3124 +- 0.0525 (cluster 0.0651).",
+            "verdict": "CONFIRMED",
+            "evidence": "Recompute: mean -0.3124063565117802, iid SE 0.052473356818438344, cluster SE 0.06506149053244516, exact match. mean + 2 SE_c = -0.182 < 0, so PASS (mean/SE_c = 4.8; it still passes at 3 SE_c: -0.117). Own Laplacian (3x3, reflect padding, natural log of E(est)/E(truth)) on the stored cubes reproduces the record's regressor/baseline hf to 1e-4, and the seed-0 single-sample hf exactly on cube P022/91_1. Caveat on meaning: single_hf > 0 on 200/200 cubes (mean +2.88, about 18x the truth's HF energy) and regressor hf < 0 on 200/200 (mean -3.19). P1 passes only because the |r_HF| statistic treats over-sharpening and blur alike; 131/200 cubes favour the sample."
+          },
+          {
+            "id": "P2",
+            "statement": "P2 FAIL: mean(RMSE_single - RMSE_baseline) = +1.1695 +- 0.0394 (cluster 0.0442).",
+            "verdict": "CONFIRMED",
+            "evidence": "Recompute: mean 1.1694584286212921, iid SE 0.039386836754618695, cluster SE 0.0442336792889893, exact match. mean + 2 SE_c = +1.258 > 0, so FAIL; no flip is possible."
+          },
+          {
+            "id": "S1",
+            "statement": "S1 FAIL: mean(RMSE_meanK - RMSE_regressor) = +0.0517 +- 0.0042 (cluster 0.0046).",
+            "verdict": "CONFIRMED",
+            "evidence": "Recompute: mean 0.05171457529067993, iid SE 0.004246786927295709, cluster SE 0.0046124856850592935, exact match. |mean| - 2 SE_c = +0.0425 > 0, so FAIL; |mean|/SE_c = 11.2, so no flip is possible."
+          },
+          {
+            "id": "S2",
+            "statement": "S2 FAIL: mean(RMSE_swap_full - RMSE_true) = +0.0125 +- 0.0114 (iid SE) on 32 y-swap cubes.",
+            "verdict": "CONFIRMED",
+            "evidence": "Recompute: mean 0.012517228722572327, iid SE 0.011368077287337897, n=32, exact match. mean - 2 SE = -0.0102 < 0, so FAIL (t = 1.10; 17/32 cubes positive). With the cluster SE (29 images) it is 0.011503, still FAIL. Using the main-run per-cube mean-of-K as 'true' instead of the y-swap batch's own draws gives mean 0.0185, SE 0.0127, still FAIL. A PASS would need SE <= 0.0063 at this mean."
+          },
+          {
+            "id": "C3",
+            "statement": "Reported C3 (paired AUSE diffusion - varhead) = +0.1954, iid SE 0.0030, cluster SE 0.0028.",
+            "verdict": "CONFIRMED",
+            "evidence": "Recompute: mean 0.1954275823778844, iid SE 0.003005299000062733, cluster SE 0.00280998487745574, exact match. The diffusion's AUSE is worse than the variance head's (0.375 vs 0.179)."
+          },
+          {
+            "id": "FLAGS",
+            "statement": "calibration_pass = false, perceptual_pass = false, wins = false.",
+            "verdict": "CONFIRMED",
+            "evidence": "Derived from the recomputed clauses: C1 and C2 both fail; P1 passes but P2 fails; S1 and S2 fail."
+          },
+          {
+            "id": "REPORTED",
+            "statement": "Reported extras: spread ratio (diffusion 1.0525, varhead 1.4846), cov90_varhead 0.9299, cov90_gauss_diffusion 0.8938, ensemble cov90 0.1856, halfcentre cov90 0.9074, ensemble CRPS/AUSE and halfcentre CRPS paired blocks.",
+            "verdict": "CONFIRMED",
+            "evidence": "All match exactly. Sign conventions in the verdict: ensemble blocks are diffusion - ensemble (CRPS -0.2124 c-SE 0.0161; AUSE -0.0711 c-SE 0.0050), so the diffusion beats the ensemble. The halfcentre block is halfcentre - diffusion (+0.0035, c-SE 0.0040). The verdict file does not state these directions."
+          },
+          {
+            "id": "TABLE",
+            "statement": "Every per-method mean in the printed table (baseline/regressor/diffusion/varhead/ensemble/half-centre RMSE, hf, SAM, CRPS, coverage, AUSE, spread ratio) agrees with the per-cube arrays.",
+            "verdict": "CONFIRMED",
+            "evidence": "Means recomputed from per_cube match the printed table to its 3-4 decimals, e.g. baseline 4.5799/-3.2657, regressor 4.2319/-3.1947/SAM 2.838, diffusion meanK 4.2836/-0.4901, single 5.7493/+2.8823/SAM 6.7116, CRPS 1.9325, varhead CRPS 1.7604 / cov50 0.6235 / AUSE 0.1792, ensemble CRPS 2.1449, half CRPS 1.9360. The record's own 'means' block has zero mismatches against per_cube (tolerance 1e-9). No NaN or inf in any array; every array has length 200."
+          },
+          {
+            "id": "CLUSTERS",
+            "statement": "The 200 gate cubes form 113 source-image clusters (P0xx/<img>).",
+            "verdict": "CONFIRMED",
+            "evidence": "Parsing <img>_<patch>.mat gives 113 images (sizes: 52x1, 43x2, 12x3, 4x4, 2x5), consistent with the record's classes key. The record's file set equals tests/data/val_subset_200.json as a set; the order differs (dataset sorted order), which has no effect on paired statistics."
+          }
+        ],
+        "discrepancies": [
+          "None in any recomputed number or pass/fail: C1, C2, P1, P2, S1, S2, C3 and every reported extra match the verdict file exactly (float64), and the printed table agrees to its displayed precision.",
+          "Spec wording vs implementation on S2 (no effect): spec section 5.7 says 'mean - 2 SE > 0', and section 5.6 says '2 SE' means the clustered SE unless stated. The verdict (and the plan) use the iid SE. The clustered SE over the 29 images of the y-swap cubes is 0.011503 vs iid 0.011368; S2 fails either way.",
+          "The y-swap block is a separate 32-cube batch with its own noise draws, because torch.manual_seed(k) is applied to a different batch shape. Its 'true' mean-of-K RMSE differs from per_cube.diffusion.mean_rmse_pct on the same 32 files by mean +0.0060, sd 0.032, max |0.079|. Its regressor RMSE differs from per_cube.regressor.rmse_pct by up to 7.7e-4, from batch-size-dependent float numerics; baseline differs by only 5e-7. S2 still fails with the main-run 'true' (mean 0.0185, SE 0.0127).",
+          "The verdict file's ensemble block is reported as diffusion - ensemble and its halfcentre block as halfcentre - diffusion; it does not label these directions, so its ensemble means (-0.212 CRPS, -0.071 AUSE) could be misread as the ensemble being better.",
+          "Interpretation note on P1 (not a computation error): single_hf is positive on all 200 cubes (mean +2.88, about 18x the truth's HF energy) and regressor hf is negative on all 200 (mean -3.19). The PASS rests on the symmetric |r_HF| gate statistic: the sample over-sharpens slightly less than the regressor blurs. 'Less blurred' is literally true, but the extra HF energy is mostly noise (P2 fails by +1.17 RMSE points, SAM 6.71 vs 2.84 deg)."
+        ],
+        "summary": "My numpy recompute matches the verdict exactly, and no pass/fail can flip. I did not import uq_verdict.py or paired_stats.py. Every clause, the reported C3 and every reported extra in verdict__d8_main.json come out bit-identical in float64, with the same paired per-cube differences, iid SE (ddof=1) and CR1 cluster SE over 113 source images. Verdict: C1 FAIL (+0.1720, cluster SE 0.0068), C2 FAIL (cov90 0.908 is in range, cov50 0.674 is not), P1 PASS (-0.3124, cluster SE 0.0651), P2 FAIL (+1.1695), S1 FAIL (+0.0517, 11 cluster SEs), S2 FAIL (+0.0125 vs iid SE 0.0114, t = 1.10). Calibration, perceptual and wins are all false; C3 = +0.1954 (cluster SE 0.0028). Each margin is large: C1 is 25 SE from its threshold, P2 28, S1 11, cov50 is 0.12 out of range, and P1 still passes at 3 SE. S2 also fails under the spec's literal clustered-SE reading (0.0115) and when the main-run mean-of-K is used as 'true'. Independent checks on the 8 stored y-swap cubes: my RMSE, a pairwise fair-CRPS, Weibull-position coverage, spread ratio and the Laplacian HF ratio reproduce the record's values. The deterministic regressor/baseline numbers agree to 1e-4. Sampled metrics agree within draw-to-draw variation, and exactly on the one cube whose draws coincide. Small non-numerical discrepancies: (1) S2 uses the iid SE, while spec 5.6/5.7 literally implies the clustered one; no effect on the result. (2) The y-swap block comes from separate draws, so its RMSE_true differs from the main per-cube mean-of-K by up to 0.079. (3) The ensemble and halfcentre blocks do not state their subtraction direction (diffusion - ensemble, halfcentre - diffusion). (4) The P1 pass means the sample over-sharpens on all 200 cubes, by slightly less than the regressor blurs. Scripts and output are in /home/staff/c/chaoyi_he/.claude/jobs/97dc7552/tmp/verify_d8/recompute-numpy/ (recompute.py, s2_and_cubes.py, hf_check.py, dump_record_structure.py, recomputed.json). Nothing was written to the repo or results, no git was run, and nothing ran on a GPU.",
+        "scripts_written": [
+          "/home/staff/c/chaoyi_he/.claude/jobs/97dc7552/tmp/verify_d8/recompute-numpy/recompute.py",
+          "/home/staff/c/chaoyi_he/.claude/jobs/97dc7552/tmp/verify_d8/recompute-numpy/s2_and_cubes.py",
+          "/home/staff/c/chaoyi_he/.claude/jobs/97dc7552/tmp/verify_d8/recompute-numpy/hf_check.py",
+          "/home/staff/c/chaoyi_he/.claude/jobs/97dc7552/tmp/verify_d8/recompute-numpy/dump_record_structure.py",
+          "/home/staff/c/chaoyi_he/.claude/jobs/97dc7552/tmp/verify_d8/recompute-numpy/recomputed.json"
+        ]
+      },
+      {
+        "lens": "recompute-bootstrap",
+        "claims": [
+          {
+            "id": "R0",
+            "statement": "Recomputing every clause from the per-cube arrays in d8_main.json, with my own code that imports nothing from the repo, reproduces the verdict file exactly.",
+            "verdict": "CONFIRMED",
+            "evidence": "recompute.py. The 200 record files are the same set as tests/data/val_subset_200.json (different order) and fall in 113 source-image clusters (52 images with 1 cube, 43 with 2, 12 with 3, 4 with 4, 2 with 5; 13/80/20 images in P022/P023/P024). Computed two ways (a per-cluster loop and an OLS cluster sandwich with factor G/(G-1)), the clustered SEs agree to 1e-6 with the verdict file. C1 +0.172012 (iid 0.005805, cluster 0.006834); P1 -0.312406 (0.052473, 0.065061); P2 +1.169458 (0.039387, 0.044234); S1 +0.051715 (0.004247, 0.004612); C2 cov90 0.908196, cov50 0.674060; S2 +0.012517 (iid 0.011368). Every pass/fail matches. All printed means match: baseline 4.5799 / -3.266, regressor 4.2319 / -3.195, mean-of-K 4.2836 / -0.490, single sample 5.7493 / +2.882, CRPS 1.9325 vs 1.7604."
+          },
+          {
+            "id": "R1",
+            "statement": "Recomputing from the stored figure cubes with independent implementations (scipy mirror-mode Laplacian, explicit pairwise fair CRPS, hand-written Weibull order statistics) agrees with the record.",
+            "verdict": "CONFIRMED",
+            "evidence": "stored_cubes.py on the 8 stored y-swap cubes. Regressor RMSE matches within 3.0e-4 and hf within 1.7e-4 (float32 batch-size effects). Baseline RMSE matches within 4e-7 and hf exactly. Mean-of-32 RMSE matches yswap.true within 2.1e-6. Against the gate arrays, which used different draws (batch 4 vs 32), CRPS agrees within 0.02 (e.g. 1.4192/1.4192, 2.2855/2.2828, 3.0157/3.0187), cov90 within 0.004, cov50 within 0.006 and spread ratio within 0.04. The varhead CRPS was NOT recomputed independently (that needs a model forward pass)."
+          },
+          {
+            "id": "C1",
+            "statement": "C1 FAIL is robust: the diffusion's CRPS is worse than the variance head's around the same centre.",
+            "verdict": "CONFIRMED",
+            "evidence": "Cluster bootstrap over the 113 images (5000 draws): mean 95% [+0.1588, +0.1851]. mean+2SEcl 95% [+0.1727, +0.1979]. Pass fraction 0.0000. Bootstrap SD 0.0068 equals the analytic cluster SE. 193/200 cubes and 111/113 images are positive. Per class: P022 +0.1569+-0.0104, P023 +0.1857+-0.0079, P024 +0.1005+-0.0147, all FAIL with bootstrap pass 0.00. Image-weighted +0.1681+-0.0073 and class-balanced +0.1477+-0.0066 also FAIL."
+          },
+          {
+            "id": "C2",
+            "statement": "C2 FAIL is robust: 90% coverage is in range but 50% coverage is too high.",
+            "verdict": "CONFIRMED",
+            "evidence": "Bootstrap: cov90 95% [0.9009, 0.9151], inside [0.85,0.95] in 100% of draws. cov50 95% [0.6592, 0.6881], minimum over the 5000 draws 0.6438, inside [0.45,0.55] in 0% of draws, so C2 passes in 0.0000. Only 18/200 cubes have cov50 < 0.55. Per class: P022 0.931/0.677, P023 0.914/0.692, P024 0.850/0.555. P024 alone sits right at the edge of both bands. Class-balanced cov50 is 0.642, still out of range."
+          },
+          {
+            "id": "P1",
+            "statement": "P1 PASS holds statistically on the pooled data, but its meaning is fragile: the single sample is over-sharpened noise, not recovered texture.",
+            "verdict": "CONFIRMED",
+            "evidence": "Bootstrap: mean 95% [-0.4360, -0.1850]. mean+2SEcl 95% [-0.3141, -0.0478]. Pass fraction 0.9954. Image-weighted -0.2906+-0.0600 PASS; class-balanced -0.2068+-0.0859 PASS (stratified bootstrap [-0.367, -0.043]). Per class it passes only in P023 (-0.3718+-0.0759, bootstrap pass 1.00). P022 (-0.1903+-0.2178, pass 0.16) and P024 (-0.0583+-0.1148, pass 0.08) fail on their own. The single sample's hf is > 0 in 200/200 cubes (Laplacian energy 17.9x the truth; the regressor's is 0.041x), and |hf_single| < |hf_reg| in only 131/200 cubes. A draw-independent-noise model, hf_meanK = log(e^hf_reg + (e^hf_single - e^hf_reg)/32), predicts the recorded mean-of-K hf per cube (mean -0.492 vs -0.490, corr 1.000, mean abs diff 0.006). So the samples' extra HF energy does not repeat across draws: P1 passes because |+2.88| < |-3.19|."
+          },
+          {
+            "id": "P2",
+            "statement": "P2 FAIL is robust: a single sample has much higher RMSE than the linear baseline.",
+            "verdict": "CONFIRMED",
+            "evidence": "Bootstrap mean 95% [+1.0799, +1.2560]; pass fraction 0.0000. 194/200 cubes and 112/113 images are positive. Per class: P022 +1.3080+-0.1213, P023 +1.2238+-0.0499, P024 +0.6868+-0.0940, all FAIL with bootstrap pass 0.00. Image- and class-weighted versions also FAIL."
+          },
+          {
+            "id": "S1",
+            "statement": "S1 FAIL is robust as the rule is written, but reading it as 'the centre drifts' is not supported: the gap is the finite-K Monte Carlo term of the mean-of-K RMSE.",
+            "verdict": "CONFIRMED",
+            "evidence": "Bootstrap: mean 95% [+0.0427, +0.0606]. |mean|/SEcl 95% [8.2, 15.4]. Pass fraction 0.0000. Per class: P022 +0.0648+-0.0096 FAIL, P023 +0.0572+-0.0053 FAIL, P024 +0.0038+-0.0108 PASS (bootstrap pass 0.91). However, E||mean_K - x||^2 = ||E s - x||^2 + mean(var)/K, and the per-cube spread_ratio gives mean(var) exactly. For a perfectly centred sampler with the measured spread, the expected raw S1 is +0.0576 (observed +0.0517). The debiased S1 (mean_rmse*sqrt(1 - sr/K) - rmse_reg) is -0.0059 +- 0.0042 (cluster), which PASSES the S1 rule; bootstrap pass 0.71, mean < 0 in 92% of draws. Per class the debiased S1 is P022 -0.0004, P023 -0.0013, P024 -0.0405. The half-centre run debiases to -0.0074+-0.0040. The 8 stored cubes agree: debiased sampler-mean RMSE vs regressor averages about -0.007."
+          },
+          {
+            "id": "S2",
+            "statement": "S2 FAIL is fragile: it is a non-significant small positive effect, not a clear negative.",
+            "verdict": "CONFIRMED",
+            "evidence": "mean +0.0125, iid SE 0.0114, mean-2SE = -0.0102. The 32 y-swap cubes come from 29 images (3 image pairs); the cluster SE of 0.0115 changes nothing. 17/32 cubes are positive, median +0.0046. No partner is from the same image; 16/32 partners are from the same class. Joint 113-image bootstrap: mean 95% [-0.0094, +0.0349], pass fraction 0.184, mean > 0 in 86.5% of draws. Own bootstrap over the 29 y-swap images: mean 95% [-0.0104, +0.0343], pass fraction 0.183. Even the upper bound is under 1% of the 4.26% RMSE, so the effect of the swap on the mean-of-K is small either way. This fits the debiased S1: the mean-of-K is about x_r regardless of y."
+          },
+          {
+            "id": "J",
+            "statement": "The overall verdict (calibration FAIL, perceptual FAIL, diffusion does not win (a)) is robust to cluster resampling.",
+            "verdict": "CONFIRMED",
+            "evidence": "In the joint bootstrap (one 113-image draw shared by all clauses, with the y-swap cubes weighted by their image's multiplicity), calibration passes in 0/5000 draws, perceptual in 0/5000 and wins in 0/5000. C1, C2 and P2 each fail in 100% of draws, so neither the fragile S2 nor the S1 interpretation issue can change the outcome."
+          }
+        ],
+        "discrepancies": [
+          "No numerical discrepancies: every clause statistic, iid SE, clustered SE (two independent formulas) and pass/fail in verdict__d8_main.json is reproduced to at least 1e-6, and every mean in the printed verdict summary matches the record.",
+          "Design issue in S1, not in the computation: the pre-registered S1 compares the mean-of-K RMSE with the regressor RMSE. At K = 32 and spread ratio ~1.05, an exactly centred sampler is still expected to show about +0.058 RMSE % (about 12 clustered SEs), so the rule fails by construction. The debiased version (-0.0059 +- 0.0042) passes. The verdict file and the summary call this 'drift'; the data do not support drift.",
+          "Interpretation issue in P1: the pass comes from over-sharpening, not reduced blur. The single-sample hf is positive in 200/200 cubes (17.9x the true Laplacian energy). The noise-additivity check (corr 1.000) shows the extra HF energy does not repeat across draws. The pooled pass is also carried by P023 (152 of 200 cubes); P022 and P024 fail on their own.",
+          "Minor: S2 uses the iid SE on 32 cubes from 29 source images (3 shared-image pairs). The cluster SE is 0.0115 vs 0.0114, so the outcome is unchanged.",
+          "Minor: the regressor RMSE on the y-swap batch (batch 32) differs from the gate run (batch 4) by up to 7.7e-4, and the mean-of-K RMSE by up to 0.079 (different Monte Carlo draws). This has no effect on any clause.",
+          "Not checked here: the varhead per-cube CRPS / coverage were taken from the record and not recomputed from model outputs (that needs a CPU forward pass of the varhead checkpoint)."
+        ],
+        "summary": "I recomputed every clause from the per-cube arrays in d8_main.json with code that imports nothing from the repo, and the verdict file is reproduced exactly. On the 8 stored figure cubes I also recomputed the metrics with independent implementations; they agree within float32 error, and within Monte Carlo noise where the gate run used other draws.\n\nThe cluster bootstrap resampled the 113 source images 5000 times; each statistic below is the cube-weighted mean with its 95% interval, then the share of draws in which the clause passes:\n\n| Clause | 95% interval | Draws passing |\n|---|---|---|\n| C1 | [+0.159, +0.185] | 0% |\n| C2 | cov90 [0.901, 0.915], always in range; cov50 [0.659, 0.688], never in range | 0% |\n| P1 | [-0.436, -0.185] | 99.5% |\n| P2 | [+1.080, +1.256] | 0% |\n| S1 | [+0.043, +0.061] | 0% |\n| S2 | [-0.009, +0.035] | 18% (mean > 0 in 86% of draws) |\n\nNo draw passes calibration, perceptual or 'diffusion wins (a)'.\n\nPer class (mean +- clustered SE):\n\n| Clause | P022 (24 cubes, 13 images) | P023 (152 cubes, 80 images) | P024 (24 cubes, 20 images) |\n|---|---|---|---|\n| C1 | +0.157+-0.010 FAIL | +0.186+-0.008 FAIL | +0.101+-0.015 FAIL |\n| P1 | -0.190+-0.218 FAIL | -0.372+-0.076 PASS | -0.058+-0.115 FAIL |\n| P2 | +1.308+-0.121 FAIL | +1.224+-0.050 FAIL | +0.687+-0.094 FAIL |\n| S1 | +0.065+-0.010 FAIL | +0.057+-0.005 FAIL | +0.004+-0.011 PASS |\n\n**Robust conclusions:**\n- **C1 FAIL:** 193 of 200 cubes are positive, it fails in every class, and it fails under image-weighted and class-balanced means.\n- **C2 FAIL:** cov50 never reaches 0.55 in any draw, while cov90 is always in range.\n- **P2 FAIL:** 194 of 200 cubes are positive and every class fails.\n- **The overall verdict that the diffusion does not win (a)** follows, because C1, C2 and P2 each fail in 100% of draws.\n- **P1 PASS** holds statistically on the pooled data and under class-balanced weighting.\n\n**Fragile conclusions:**\n- **S2 FAIL** is a non-significant small positive effect (mean - 2 SE = -0.010; it passes in 18% of draws), not a clear negative.\n- **P1 PASS** is carried by P023 and comes from over-sharpening. The single sample's high-frequency energy is 17.9 times the truth's in 200 of 200 cubes, against the regressor's 0.041 times. The mean-of-K's near-perfect hf follows exactly from that noise being averaged over 32 draws (corr 1.000). The samples add no high-frequency structure that repeats across draws.\n- **S1 FAIL** is robust as the rule is written, but it is a finite-K artefact. An exactly centred sampler with the measured spread would show +0.058, against +0.052 observed. The debiased S1 is -0.006 +- 0.004 and passes the rule (71% of draws). So the sampler mean does not drift from the regressor centre; the S1 rule as pre-registered cannot be passed at K = 32.",
+        "scripts_written": [
+          "/home/staff/c/chaoyi_he/.claude/jobs/97dc7552/tmp/verify_d8/recompute-bootstrap/recompute.py",
+          "/home/staff/c/chaoyi_he/.claude/jobs/97dc7552/tmp/verify_d8/recompute-bootstrap/stored_cubes.py",
+          "/home/staff/c/chaoyi_he/.claude/jobs/97dc7552/tmp/verify_d8/recompute-bootstrap/s1_finiteK.py",
+          "/home/staff/c/chaoyi_he/.claude/jobs/97dc7552/tmp/verify_d8/recompute-bootstrap/weighting_variants.py",
+          "/home/staff/c/chaoyi_he/.claude/jobs/97dc7552/tmp/verify_d8/recompute-bootstrap/look_record.py",
+          "/home/staff/c/chaoyi_he/.claude/jobs/97dc7552/tmp/verify_d8/recompute-bootstrap/look_verdict.py",
+          "/home/staff/c/chaoyi_he/.claude/jobs/97dc7552/tmp/verify_d8/recompute-bootstrap/recompute_bootstrap.json",
+          "/home/staff/c/chaoyi_he/.claude/jobs/97dc7552/tmp/verify_d8/recompute-bootstrap/stored_cubes.json"
+        ]
+      },
+      {
+        "lens": "condition-blindness",
+        "summary": "H1 is REFUTED as stated, though a weaker version holds. residual_reg_d8_b64@100 does use the condition. At high noise (t ≥ 700) its denoiser responds strongly to (y, x_r): swapping both raises the x0-MSE at t = 900 from 0.742 to 0.928, and zeroing them raises it to 7.1. Its per-pixel sample spread also follows the condition: when the condition is swapped, the std map follows the donor cube's spread map (Spearman 0.55, against 0.25 for its own), and its AUSE of 0.375 sits well below random (0.788). What is wrong is that the spread barely varies. In the calmest 10 % of elements the diffusion's std is 0.62 sigma_r against a true error of 0.10; in the roughest 10 % it is 1.25 against 2.56. Pixel-level P90/P10 of the spread is 1.34, against 5.6 for the variance head and 7.3 for the true error. Across cubes the spread varies with CoV 0.08 while the errors vary with CoV 0.33.\n\nThis explains C2: cov50 is 0.84 in calm regions and 0.33 in rough ones, which averages to 0.674. It also explains the weak AUSE and C1. The diffusion's CRPS on 200 cubes is 1.9325, statistically the same as a single constant-width Gaussian N(x_r, (0.5 sigma_r)^2): 1.9472, difference -0.015 +- 0.010 cluster SE, with the diffusion better on 48 % of cubes. The variance head scores 1.7604.\n\nMechanism, from the one-call denoiser test: at t ≤ 300 the network is driven almost entirely by x_t (the condition changes x0 by ≤ 7 %), and it does not remove the noise in calm regions. There its x0-MSE is 0.16 at t = 300, against 0.010 for simply predicting zero or for a Wiener filter using the variance head's sigma. Its x0-MSE is also non-monotone in t: 0.154 at t = 500 but 0.234 at t = 300.\n\nEach sample's texture is set by the initial noise. Samples with the same seed under the true and the swapped condition correlate at 0.90, and the condition changes a sample by only 0.34 of the seed-to-seed difference.\n\nS2 cannot test H1. The RMSE of a mean of 32 samples around a fixed x_r depends only on each cube's total predictive variance divided by K. Even an ideal sampler whose variance equals each cube's squared error would score +0.024 +- 0.019 and fail the rule. S1 is equally mechanical: the observed mean-of-32 RMSE of 4.2836 matches the 4.2901 expected if the samples were x_r plus noise unrelated to the error.\n\nTraining: val_loss falls monotonically from 0.1178 (epoch 5) to 0.1030 (epoch 100) and is flat for the last 15 epochs, under a cosine LR that ends at 3.3e-6, with no overfitting. The calm-region x0-MSE at t = 300 goes 0.208, 0.177, 0.164, 0.163 at epochs 25, 50, 90, 100. Longer training would plausibly help a little but would not close a roughly 16x gap.\n\nScope: 8 gate cubes, not 4 (the 8 stored y-swap cubes), K = 8 for the true and swapped conditions, plus the stored GPU K = 32 samples. Sampling under the zeroed, sensor-only-swap and x_r-only-swap conditions was stopped because CPU contention (load 37) would have broken the 40-minute budget. Those three conditions are covered only by the one-call denoiser test. Total CPU wall time was about 28 minutes.",
+        "claims": [
+          {
+            "id": "H1",
+            "statement": "H1: residual_reg_d8_b64 learned an (almost) condition-independent residual distribution (samples barely depend on y and x_r)",
+            "verdict": "REFUTED",
+            "evidence": "Swap test (8 gate cubes, K = 8, same seeds, CPU): when (y, x_r) is swapped, the pixel-level sample-std map follows the DONOR cube. Spearman with the donor's GPU K = 32 std map is 0.546, against 0.254 with the cube's own. Spearman with the donor's band-RMS error is 0.378, against 0.148 for its own. Spearman with the donor's varhead sigma is 0.534, against 0.297 for its own. One-call denoiser at t = 900: x0-MSE 0.742 under the true condition, 0.928 swapped, 7.12 zeroed; at t = 700: 0.245, 0.320, 6.45. On 200 cubes, AUSE 0.375 against 0.788 for a random score. Swapping costs +0.052 +- 0.016 CRPS (2.040 -> 2.093 on 8 cubes). So the condition shapes the predictive spread, just weakly (claims C3 and C4)."
+          },
+          {
+            "id": "C1",
+            "statement": "Each residual sample's texture is set mostly by the initial noise, not by the condition",
+            "verdict": "CONFIRMED",
+            "evidence": "Same seed, true vs swapped condition: Pearson of the residual samples 0.897 (per cube 0.83-0.93). Same-seed RMS difference 0.420, against 1.258 between two seeds under the true condition: ratio 0.336 (per cube 0.26-0.50). The condition-dependent part is roughly 10-20 % of each sample's variance. Pearson of a swapped sample with the donor's true-condition sample at another seed is 0.006, and of two seeds of the same cube 0.006: the conditional-mean residual is about 0."
+          },
+          {
+            "id": "C2",
+            "statement": "Per-pixel diffusion std correlates (Spearman) with |x - x_r| and with the variance head's sigma, though more weakly than the head's sigma tracks the error",
+            "verdict": "CONFIRMED",
+            "evidence": "Stored GPU K = 32 samples, 8 cubes, true condition. Elementwise Spearman of std with |e| is 0.378, against 0.589 for varhead sigma with |e|. Pixel level (RMS over bands): 0.459 against 0.608. Std with varhead sigma: 0.586 elementwise, 0.710 pixel level. CPU K = 8 (noisier): std with |e| 0.233 elementwise and 0.336 pixel level; with sigma_vh 0.513 pixel level. Varhead sigma with |e| over all 200 cubes: 0.600 elementwise, 0.628 pixel level."
+          },
+          {
+            "id": "C3",
+            "statement": "The diffusion's spread has a compressed dynamic range (near-homoscedastic in practice): too wide in calm regions, too narrow in rough ones. This, not condition-blindness, produces the high cov50 (C2) and the weak AUSE",
+            "verdict": "CONFIRMED",
+            "evidence": "Binned by varhead-sigma decile (8 cubes, K = 32), diffusion RMS std vs realised RMS error: d0 0.617 vs 0.101 (varhead 0.114); d9 1.252 vs 2.555 (varhead 3.024). Diffusion cov50 per decile falls from 0.837 to 0.326; varhead cov50 stays at 0.60-0.68. P90/P10 ratio, pixel level: std 1.34, varhead sigma 5.56, error 7.27. Elementwise: 4.56, 10.16, 35.0. Cube level over 200 cubes: spread CoV 0.080 against error CoV 0.328; log-log slope of spread on error 0.136 (varhead 0.721); Spearman(spread_ratio, error) -0.973."
+          },
+          {
+            "id": "C4",
+            "statement": "As a predictive distribution, the diffusion is no better than a single constant-width homoscedastic Gaussian around the same centre",
+            "verdict": "CONFIRMED",
+            "evidence": "200 gate cubes, N(x_r, (c sigma_r)^2): the best constant is c = 0.5, CRPS 1.9472 (c = 1 gives 2.0938). Diffusion (record) 1.9325. Difference -0.0147 +- 0.0080 iid, +- 0.0101 cluster SE: not significant at 2 SE; the diffusion is better on 48 % of cubes. Varhead 1.7604. On the 8 cubes: diffusion (true condition, K = 8) 2.040, homoscedastic c = 0.5 2.049, varhead 1.864."
+          },
+          {
+            "id": "C5",
+            "statement": "Mechanism: at t ≤ ~400 the denoiser is driven by x_t, nearly ignores the condition, and fails to remove the noise in calm regions, which leaves a noise floor in the samples",
+            "verdict": "CONFIRMED",
+            "evidence": "Fixed noise, x_t built from the true residual, epoch 100. Relative change of x0 under swap: 0.73 (t = 900), 0.31 (700), 0.14 (500), 0.07 (300), 0.02 (100). In the calmest decile (varhead sigma < P10, E[e^2] = 0.0101), model x0-MSE is 0.015 at t ≥ 800, 0.058 at t = 500, 0.163 at t = 300 and 0.064 at t = 99, while a Wiener filter with varhead sigma, or predicting zero, gives 0.010. At t = 300 the error is nearly flat across variance bins: 0.16, 0.21, 0.26, 0.29. Overall x0-MSE is non-monotone in t (0.154 at t = 500, 0.234 at t = 300), a sign of a sub-optimal mid-t denoiser. The x_r input matters more than the sensor: relative change at t = 999 is 0.68 for an x_r-only swap and 0.37 for a sensor-only swap."
+          },
+          {
+            "id": "C6",
+            "statement": "S2's failure (+0.0125 +- 0.0114) is evidence of condition-blindness",
+            "verdict": "REFUTED",
+            "evidence": "S2 composes every draw with the TRUE x_r, and the residual mean carries no information, so E RMSE^2(mean of K) = RMSE_reg^2 + V/K. Spatial alignment does not enter; only each cube's total variance V does. Predicted S2 on the 32 y-swap cubes: diffusion's own V +0.0040 +- 0.0036; varhead-spread sampler +0.0191 +- 0.0157; oracle V = RMSE_reg^2 +0.0238 +- 0.0186. All fail mean - 2 SE > 0, so S2 has essentially no power here."
+          },
+          {
+            "id": "C7",
+            "statement": "S1's failure is mechanical: the mean of 32 samples equals x_r plus 1/K of the sample noise and adds no information",
+            "verdict": "CONFIRMED",
+            "evidence": "Predicted sqrt(reg^2 + (single^2 - reg^2)/32) = 4.2901 against an observed mean-of-32 RMSE of 4.2836; per-cube Pearson 0.9993. Pearson(mean of the residual samples, e): 0.032 for the 32 GPU samples, 0.010 for the 8 CPU samples."
+          },
+          {
+            "id": "C8",
+            "statement": "More training of the same recipe would plausibly fix the calibration",
+            "verdict": "UNCERTAIN",
+            "evidence": "val_loss (weighted L1 on v, 800 monitoring cubes): 0.1178 (ep 5), 0.1063 (ep 50), 0.1031 (ep 90), 0.1030 (ep 100); monotone, train ≈ val ≈ 0.105, no overfitting. The last 15 epochs are flat, but the cosine LR ends at 3.3e-6, so the plateau is partly the schedule. Calm-decile x0-MSE at t = 300 by epoch: 0.208 (25), 0.177 (50), 0.164 (90), 0.163 (100); overall 0.261, 0.244, 0.234, 0.234. The improvements are steady but shrinking, against a 0.010 target: a re-warmed or longer run plausibly helps a little but is unlikely to close a roughly 16x gap. Likely needs a change to the objective or sampler; not tested here."
+          },
+          {
+            "id": "C9",
+            "statement": "The CPU reproduction matches the evaluator's pipeline",
+            "verdict": "CONFIRMED",
+            "evidence": "x matches the stored x exactly; x_r max |diff| 3.8e-4 against the stored x_r. On 200 cubes the regressor RMSE is within 0.0011 of the record (mean 4.2319) and varhead CRPS within 0.00026 (1.7604). Diffusion CRPS on the 8 stored cubes: record 2.023; recomputed from the stored fp16 GPU samples 2.028; CPU K = 8 2.040."
+          }
+        ],
+        "discrepancies": [
+          "H1's premise that S2 reflects condition-blindness is wrong. S2 (mean-of-32 RMSE with the true centre) only sees each cube's total spread divided by K. An oracle-calibrated sampler would score +0.024 +- 0.019 and also fail the rule, so S2 FAIL carries no information about whether the diffusion uses y.",
+          "The verdict file reports C1 against the variance head only. The diffusion is also not significantly better than a single constant-width Gaussian N(x_r, (0.5 sigma_r)^2) chosen on the gate set: 1.9325 vs 1.9472, -0.0147 +- 0.0101 cluster SE, better on 48 % of cubes. That is a stronger negative than the verdict states.",
+          "S1's +0.0517 is exactly the 1/K penalty of adding residual noise with no mean information: predicted 4.2901 vs observed 4.2836, per-cube r 0.9993. It reflects K, not a modelling defect specific to this diffusion.",
+          "Scope changes from the requested test: 8 cubes rather than 4, K = 8 rather than 4 for the true and swapped conditions. Sampling under the zeroed, sensor-only-swap and x_r-only-swap conditions was stopped for budget because the machine was at load 37; those conditions are covered only by the one-call denoiser test. Earlier checkpoints (25, 50, 90) were compared with the denoiser test only, not with samples.",
+          "The sample-std maps of different cubes correlate at Spearman ~0.24, a pattern shared by all cubes (for example the sensor grid or borders). This part of the spread structure does not come from the condition."
+        ],
+        "scripts_written": [
+          "/home/staff/c/chaoyi_he/.claude/jobs/97dc7552/tmp/verify_d8/condition-blindness/main.py",
+          "/home/staff/c/chaoyi_he/.claude/jobs/97dc7552/tmp/verify_d8/condition-blindness/analyze.py",
+          "/home/staff/c/chaoyi_he/.claude/jobs/97dc7552/tmp/verify_d8/condition-blindness/den2.py",
+          "/home/staff/c/chaoyi_he/.claude/jobs/97dc7552/tmp/verify_d8/condition-blindness/den2_all.sh",
+          "/home/staff/c/chaoyi_he/.claude/jobs/97dc7552/tmp/verify_d8/condition-blindness/ref200.py",
+          "/home/staff/c/chaoyi_he/.claude/jobs/97dc7552/tmp/verify_d8/condition-blindness/ref_c.py",
+          "/home/staff/c/chaoyi_he/.claude/jobs/97dc7552/tmp/verify_d8/condition-blindness/crps8.py",
+          "/home/staff/c/chaoyi_he/.claude/jobs/97dc7552/tmp/verify_d8/condition-blindness/s2_power.py",
+          "/home/staff/c/chaoyi_he/.claude/jobs/97dc7552/tmp/verify_d8/condition-blindness/record_analysis.py",
+          "/home/staff/c/chaoyi_he/.claude/jobs/97dc7552/tmp/verify_d8/condition-blindness/log_summary.py",
+          "/home/staff/c/chaoyi_he/.claude/jobs/97dc7552/tmp/verify_d8/condition-blindness/timing.py",
+          "/home/staff/c/chaoyi_he/.claude/jobs/97dc7552/tmp/verify_d8/condition-blindness/ckpt_trend.py (written, not run)"
+        ]
+      },
+      {
+        "lens": "metric-validity",
+        "claims": [
+          {
+            "id": "P1-arith",
+            "statement": "The P1 statistic is computed as specified and passes the pre-registered rule: mean(|hf_single| - |hf_regressor|) = -0.3124, cluster SE 0.0651, 113 clusters.",
+            "verdict": "CONFIRMED",
+            "evidence": "p1_se.py on the record's per-cube arrays gives mean -0.3124, se_iid 0.0525, se_cluster 0.0651, G 113, mean + 2 SE = -0.1823 < 0. The stored cubes reproduce the record's regressor hf per cube to 4 decimals (e.g. -3.1793 vs -3.1792). Sample-0 hf matches the record within about 0.02. hf varies little between samples (SD 0.005 per cube across the 32 draws), so seed 0 is representative."
+          },
+          {
+            "id": "P1-texture",
+            "statement": "A single diffusion sample carries realistic texture, so P1's PASS is a genuine texture win.",
+            "verdict": "REFUTED",
+            "evidence": "Radially averaged PSD (Hann window, averaged over bands and the 8 stored cubes), sample/truth power: about 1 for r <= 11, then rising steadily to 1.9 at r=13, 4.6 at r=17, 9.7 at r=22, 14.5 at r=25 and 22.5 at r=32 (cycles per 64 px). By band: 13-24 is 4.6x, 25-32 is 18.5x. Regressor/truth over the same bands: 0.033 and 0.025. Sampled residual (s - x_r) power vs true residual (x - x_r): 0.18-0.38x at r <= 4, 4.5x at r 13-24, 18x at r 25-32. Coherence of the sampled residual with the true residual is about 0 at every r (|coh| <= 0.08). Mean-of-32 top-band power is 0.60 of truth, about 0.025 + 18.5/32, so the HF content is independent across draws (averages away as 1/K). Structure of the sampled residual vs the true residual: spatial lag-1 autocorrelation 0.29 vs 0.88; adjacent-band correlation 0.30 vs 1.00, and -0.001 vs 0.97 in the r >= 12.5 band; top-3 spectral PCs of the true residual hold 33 % of its energy vs 93 %. Spectral roughness is 7.3e-3 vs truth 2.8e-4 (26x); SAM is 6.71 deg vs 2.84. Local HF energy over truth is 46x in calm regions and 7x in textured ones, i.e. noise everywhere rather than detail where the truth has it. Sobel magnitude: sample median 2.1x truth's (0.0195 vs 0.0092) but p99 below truth (0.090 vs 0.109), so strong edges stay blurred. Partial exception: at r 5-12 the samples restore power to 0.785 of truth (regressor 0.384), and that low/mid residual is partly spectrally coherent (adjacent-band correlation 0.79), but it is not aligned with the truth (coherence about 0.04)."
+          },
+          {
+            "id": "P1-artefact",
+            "statement": "P1's PASS is an artefact of the symmetric |log ratio| statistic: an 18x high-frequency excess scores as well as a 24x deficit, and adding white noise to the regressor alone passes it.",
+            "verdict": "CONFIRMED",
+            "evidence": "Across 200 cubes the single sample is over-sharpened (hf > 0) in 200/200 (hf 1.44 to 3.81, e^2.88 = 17.9x truth's Laplacian energy). The regressor is under-sharpened in 200/200 (e^-3.19 = 1/24.4). |hf_s| < |hf_r| holds in only 65.5 % of cubes. Controls on the 8 stored cubes: x_r + iid N(0, sd_diffusion^2) gives hf +3.06 and W1 0.0087, close to the actual sample (+2.77, 0.0083). x_r + white noise at sigma 0.006-0.012 on [0,1], one value per cube, gives |r_HF| = 0.000, W1 0.0040 (below the regressor's 0.0051) and RMSE 4.63 vs 4.55, so it would pass P1 with a far larger margin than the diffusion. The mean-of-K hf of -0.49 is the same artefact: averaged independent noise, not recovered detail."
+          },
+          {
+            "id": "W1",
+            "statement": "By gradient-magnitude W1 against the truth, the single sample is worse than the regressor.",
+            "verdict": "CONFIRMED",
+            "evidence": "Record: single 0.00797 vs regressor 0.00543, paired mean +0.0025 with cluster SE 0.0003. The sample is worse in 71 % of cubes. Stored cubes: sample-0 0.0083 vs regressor 0.0051 vs mean-of-32 0.0045; the mean over all 32 draws is 0.00815."
+          },
+          {
+            "id": "C2-numbers",
+            "statement": "C2 coverage is computed correctly with Weibull positions (cov50 0.674, cov90 0.908), and C2 FAILs on cov50.",
+            "verdict": "CONFIRMED",
+            "evidence": "My Weibull quantile intervals reproduce scripts/uq/metrics.coverage_samples exactly on cube 0 (0.7828 / 0.9750). The 8 stored cubes pooled give 0.674 / 0.910; the record has 0.673 / 0.910 on the same 8 cubes and 0.674 / 0.908 over all 200. All cubes have the same number of elements, so the per-cube mean equals the pooled value."
+          },
+          {
+            "id": "C2-homoscedastic",
+            "statement": "The diffusion's predictive spread is too homoscedastic: it over-covers calm or well-determined pixels and under-covers textured or high-error ones.",
+            "verdict": "CONFIRMED",
+            "evidence": "By quintile of Sobel |grad x_r|, calm to textured: diffusion cov50 0.774 -> 0.462 and cov90 0.941 -> 0.805; RMS(err)/RMS(sd) 0.86 -> 1.65. Varhead on the same strata is flat: cov50 0.63-0.66, cov90 0.93-0.945. By quintile of varhead sigma, an observable ranking that tracks error: diffusion cov50 0.839 -> 0.394 and cov90 0.961 -> 0.756; its sd rises only 0.026 -> 0.049 while RMS error rises 0.0065 -> 0.094. Sensor-grid phase: at the sensor-sample pixels (phase (0,0)) RMS error is 0.0043 vs a median phase of 0.048, yet diffusion sd is 0.0336 (8x too wide; cov50 0.971, cov90 0.999). Varhead there: sigma 0.0040, cov 0.60 / 0.92. Across the 64 phases error varies 14x, diffusion sd only 1.14x, varhead sigma 12x. Spectral axis: in the normal bands error ranges 0.011 to 0.062 while diffusion sd stays at 0.035-0.044, so cov50 runs 0.61 -> 0.94 across bands; varhead tracks the error band by band (cov50 0.60-0.68). Summary statistics: SD of log predicted std is 0.65 vs varhead 0.98; Spearman(predicted std, |err|) 0.39 vs 0.63; excess kurtosis of z = (x - mu)/sd is 20.5 vs 4.1. The PIT rank histogram has a central hump (0.056 vs 0.030 uniform) and spikes at both ends (0.036 / 0.034), the scale-mixture signature."
+          },
+          {
+            "id": "C2-cov90-masking",
+            "statement": "cov90 = 0.908 falling inside [0.85, 0.95] is compensation between over- and under-covered pixels, not evidence of calibration at the 90 % level.",
+            "verdict": "CONFIRMED",
+            "evidence": "Spread ratio is 1.05 overall, but coverage per stratum ranges from 0.76 to 0.999. cov90 is below 0.85 in the top-texture quintile and the top varhead-sigma quintile, and above 0.95 in the low-error strata, so the pooled 0.908 is an average of the two. The Gaussian-fit cov50 / cov90 (0.674 / 0.894) are essentially the empirical ones: the marginal sample shape is near Gaussian, and the miscalibration comes from where the spread is put, not from the tails."
+          },
+          {
+            "id": "spread-frequency",
+            "statement": "The diffusion puts its spread at the wrong spatial frequencies: too little where the real error is (low and mid frequencies), far too much at high frequencies.",
+            "verdict": "CONFIRMED",
+            "evidence": "Parseval energy fractions of the true residual x - x_r: 50 % at r < 4.5, 40 % at 4.5-12.5, 7.5 % at 12.5-24.5, 2.3 % at >= 24.5. Sampled residual s0 - x_r: 16 %, 22 %, 25 %, 37 %. Sampled/true energy is 0.31 at r < 12.5 and 4.57 at r >= 12.5. The true residual has sensor-grid peaks at kx = 8, 16, 32 (1.4-1.9x their neighbours); the sampled residual has none (0.97-1.01)."
+          },
+          {
+            "id": "band-anomaly",
+            "statement": "Eight spectral bands have collapsed diffusion spread unrelated to their error, which drives part of the cov50 / cov90 pattern.",
+            "verdict": "CONFIRMED",
+            "evidence": "Bands 0, 1, 2, 11, 56, 57, 62 and 63 have diffusion sd of 0.005-0.021 while neighbouring bands sit at 0.035-0.044; RMS error is smooth across bands. In those bands cov50 is 0.31-0.40 and cov90 0.71-0.80. Example: band 11 sd 0.0206 vs bands 10 and 12 at 0.040, with error about 0.057 in all three. Varhead in the same bands: cov50 0.61-0.65, cov90 0.91-0.95. The cause is not established (observation on the 8 stored cubes)."
+          },
+          {
+            "id": "CRPS-scale",
+            "statement": "Both CRPS values are on the same [0, 1] scale.",
+            "verdict": "CONFIRMED",
+            "evidence": "In uq_eval.py, sample_metrics applies M.to01 to the samples and to x. gaussian_metrics applies to01 to mu and x and halves sigma (sd01 = sigma/2). That is correct because the varhead sigma = sigma_r * exp(0.5 logvar) is a std on the [-1, 1] scale. Numerically, my CPU forward of varhead_d8_b64@10 with SIG = sigma/2 reproduces the record's per-cube varhead CRPS on all 8 cubes to 1e-4 (mean 1.8640 vs 1.8640)."
+          },
+          {
+            "id": "CRPS-centre",
+            "statement": "Diffusion and varhead are centred on the same regressor output.",
+            "verdict": "CONFIRMED",
+            "evidence": "In run_eval, the diffusion samples are compose(xr, sigma_r, r_k) and the varhead mean is the same xr tensor (gaussian_metrics(xr, ...)). The live CPU x_r matches the stored x_r within 4e-4 on [-1, 1]. Varhead mean RMSE 4.2319 equals the regressor's 4.2319 in the record."
+          },
+          {
+            "id": "CRPS-elements",
+            "statement": "Both CRPS values average over the same elements.",
+            "verdict": "CONFIRMED",
+            "evidence": "Both average the per-element CRPS over all 64x64x64 elements of each cube, over the same 200 gate cubes in the same loader batches, and are paired per cube in the verdict (C1 recomputed: +0.1720, se_cluster 0.0068)."
+          },
+          {
+            "id": "CRPS-estimator",
+            "statement": "The fair 32-sample CRPS and the Gaussian closed form are equivalent estimators, so the estimator choice does not bias C1.",
+            "verdict": "CONFIRMED",
+            "evidence": "crps_samples implements the fair form correctly (sum over j<k of |s_j - s_k| = sum_i (2i - K + 1) s_(i)). On the 8 cubes, the fair CRPS of 32 draws from the varhead Gaussian is 1.8641 vs closed form 1.8640, cube by cube within 0.002. The diffusion fair CRPS from the stored draw (2.0282) matches the record's draw on the same cubes (2.0225)."
+          },
+          {
+            "id": "CRPS-clamp",
+            "statement": "The only asymmetry between the two CRPS paths favours the diffusion, so C1's FAIL is conservative.",
+            "verdict": "CONFIRMED",
+            "evidence": "Diffusion samples are clamped to [-1, 1]: 2.19 % of sample values sit at a bound (truth 0.01 %), and 11 % of elements have at least one clamped draw. The varhead Gaussian is not truncated. Clipping the varhead's 32 draws to [0, 1] would lower its CRPS from 1.8641 to 1.8549, widening the gap against the diffusion."
+          },
+          {
+            "id": "CRPS-gap-source",
+            "statement": "The diffusion's CRPS deficit comes mainly from how its spread is allocated, not from its centre or its sample shape.",
+            "verdict": "CONFIRMED",
+            "evidence": "Means over the 8 stored cubes: varhead N(x_r, sig_vh) 1.864; N(mu_K, sig_vh) 1.933, so the mean-of-K drift costs 0.069; N(x_r, sd_diff) 2.034 and Gaussian fit N(mu_K, sd_diff) 2.071, both near the diffusion's sample CRPS of 2.028. Removing the r >= 12.5 band from the sampled residuals lowers the diffusion CRPS to 1.954, still above the varhead."
+          }
+        ],
+        "discrepancies": [
+          "P1's PASS is numerically correct but is not a texture win. The single sample over-sharpens in 200/200 cubes, has e^2.88 = 17.9x the truth's Laplacian energy, made of HF noise that is uncorrelated with the truth both spatially and spectrally, and on hf / W1 it is nearly indistinguishable from x_r + iid Gaussian noise. x_r + white noise at sigma of about 0.009 on [0,1] passes P1 with |r_HF| = 0. The results note should report P1 as passing only because the statistic is symmetric in log space, not as evidence of realistic texture.",
+          "The mean-of-K hf of -0.49 (vs regressor -3.19) is also an artefact: top-band power about 0.025 + 18.5/32 of truth, i.e. averaged independent noise, not recovered detail.",
+          "C2: cov90 0.908 inside its band hides strongly heteroscedastic miscalibration. At sensor-sample pixels (phase (0,0), RMS error 0.0043) the diffusion sd is 0.0336, 8x too wide (cov90 0.999). In the top-texture quintile cov90 is 0.805, and 0.756 in the top varhead-sigma quintile. Across the 64 sensor phases the diffusion sd varies 1.14x while the error varies 14x (varhead sigma 12x).",
+          "The diffusion puts its spread at the wrong spatial frequencies: 61 % of the sampled-residual energy is at r >= 12.5 vs 10 % for the true residual, and only 0.31x of the true residual energy is reproduced at r < 12.5, where 90 % of the actual error lies.",
+          "Unexplained per-band anomaly: bands 0, 1, 2, 11, 56, 57, 62 and 63 have diffusion sd 3-8x below their neighbouring bands although the error is smooth across bands (cov50 0.31-0.40, cov90 0.71-0.80 there). The other bands' sd is nearly flat (0.035-0.044) against error from 0.011 to 0.062. Worth checking for a channel-specific artefact in the sampler or model.",
+          "Minor asymmetry: diffusion samples are clamped to [-1, 1] (2.2 % of sample values at a bound) while the varhead Gaussian is untruncated. This favours the diffusion (clipped varhead CRPS 1.855 vs 1.864), so C1's FAIL stands with margin.",
+          "Scope caveat: all spectrum and strata analyses use the 8 stored cubes (from the y-swap batch, all in the gate set; 7 of the 8 are unseen-class P023/P024). They are representative on the gated quantities: cov50 / cov90 0.674 / 0.910 vs 0.674 / 0.908 over 200 cubes; per-cube CRPS and hf match the record's main-loop draw within about 0.02."
+        ],
+        "summary": "Metric-validity lens, d = 8. P1 passes as computed (-0.3124, cluster SE 0.0651), but the pass comes from the symmetric |log ratio| statistic, not from texture. The single sample has 18x the truth's high-frequency energy, and that content is spatially and spectrally uncorrelated with the truth (coherence about 0). Its PSD climbs from about 1x truth at r <= 11 to 22x at Nyquist. It averages away as 1/K across samples, and x_r + iid noise reproduces its hf and W1. Plain white noise of sigma about 0.009 added to x_r gives |r_HF| = 0 and a better W1 than the regressor. W1 says the sample is worse than the regressor (0.0080 vs 0.0054, worse in 71 % of cubes). There is a modest mid-band (r 5-12) power restoration, but it is not aligned with the truth.\n\nC2's coverage numbers reproduce exactly. The cov50 0.674 / cov90 0.908 shape is the signature of a too-homoscedastic spread. By texture quintile, cov50 goes 0.77 -> 0.46 and cov90 0.94 -> 0.81, against a flat varhead. At sensor-sample pixels the spread is 8x too wide. On the spectral axis the spread is nearly flat except for 8 bands with collapsed spread. z has excess kurtosis 20.5, and the spread energy sits at the wrong spatial frequencies. The in-band cov90 is compensation, not calibration.\n\nThe CRPS comparison is apples-to-apples: same [0, 1] scale, same x_r centre, same elements. The fair 32-sample estimator matches the Gaussian closed form (1.8641 vs 1.8640), and my CPU recomputation of the varhead CRPS matches the record exactly. The one asymmetry, the clamp on the diffusion samples, favours the diffusion, so C1's FAIL is robust. The gap comes from how the spread is allocated.\n\nAll files are in /home/staff/c/chaoyi_he/.claude/jobs/97dc7552/tmp/verify_d8/metric-validity/ (scripts listed below; outputs vh_sigma.npz, psd.json, coverage_crps.json).",
+        "scripts_written": [
+          "/home/staff/c/chaoyi_he/.claude/jobs/97dc7552/tmp/verify_d8/metric-validity/look_record.py",
+          "/home/staff/c/chaoyi_he/.claude/jobs/97dc7552/tmp/verify_d8/metric-validity/vh_forward.py",
+          "/home/staff/c/chaoyi_he/.claude/jobs/97dc7552/tmp/verify_d8/metric-validity/texture.py",
+          "/home/staff/c/chaoyi_he/.claude/jobs/97dc7552/tmp/verify_d8/metric-validity/coverage_crps.py",
+          "/home/staff/c/chaoyi_he/.claude/jobs/97dc7552/tmp/verify_d8/metric-validity/extra.py",
+          "/home/staff/c/chaoyi_he/.claude/jobs/97dc7552/tmp/verify_d8/metric-validity/bands.py",
+          "/home/staff/c/chaoyi_he/.claude/jobs/97dc7552/tmp/verify_d8/metric-validity/p1_se.py"
+        ]
+      },
+      {
+        "lens": "provenance",
+        "claims": [
+          {
+            "id": "P1-sha-checkpoints",
+            "statement": "The sha256 of every checkpoint file on disk equals the record's provenance: centre regress_l1_sel_d8_b64@11, diffusion residual_reg_d8_b64@100, varhead_d8_b64@10, ensemble member regress_l1_sel_s43_d8_b64@12, half1 regress_l1_half1_d8_b64@15, half2 regress_l1_half2_d8_b64@13",
+            "verdict": "CONFIRMED",
+            "evidence": "All 7 entries match after re-hashing the files (p2_sha.py): centre 13bddfc6..a504, diffusion fc096d07..f4c, varhead 53f07809..b490, s43 569b166f..cda6, half1 2358e84e..fe0c, half2 aafaae0d..90e6. The ensemble's first member is the centre file itself, same sha. Each checkpoint's own 'epoch' field is 0-indexed (file 11 holds ck['epoch']=10). That matches the trainer, which names files epoch+1 and writes 1-indexed epochs to train_log, so there is no off-by-one."
+          },
+          {
+            "id": "P2-cache-sha",
+            "statement": "The sha256 of the cache meta.json equals provenance.xr_cache.sha256 and the xr_cache_sha256 stored in the diffusion and varhead checkpoint metas",
+            "verdict": "CONFIRMED",
+            "evidence": "sha256 of R/uq/d8/xr_cache/meta.json is 0a9f0b3534c5d677b45eac694432f697c48ef253503befcb4bdbe3d877e2ce62. The record and both checkpoint metas hold the same value. The split sha 977cf0d0..b421 matches the split file, the cache meta, both half-regressor metas and the diffusion and varhead metas."
+          },
+          {
+            "id": "P3-sigma_r",
+            "statement": "sigma_r agrees across the record, the cache meta and the diffusion and varhead checkpoint metas",
+            "verdict": "CONFIRMED",
+            "evidence": "All read 0.08934239400551727: record sigma_r, provenance.xr_cache.sigma_r, cache meta sigma_r, diffusion meta sigma_r and sigma_d, varhead meta sigma_r and sigma_d. sigma_full is 0.08671774417537725 and the ratio 0.9706, flag false. Independently, RMS(x - x_r) over 200 evenly spaced cached training cubes is 0.089337, against 0.089342 in the meta."
+          },
+          {
+            "id": "P4-centre-in-metas",
+            "statement": "The centre recorded in the diffusion and varhead checkpoint metas is the --centre checkpoint",
+            "verdict": "CONFIRMED",
+            "evidence": "In both metas, centre = {run regress_l1_sel_d8_b64, epoch 11, sha256 13bddfc6..a504, train_half 0, sigma_d 0.0957309114767654, prior_sha256 1ad9108f..}. That is the sha of the file on disk and equals cache meta.full. The cache meta's half1 and half2 shas equal the record's halves and the files on disk."
+          },
+          {
+            "id": "P5-prior",
+            "statement": "The prior's sha matches the record, and every checkpoint was trained on that prior",
+            "verdict": "CONFIRMED",
+            "evidence": "linear_prior_R1.npz hashes to 1ad9108f17bee02eceadf63e5cd59671fe3475a9b015aa8c7c9acfd5adaba2b0. That equals provenance.prior.sha256, the cache meta prior_sha256 and the prior_sha256 in all 6 distinct checkpoint metas. The record's sigma_d 0.0957309 equals the centre's meta sigma_d."
+          },
+          {
+            "id": "P6-gate-files",
+            "statement": "The record's 200 files are the files of tests/data/val_subset_200.json",
+            "verdict": "CONFIRMED",
+            "evidence": "They are equal as sets: 200 unique files, 113 source images, class counts P022 24 / P023 152 / P024 24 as in the subset JSON. The order differs only because the record keeps the dataset's sorted order (record files == sorted(record files)). All 32 y-swap files and all 8 stored files are gate cubes."
+          },
+          {
+            "id": "P7-epochs",
+            "statement": "Each run used the selected epoch: centre 11, seed-43 12, half1 15, half2 13, varhead 10 (argmin of its monitoring NLL), diffusion 100",
+            "verdict": "CONFIRMED",
+            "evidence": "select_epoch on each train_log.jsonl, plus an independent argmin (p3_select.py), gives: sel_d8 11 (val 0.478621; runner-up 9 at 0.48094); s43 12 (0.481747); half1 15 (0.485653 of 40 epochs); half2 13 (0.484732); varhead 10 (NLL -0.239068; runner-up 16 at -0.238281); residual_reg 100 (val 0.102998, monotone over 20 val points from 0.11778). The spec pre-registers centre @11 and uq_eval holds PREREG_CENTRE d8 = (regress_l1_sel_d8_b64, 11). Train halves are right: centre args have no train_half and limit_files 0 (pre-Phase-2a full run); s43 has train_half 0 and seed 43; the halves have train_half 1 and 2 and 40 epochs."
+          },
+          {
+            "id": "P8-crossfit-cache",
+            "statement": "The training cache is truly cross-fitted, and the val cache equals the centre used at evaluation",
+            "verdict": "CONFIRMED",
+            "evidence": "The cache holds 9000 train and 1000 val .npy files (meta n_train 9000, n_val 1000); the split is 4516 + 4484 with no overlap and covers all 9000 training files. On CPU, for 3 half-1 and 3 half-2 training cubes, the cached x_r matches the OTHER half's regressor (max abs diff 2.7e-4 to 3.3e-4, fp16 rounding) and differs from the cube's own half regressor (0.064 to 0.183) and from the full regressor (0.058 to 0.126). For the 8 stored gate cubes: val cache vs eval-time x_r max diff 3.9e-4; CPU full-regressor recompute vs eval x_r max diff 3.8e-4; x and x0_hat in the npz are bit-identical to the loader. The HFD loader has no random augmentation in image mode, so cache and truth stay aligned."
+          },
+          {
+            "id": "S1-recompute",
+            "statement": "The S1 statistic is +0.0517 +- 0.0042 (cluster 0.0046)",
+            "verdict": "CONFIRMED",
+            "evidence": "From the per-cube arrays: mean(mean_rmse_pct - regressor rmse_pct) = +0.051715, iid SE 0.004247, CR1 cluster SE 0.004612 over G=113 images. 84.5 % of cubes are worse and the median is +0.0549. The half-centre row shows the same drift: +0.0502, 84 % worse."
+          },
+          {
+            "id": "S1-finiteK-explains",
+            "statement": "S1's failure is fully explained by the Monte Carlo noise of averaging only 32 draws, not by a systematic bias of the sampler",
+            "verdict": "CONFIRMED",
+            "evidence": "Per cube, the mean per-element sample variance is v = spread_ratio * meanK_rmse^2 (mean 14.38 pct^2, s = 3.79 pct). If the sampler's expectation were exactly x_r, RMSE_meanK would be sqrt(rmse_r^2 + v/K). The predicted inflation is then +0.0576 (+0.0585 when v is estimated from the seed-0 draw). The task's s^2/(2 K rmse) formula gives +0.0531. Observed is +0.0517, so observed minus predicted = -0.0059 +- 0.0042 (cluster), within 2 SE. The implied RMSE of the infinite-K sampler mean is 4.2260, against 4.2319 for the regressor: very slightly better, not worse. The stored cubes agree: on the 8 cubes, observed dRMSE is +0.049 against +0.056 predicted from noise. MSE decomposition there: ||m - x_r||^2 = 6.43e-5, of which the finite-K term var/K is 4.85e-5. The cross term 2<m - x_r, x_r - x> is -1.89e-5, so the net MSE increase is 4.54e-5, at or below the noise floor alone. My recomputed RMSEs from the fp16 samples match the record's yswap.true and yswap.regressor to 4 decimals."
+          },
+          {
+            "id": "S1-systematic-part",
+            "statement": "The mean of the 32 samples carries a systematic, cube-specific drift from x_r that hurts RMSE",
+            "verdict": "REFUTED",
+            "evidence": "Splitting the samples into two halves of 16: the drifts of the half-means correlate at +0.14, and their cross-moment gives a systematic mean square of 1.58e-5, about 25 % of ||m - x_r||^2 (about 0.40 pct RMS per element). This systematic part points toward the truth: the cross term of -1.89e-5 outweighs its 1.58e-5 energy, and corr(m - x_r, x - x_r) = +0.025. So it is mildly beneficial, consistent with the diffusion moving from the L1 (median) centre toward the conditional mean. It does not explain S1."
+          },
+          {
+            "id": "S1-global-band-offset",
+            "statement": "The sample drift has a non-zero global or band-dependent offset",
+            "verdict": "REFUTED",
+            "evidence": "On the 8 stored cubes, the mean of m - x_r over all elements is -0.0050 pct of range. Per-cube global means run from -0.12 to +0.14 pct, with mixed signs. Per-band means over the 8 cubes run from -0.16 to +0.33 pct; the 8-band blocks are [+0.155, +0.048, -0.009, -0.088, -0.034, -0.049, -0.053, -0.010] pct, and 5 of 64 bands have |t|>3, which is weak evidence with only 8 cubes (df 7). Per-cube per-band offsets carry only 4.6 % of the drift's mean square, so the drift is spatial texture, not an offset."
+          },
+          {
+            "id": "S1-clamp",
+            "statement": "The clamp to [-1, 1] explains the drift",
+            "verdict": "REFUTED",
+            "evidence": "1.75 % of sample elements sit at -1 and 0.44 % at +1; 11.1 % of elements have at least one of their 32 samples clamped. On those elements the drift is +0.225 pct, pushed upward as expected at the lower bound, against -0.034 pct on clamp-free elements. Clamped elements contribute 6.0e-6 of the 45.4e-6 MSE increase (13 % from 11 % of the elements), roughly in proportion to their share. Clamp-free elements alone show the same inflation: MSE 24.32e-4 vs 23.87e-4."
+          },
+          {
+            "id": "S1-train-residual-mean",
+            "statement": "The cross-fitted training residual x - x_r has a non-zero mean that the diffusion would learn",
+            "verdict": "REFUTED",
+            "evidence": "Over 200 evenly spaced cached training cubes at d=8, the global mean is +0.000031 on the [-1, 1] scale (+0.0016 pct of range, +0.0004 sigma_r, t = +0.06). Per-band means run from -0.114 to +0.100 pct, with 1 of 64 bands at |t|>3. The squared band means are 0.014 % of the residual mean square. By half: half-1 cubes (centred by R2) -0.065 +- 0.041 pct, half-2 cubes (centred by R1) +0.075 +- 0.037 pct, small and opposite. The full regressor's residual on the 200 gate cubes (val cache) has global mean +0.014 pct (t = 0.52) and per-band -0.38 to +0.31 pct; the squared band means are 0.054 % of the mean square. Per-band means of train and gate residuals correlate at 0.55, so a small spectral pattern exists in the regressor itself, but it is negligible in size."
+          },
+          {
+            "id": "S1-rule-attainable",
+            "statement": "S1 as pre-registered (|mean| <= 2 SE_cluster around 0) can be passed by a perfectly centred sampler at K = 32",
+            "verdict": "REFUTED",
+            "evidence": "With the measured spread, the expected null inflation is +0.0576 at K=32, against 2 SE_cluster = 0.0092, so a perfectly centred sampler fails at about 12.5 cluster SE. The inflation is +0.029 at K=64 (still fails) and +0.0145 at K=128 (fails); it first falls below 0.0092 near K=256 (+0.0073). The spec's line 93 ('the mean-of-K must not drift from the centre') did not subtract the finite-K term."
+          }
+        ],
+        "discrepancies": [
+          "S1 is mis-specified for finite K: the pre-registered rule compares mean(RMSE_meanK - RMSE_regressor) to 0, but for any sampler with per-element spread s about 3.8 pct the expected value at K=32 is about +0.058. That is about 12.5 SE_cluster, so S1 fails even for an exactly centred sampler. The noise-corrected statistic (observed minus predicted) is -0.0059 +- 0.0042 and passes. This does not change the overall verdict (wins is false through C1, C2 and P2 regardless), but the S1 FAIL should be described as Monte Carlo inflation, not as drift.",
+          "The record's files equal the subset JSON's files as a set, not as an ordered list: the record is in the dataset's sorted order. This is harmless, since per-cube arrays line up with record.files.",
+          "The centre checkpoint (regress_l1_sel_d8_b64@11, git d12ed7f) predates Phase 2a. Its meta has no train_half or split_sha256 key, so uq_eval treats it as train_half 0. The full-data claim rests on args.json (limit_files 0, no train_half) and the cache meta's full.train_half = 0. This is consistent, not a defect.",
+          "Checkpoint 'epoch' fields are 0-indexed (file epoch E holds ck['epoch'] = E-1), while train_log.jsonl and the file names are 1-indexed. The two are consistent with each other, and every selection matches the file used."
+        ],
+        "summary": "The provenance all checks out. Re-hashing the files on disk reproduces the record's sha256 for all seven checkpoints, the cache meta, the prior and the split. sigma_r is 0.08934239400551727 everywhere it appears: record, cache meta, diffusion meta, varhead meta. Both the diffusion and the variance head name the --centre file (13bddfc6..) as their centre. The 200 record files are the gate subset (113 images). Every epoch used is the one the selection rule picks from its train_log: 11, 12, 15, 13, varhead 10 (NLL argmin -0.239068), diffusion 100 (monotone). CPU recomputes confirm the cache is truly cross-fitted: each training cube's x_r matches the other half's regressor to within fp16 rounding. The val cache and a CPU recompute both equal the eval-time centre to within 4e-4.\n\nS1 fails because only 32 draws are averaged, not because the sampler is biased. With mean per-element sample variance 14.4 pct^2, an exactly centred sampler would inflate RMSE by +0.058 at K=32; observed is +0.052, a gap of -0.006 +- 0.004, within 2 SE. The infinite-K sampler mean is implied to score 4.226, against 4.232 for the regressor. The 8 stored cubes say the same: about 75 % of ||m - x_r||^2 is finite-K noise. The remaining systematic part (split-half cross-moment) points toward the truth, so the net MSE change (4.54e-5) sits below the noise floor (4.85e-5). There is no global offset (-0.005 pct). Band offsets are small (4.6 % of the drift energy). The clamp touches 11 % of elements and contributes only in proportion to that share. The cross-fitted training residual has essentially zero mean (+0.0016 pct, t = 0.06; per-band within +-0.11 pct), so there is no offset for the diffusion to learn.\n\nThe real defect is the pre-registered S1 rule itself: it ignores the finite-K inflation and cannot be passed at K below about 256. The overall verdict is unaffected, because C1, C2 and P2 fail independently.",
+        "scripts_written": [
+          "/home/staff/c/chaoyi_he/.claude/jobs/97dc7552/tmp/verify_d8/provenance/p1_record.py",
+          "/home/staff/c/chaoyi_he/.claude/jobs/97dc7552/tmp/verify_d8/provenance/p2_sha.py",
+          "/home/staff/c/chaoyi_he/.claude/jobs/97dc7552/tmp/verify_d8/provenance/p3_select.py",
+          "/home/staff/c/chaoyi_he/.claude/jobs/97dc7552/tmp/verify_d8/provenance/p4_s1_cubes.py",
+          "/home/staff/c/chaoyi_he/.claude/jobs/97dc7552/tmp/verify_d8/provenance/p5_train_resid.py",
+          "/home/staff/c/chaoyi_he/.claude/jobs/97dc7552/tmp/verify_d8/provenance/p6_s1_gate.py",
+          "/home/staff/c/chaoyi_he/.claude/jobs/97dc7552/tmp/verify_d8/provenance/p7_crossfit.py",
+          "/home/staff/c/chaoyi_he/.claude/jobs/97dc7552/tmp/verify_d8/provenance/p8_misc.py"
+        ]
+      },
+      {
+        "lens": "steelman",
+        "summary": "Label: steelman. Short answer: the d = 8 verdict is a correct reading of the pre-registered clauses for this checkpoint and sampler, and the single fix round (K = 64 DDIM-10; DDPM-1000 on the 50-cube subset) is very unlikely to flip any failed clause. The steelman is right about the cause, though. The negative result comes mostly from one implementation defect that can be fixed: the trained network barely removes noise at low noise levels (t ≤ 299). It is not a fundamental limit of diffusion.\n\nWhat is wrong with the model:\n- At t = 99 the network's x0 error is about 0.29 in every one of the 64 spectral directions, including directions that carry almost no signal. A per-pixel spectral filter (one 64×64 matrix fitted on 200 training cubes) beats it at every t ≤ 299; at t = 99 the error is 0.164 against 0.286.\n- The leftover noise ends up in the samples. Their deviations are close to white noise in space and across bands (lag-1 0.25 against the truth's 0.87; adjacent-band correlation 0.29 against 0.975).\n- The spread is almost the same size in every cube (slope 0.13 against the variance head's 0.72). At the measured grid pixels it is 3.56 % where the actual error is 0.42 % (variance head 0.49 %).\n- The variance head uses identical inputs and does localise, so the information is available to the network.\n- B at d = 4 shows the same low-t pattern. Phase 1a′ had already reported B's constant-size spread.\n\nWhat happens when only the low-t defect is repaired (8 stored cubes, no retraining):\n- Setup: the network runs for t ≥ 399; the low-noise steps use either the training-fitted spectral filter or the network's own x0 projected onto the top-8 training spectral components.\n- The gap to the variance head shrinks from +0.161 to +0.06–0.07 CRPS points.\n- The samples become realistic: single-sample high-frequency ratio near 0, band correlation 0.97–0.99, lag-1 0.54–0.66.\n- But the samples become under-dispersed (spread ratio about 0.3). Even with one global inflation factor tuned on the same 8 cubes, they only tie the variance head as evaluated (+0.012 ± 0.024), and fall behind again if the variance head gets the same tuning (about −2 % CRPS for it).\n\nHow much a better model could gain:\n- Changing the predictive's shape is worth about 0.2 % over a well-scaled Gaussian.\n- The steelman's realistic ceiling for C1 is therefore parity with the variance head, not a clear win.\n\nClause by clause under the fix round:\n- **C1:** the CRPS estimator used is unbiased whatever K is (the two 16-sample halves give 2.032 and 2.024 against 2.028 for all 32), and the gap is 25 clustered SE. DDIM-50 (1.223) and DDPM-1000 (1.234) were both worse than DDIM-10 (1.146) on one cube.\n- **C2:** more steps widen the spread and keep it white, so the 50 % coverage of 0.674 gets worse, not better. The variance head's own cov50 of 0.624 would also fail the 50 % band.\n- **P2:** infeasible for any calibrated sampler. A calibrated draw has about twice the squared error of its mean, so √2 × 4.23 % ≈ 5.98 % against the baseline's 4.58 %. Passing would need a mean below 3.24 % RMSE, or a spread so small that C2 fails.\n- **S1:** a Monte-Carlo artefact, not drift of the centre. After removing the finite-K term, the infinite-K mean RMSE is 4.2260 against the regressor's 4.2319 (−0.0059 ± 0.0042), which passes. Taken literally the clause still fails at K = 64 (+0.023 predicted against 2 SE ≈ 0.009); it would pass only at K in the hundreds.\n- **S2:** close to untestable by design. The composition always uses the true centre, and the residual's conditional mean is about 0 (which is what S1 asks for), so swapping the conditioning can barely move the mean-of-K RMSE.\n\nMost informative next steps:\n1. A zero-training, report-only run of the hybrid sampler on the 200 gate cubes. It measures on the gate how much of the failure is the low-t defect. It is outside the pre-registered fix round and must be labelled post hoc.\n2. A retrained residual diffusion that removes the defect by design. Options: run the diffusion on the top-8 spectral PCA coefficients instead of all 64 bands (the leading hypothesis is that the 64-channel full-resolution path is a bottleneck, not tested by retraining here), or use x0-prediction, or base 128 channels; plus L2 loss. Gate it first with a cheap per-timestep check on the monitoring split: it must beat the training-fitted spectral filter at every t ≤ 299 and be aware of the measured grid. Compare it against both the pre-registered and a re-scaled variance head.\n3. A corrected pre-registration for any later round: S1 with the finite-K term removed, P2 judged against √2 × the regressor's RMSE, and S2 measured on CRPS or spread rather than the mean.\n\nExpected outcome, on current evidence: parity with the variance head on per-element CRPS, with the diffusion's real advantage being samples with realistic joint spatial and spectral structure, which the current clauses do not reward.",
+        "claims": [
+          {
+            "id": "S1_mc_artifact",
+            "statement": "S1 fails because of Monte-Carlo variance in the K = 32 mean-of-K, not because the samples drift away from the centre.",
+            "verdict": "CONFIRMED",
+            "evidence": "In expectation, MSE_meanK = MSE(infinite-K mean) + mean(s_hat^2)/K, and s_hat^2 per cube = spread_ratio x MSE_meanK (record). Removing that term per cube gives an infinite-K mean RMSE of 4.2260 against the regressor's 4.2319: -0.0059 +- 0.0039 iid (clustered 0.0042), so |mean| <= 2 SE holds. For a perfectly centred, calibrated sampler the expected inflation is RMSE_R x (sqrt(1 + 1/32) - 1) = +0.066, which is larger than the observed +0.0517. Predicted literal S1: K = 64 gives +0.0231 (fails, 2 SE_cl about 0.0088); K = 128 gives +0.0086 (borderline); K = 1000 gives -0.0040 (passes)."
+          },
+          {
+            "id": "P2_infeasible",
+            "statement": "P2 cannot be met by any calibrated sampler at d = 8, because it conflicts with C2 through the identity that a draw's squared error is its mean's error plus the spread.",
+            "verdict": "CONFIRMED",
+            "evidence": "Single-sample MSE = MSE(mean) + mean predicted variance: this predicts 5.731 % against the observed 5.749 %. A calibrated sampler around x_R gives sqrt2 x 4.2319 = 5.98 % against the baseline's 4.58 %; its paired P2 difference would be +1.405 +- 0.046 clustered (+1.346 around the ensemble mean). P2 would need a mean RMSE below 3.24 %, or a spread ratio at most 0.185 (median 0.146) at the current mean, which would fail C2."
+          },
+          {
+            "id": "S2_low_power",
+            "statement": "S2, as specified, has almost no power for a residual model centred on the regressor, so its failure does not show that the model ignores the condition.",
+            "verdict": "CONFIRMED",
+            "evidence": "In uq_eval.py the swap rolls both y and x_r in the residual model's condition, but compose() always uses the true x_r. The infinite-K mean equals x_r to within 0.006 (see S1), and at t = 999 the network's x0 error (1.035) is almost the zero-predictor's (1.059): the condition predicts almost nothing about the residual mean. Observed +0.0125 +- 0.0114 on 32 cubes, with 17 of 32 worse; passing needs more than +0.0227. The SE is dominated by real cube-to-cube variation, so K = 64 would barely change it. A model that satisfies S1 can hardly pass S2."
+          },
+          {
+            "id": "C1_K_invariant",
+            "statement": "Raising K from 32 to 64 cannot flip C1.",
+            "verdict": "CONFIRMED",
+            "evidence": "crps_samples is the fair (unbiased) CRPS estimator, so its expectation does not depend on K. On the 8 stored cubes, the two 16-sample halves give 2.0320 and 2.0242 against 2.0282 for all 32. The C1 gap is +0.1720 with clustered SE 0.0068 (25 SE), and the diffusion beats the variance head on only 7 of 200 cubes (3.5 %)."
+          },
+          {
+            "id": "sampler_steps",
+            "statement": "Changing the sampler (more DDIM steps or DDPM-1000) could fix calibration.",
+            "verdict": "REFUTED",
+            "evidence": "CPU re-runs on gate cube P023/34_10 (variance head CRPS 0.8485). DDIM-10, K = 32: CRPS 1.146, RMS spread 3.37 %, grid spread 3.27 %. DDIM-50, K = 16: 1.223, 3.94 %, 3.77 %. DDPM-1000, K = 8: 1.234, 4.00 %, 3.88 %. The actual grid error is 0.34 %. In all three the deviations stay white (lag-1 0.04-0.07, band correlation 0.10-0.12; single-sample HF +3.27 to +3.62). Phase 1a-prime found B's DDPM-1000 over-dispersed (self_ratio 1.448). Caveat: one cube."
+          },
+          {
+            "id": "lowt_underfit",
+            "statement": "The diffusion's denoiser is under-fit at low noise: it leaves noise even in spectral directions that carry no signal, and a linear filter fitted on training data beats it.",
+            "verdict": "CONFIRMED",
+            "evidence": "Network x0 RMS error in r units against a per-pixel spectral Wiener filter (64x64 covariance from 200 cross-fitted training cubes): t=49 0.159 vs 0.103; t=99 0.286 vs 0.164; t=149 0.384 vs 0.211; t=199 0.450 vs 0.255; t=299 0.484 vs 0.339. The network wins only from t = 399 (0.438 vs 0.464; t=499 0.393 vs 0.609). At grid pixels, network 0.283 vs position-aware filter 0.082 at t = 99. At t = 99 the error is about 0.29 in every eigen-direction: direction 31 has signal 0.020 and error 0.302, direction 63 has signal 0.005 and error 0.294 (Wiener 0.037 and 0.006). These timesteps get the highest min-SNR weights (0.52-0.79), so weighting is not the cause. B at d = 4 shows the same: t=99 0.283 vs 0.321 for the iid-prior denoiser, grid 0.277, error lag-1 0.013. Epoch 25 to 100 moved t=149 only from 0.404 to 0.385."
+          },
+          {
+            "id": "white_samples",
+            "statement": "The samples' spread consists mostly of noise that is white in space and across bands, not realistic residual structure.",
+            "verdict": "CONFIRMED",
+            "evidence": "Stored figure cubes (8 x 32 samples), sample deviations vs the true residual x - x_r: lag-1 spatial autocorrelation 0.25 vs 0.87; adjacent-band correlation 0.29 vs 0.975; top-3 spectral PCA energy 30 % vs 95 %; Laplacian energy / variance 14.6 vs 0.76 (white noise is 20). Single sample: HF log ratio +2.88 (about 18 times the truth's HF energy), SAM 6.71 deg vs 2.84 deg for the regressor. Mean-of-32 HF -0.49, roughly 1/K of the single sample's, so the HF is independent across samples."
+          },
+          {
+            "id": "spread_not_localised",
+            "statement": "The diffusion's per-element spread is nearly the same size regardless of input, and this, not the overall scale, drives the CRPS and coverage failures.",
+            "verdict": "CONFIRMED",
+            "evidence": "Record, 200 cubes: slope of log RMS spread on log RMSE 0.13 (variance head 0.72); corr(log spread_ratio, log RMSE) -0.977 (variance head -0.50); spread ratio 5-95 % range 0.37-2.86. cov50/cov90 by class: P022 0.677/0.931, P023 0.692/0.914, P024 0.555/0.850. Stored cubes: Spearman(s_hat, |err|) 0.38 vs variance head 0.59; AUSE 0.358 vs 0.173; pooled kurtosis of err/s_hat 19.3 vs err/sigma_vh 6.1; rank histogram humped in the middle. Share of the C1 gap: interior 81 %, extrapolated edge 13 %, grid 6 %."
+          },
+          {
+            "id": "centre_via_x0hat",
+            "statement": "Feeding the centre only through the x0_hat input channels (with y entering only through position-blind cross-attention) withholds information the diffusion needs.",
+            "verdict": "REFUTED",
+            "evidence": "The variance head uses exactly the same path ([x_r, x_r] plus the same cross-attention) and localises: grid sigma 0.49 % vs interior 4.34 %, per-cube scaling slope 0.72 (0.98 correlation on the stored cubes). Side note: the context is upsampled with align_corners=True, so sensor sample i lands at pixel 9i instead of 8i. That is harmless only because the cross-attention has no positional encoding; y's spatial information reaches the network only through x_r."
+          },
+          {
+            "id": "channel_bottleneck",
+            "statement": "The low-t failure is caused by the 64-channel full-resolution path combined with v-prediction: input_proj maps 128 channels to 64, final is a 1x1 convolution from 64 to 64, and at low t the network must reproduce the 64-band noise in its output.",
+            "verdict": "UNCERTAIN",
+            "evidence": "Consistent with the evidence but not tested by retraining. Supporting: at t = 99 the error is the same size in all 64 spectral directions, including empty ones; the one-call variance head, which does not need to output noise, localises well with the same network; B at d = 4 shows the same pattern. Alternatives such as plain under-optimisation are not excluded."
+          },
+          {
+            "id": "L1_median",
+            "statement": "L1 loss (conditional-median denoiser) shrinks the generated structure and so under-generates spread.",
+            "verdict": "REFUTED",
+            "evidence": "Regressing the true r on the network's x0 prediction at fixed t gives slopes of 0.953, 0.991 and 1.019 at t = 499/599/699 (a mean-squared-error-optimal denoiser has slope 1). Only mild shrinkage at t = 799 (1.095). At t = 199-299 the slope is 0.85-0.86 with a variance ratio of 1.12-1.13, which is excess noise, not shrinkage. L2 is still the principled choice for an exact probability-flow ODE, but nothing here shows L1 is the bottleneck."
+          },
+          {
+            "id": "epochs",
+            "statement": "Training longer than 100 epochs with the same recipe would fix the result.",
+            "verdict": "REFUTED",
+            "evidence": "Monitoring loss: 0.1033 (epoch 80), 0.1031 (90), 0.1030 (100), with cosine learning rate down to 3.3e-6. The low-t x0 error improved only from 0.404 to 0.385 between epochs 25 and 100 at t = 149, against 0.211 for the linear filter. A different recipe might close it; more of the same is unlikely to."
+          },
+          {
+            "id": "sigma_r_clamp_crossfit",
+            "statement": "The target scale sigma_r, the cross-fit mismatch, or the x0 clamp at +-2/sigma_r explain the failure.",
+            "verdict": "REFUTED",
+            "evidence": "sigma_full/sigma_r = 0.971 and the aggregate spread ratio is 1.05. The half-regressor centre changes CRPS by only +0.0035 +- 0.0040. Rescaling the diffusion's spread per cube with an oracle factor does not help (Gaussian CRPS 2.048 vs 2.034 on 8 cubes). The clamp bound is +-22.4 r-units; the largest true |r| is 14.7 and the largest sample |r| is 11.3, so it never binds."
+          },
+          {
+            "id": "d4_supports",
+            "statement": "The d = 4 Stage 0 result (B cov90 0.933, CRPS 0.948 vs the 3-member ensemble's 0.969) is evidence that this recipe can produce calibrated uncertainty.",
+            "verdict": "REFUTED",
+            "evidence": "Stage 0 record: B's cov50 is 0.697, outside C2's 50 % band. Its per-cube spread slope is 0.18 (spread 1.97-2.50 % while RMSE ranges 1.13-3.23 %); by class the spread ratio is P022 1.62, P023 1.36, P024 0.79. Phase 1a-prime had already reported B's spread as nearly constant in size (slope 0.131 vs 0.814) and DDPM-1000 over-dispersed (self_ratio 1.448). The comparison partner is badly under-dispersed (cov90 0.241), and Stage 0 had no variance head. B's denoiser shows the same low-t white-error signature."
+          },
+          {
+            "id": "hybrid_repair",
+            "statement": "Repairing only the low-t denoising, with no retraining, removes most of the C1 gap and makes samples realistic, but does not beat the variance head.",
+            "verdict": "CONFIRMED",
+            "evidence": "8 stored cubes, K = 32, DDIM-10 grid; network for t >= 399, then from the same state either a training-fitted position-aware spectral filter (wpos) or the network's x0 projected onto the top-8 training spectral components (proj). CRPS gap to the variance head: net +0.161 +- 0.034 (7 of 8 cubes worse); wpos +0.061 +- 0.020; proj +0.070 +- 0.023. Single-sample HF 2.77 to 1.09/0.54; lag-1 0.24 to 0.54/0.66; band correlation 0.28 to 0.97/0.99; single-sample RMSE 6.06 to 5.17/5.11; AUSE 0.357 to 0.237; Spearman 0.38 to 0.50; grid spread (wpos) 0.57 %. But spread ratio drops to 0.32/0.28 and cov90 to 0.83/0.80. One global inflation fitted on the same cubes reaches at best +0.012 +- 0.024 (proj x1.75), i.e. parity. Caveats: 8 cubes, iid SE, inflation fitted on the same cubes."
+          },
+          {
+            "id": "shape_headroom",
+            "statement": "A diffusion with the variance head's localisation could beat it mainly through a better predictive shape.",
+            "verdict": "REFUTED",
+            "evidence": "On 8 cubes with sigma_vh: Gaussian 1.8640, best global-scaled Gaussian 1.8248 (x0.7), Laplace with variance-matched scale 1.8271, best Laplace 1.8218. Shape adds only about 0.2 % over a well-scaled Gaussian; the variance head's own mis-scaling (spread ratio 1.48) is worth about 2 %. An apparent 2.3 % gain from 'diffusion shape rescaled to sigma_vh' (1.8205) is an artefact of per-element normalisation: iid Gaussian samples normalised the same way give 1.8191."
+          },
+          {
+            "id": "fix_round_flip",
+            "statement": "The pre-registered fix round (K = 64 DDIM-10 on the gate; DDPM-1000 on the 50-cube subset) could plausibly flip any failed clause.",
+            "verdict": "REFUTED",
+            "evidence": "C1: K-invariant and 25 SE; DDPM-1000 and DDIM-50 were worse on the cube tested. C2: wider and still white spread pushes cov50 (0.674) further from the band. P2: infeasible for any calibrated sampler. S1: K = 64 predicted +0.023 against about 0.009 allowed. S2: little power, SE not driven by K. The only movement expected is S1's Monte-Carlo bias halving, still a fail. DDPM-1000 was checked on one cube only, so a small DDPM effect on the subset cannot be excluded, but not one of the roughly 10 % needed for C1."
+          }
+        ],
+        "discrepancies": [
+          "Pre-registered S1 is biased: for any sampler with spread, the expected mean-of-K error includes a finite-K term (RMSE x (sqrt(1 + rho/K) - 1)). An ideal, perfectly centred, calibrated sampler would fail S1 at K = 32 (expected +0.066) and at K = 64. With that term removed, the record passes S1 (-0.0059 +- 0.0042).",
+          "P2 (single sample beats the baseline) is jointly infeasible with C2 at d = 8. A calibrated draw has about twice the squared error of its mean (sqrt2 x 4.23 = 5.98 % vs 4.58 %), so 'diffusion wins (a)' could not happen for any calibrated model with this centre.",
+          "S2 compares mean-of-K RMSE under a conditioning swap, while compose() always uses the true x_r. A residual model that satisfies S1 (residual mean about 0) can barely pass S2, so S1 and S2 work against each other for this design.",
+          "The Stage 0 results note calls B at d = 4 'calibrated-but-blunt' (cov90 0.933). Its cov50 of 0.697 would fail C2, and its per-cube spread is nearly constant in size (slope 0.18; Phase 1a-prime: 0.131 vs 0.814). The d = 4 evidence already predicted the d = 8 failure mode.",
+          "The comparator variance head is itself mis-calibrated: spread ratio 1.48, cov50 0.624 (outside C2's 50 % band), and about 2 % better CRPS under a single 0.7x rescale on 8 cubes. C1 compared against an untuned, over-dispersed competitor.",
+          "U2NetHyperspectral upsamples the 8x8 sensor context with F.interpolate(align_corners=True), which puts sensor sample i at pixel 9i rather than 8i. This only matters because the cross-attention has no positional encoding: y's spatial position never reaches the network except through x_r.",
+          "Results are on 8 stored y-swap cubes (hybrid, shape, regions) and 1 cube (DDIM-50, DDPM-1000), all on CPU with fresh random seeds. They are diagnostics, not gate numbers; the hybrid and inflation results are post hoc and must not be read as a fix-round outcome."
+        ],
+        "scripts_written": [
+          "/home/staff/c/chaoyi_he/.claude/jobs/97dc7552/tmp/verify_d8/steelman/inspect_record.py",
+          "/home/staff/c/chaoyi_he/.claude/jobs/97dc7552/tmp/verify_d8/steelman/record_stats.py",
+          "/home/staff/c/chaoyi_he/.claude/jobs/97dc7552/tmp/verify_d8/steelman/train_logs.py",
+          "/home/staff/c/chaoyi_he/.claude/jobs/97dc7552/tmp/verify_d8/steelman/stored_cubes.py",
+          "/home/staff/c/chaoyi_he/.claude/jobs/97dc7552/tmp/verify_d8/steelman/probe_denoiser.py",
+          "/home/staff/c/chaoyi_he/.claude/jobs/97dc7552/tmp/verify_d8/steelman/probe_b_d4.py",
+          "/home/staff/c/chaoyi_he/.claude/jobs/97dc7552/tmp/verify_d8/steelman/wiener_probe.py",
+          "/home/staff/c/chaoyi_he/.claude/jobs/97dc7552/tmp/verify_d8/steelman/direction_probe.py",
+          "/home/staff/c/chaoyi_he/.claude/jobs/97dc7552/tmp/verify_d8/steelman/slope_probe.py",
+          "/home/staff/c/chaoyi_he/.claude/jobs/97dc7552/tmp/verify_d8/steelman/sampler_variants.py",
+          "/home/staff/c/chaoyi_he/.claude/jobs/97dc7552/tmp/verify_d8/steelman/hybrid_sampler.py",
+          "/home/staff/c/chaoyi_he/.claude/jobs/97dc7552/tmp/verify_d8/steelman/hybrid_sampler_v2.py",
+          "/home/staff/c/chaoyi_he/.claude/jobs/97dc7552/tmp/verify_d8/steelman/hybrid_posthoc.py",
+          "/home/staff/c/chaoyi_he/.claude/jobs/97dc7552/tmp/verify_d8/steelman/shape_headroom.py",
+          "/home/staff/c/chaoyi_he/.claude/jobs/97dc7552/tmp/verify_d8/steelman/gap_regions.py",
+          "/home/staff/c/chaoyi_he/.claude/jobs/97dc7552/tmp/verify_d8/steelman/stage0_check.py"
+        ]
+      }
+    ],
+    "synthesis": {
+      "confirmed": [
+        "Every clause in verdict__d8_main.json is reproduced exactly. Two independent recomputes match in float64, and two cluster-SE formulas agree to 1e-6 (G = 113 source images). C1 = +0.1720 (iid SE 0.0058, cluster SE 0.0068) FAIL. C2: cov90 0.9082, cov50 0.6741, FAIL on cov50 alone. P1 = -0.3124 (0.0525, 0.0651) PASS. P2 = +1.1695 (0.0394, 0.0442) FAIL. S1 = +0.0517 (0.0042, 0.0046) FAIL. S2 = +0.0125 (iid SE 0.0114, n = 32) FAIL. C3 (AUSE) = +0.1954 (cluster SE 0.0028). calibration_pass, perceptual_pass and wins are all false. Every mean in the printed table matches per_cube; no array contains NaN or inf.",
+        "The overall verdict survives cluster resampling. In a joint 113-image bootstrap (5000 draws), calibration, perceptual and wins pass in 0/5000; C1, C2 and P2 fail in 100 % of draws; P1 passes in 99.5 %; S2 passes in 18.4 %. C1 is positive on 193/200 cubes (the diffusion is better on only 7) and fails in every class: P022 +0.157, P023 +0.186, P024 +0.101. P2 is positive on 194/200 cubes. Bootstrap cov50 never falls below 0.644; cov90 is in range in 100 % of draws.",
+        "Provenance is clean. The sha256 of all 7 checkpoints, the cache meta (0a9f0b35...), the prior (1ad9108f...) and the split re-hash to the record. sigma_r = 0.08934239400551727 everywhere it appears (sigma_full/sigma_r = 0.971, flag false). The epochs used are the ones the selection rule picks: centre 11, s43 12, half1 15, half2 13, varhead 10 (NLL argmin), diffusion 100 (monotone val loss). The cache is truly cross-fitted: each training cube's x_r matches the OTHER half's regressor within fp16 rounding. The 200 record files equal the gate subset as a set (113 images; P022 24, P023 152, P024 24).",
+        "C1 compares like with like. Both CRPS values are on the same [0, 1] scale, around the same x_r (varhead mean RMSE 4.2319 = regressor 4.2319), over the same elements. The fair CRPS of 32 draws from the varhead Gaussian is 1.8641 against the closed form's 1.8640. A CPU varhead forward pass reproduces the record's per-cube CRPS on the 8 stored cubes (mean 1.8640; I re-checked). The only asymmetry is the [-1, 1] clamp on diffusion samples (2.19 % of values sit at a bound), and it favours the diffusion: clipping the varhead draws would lower its CRPS from 1.864 to 1.855. The fair CRPS has a K-invariant expectation: the two 16-sample halves give 2.0320 and 2.0242 against 2.0282 for all 32.",
+        "The diffusion is no better than a single constant-width Gaussian N(x_r, (0.5 sigma_r)^2) chosen on the gate: CRPS 1.9325 vs 1.9472, difference -0.0147, iid SE 0.0080, cluster SE 0.0101; the diffusion is better on 48.5 % of cubes. I recomputed these paired statistics from condition-blindness's per-cube values; its varhead CRPS matches the record within 2.6e-4. The varhead beats the same Gaussian by -0.1867 (cluster SE 0.0079). So the entire C1 gap is the localisation the varhead has and the diffusion lacks. That Gaussian also fails C2 (cov50 0.598, cov90 0.822).",
+        "The diffusion's spread is nearly homoscedastic.\n- Across cubes: the slope of log spread on log RMSE is 0.13-0.136 (varhead 0.72). Spread CoV is 0.08 against an error CoV of 0.33.\n- Across the 64 sensor phases (my recompute): the RMS sd varies 1.15x while the error varies 14.1x and the varhead sigma 13.1x.\n- At the measured grid phase (0, 0): RMS error is 0.43 %, diffusion sd 3.57 % RMS (3.36 % mean), varhead 0.51 % RMS (0.40 % mean).\n- Spearman(sd, |x - x_r|): diffusion 0.378 (per-cube mean) / 0.393 (pooled) against varhead 0.589 / 0.629.\n- By varhead-sigma decile, diffusion cov50 falls from 0.837 to 0.326; the varhead stays at 0.60-0.68.\n- Normalised errors have excess kurtosis 20.5 (varhead 4.1).",
+        "The sampled residual is white, mostly high-frequency noise that is uncorrelated with the truth. Lag-1 spatial autocorrelation is 0.24-0.29 against the true residual's 0.87-0.88; adjacent-band correlation is 0.29-0.30 against 0.975-1.00. 61 % of its energy lies at r >= 12.5, against 10 % for the true residual; only 0.31x of the true energy is reproduced at r < 12.5, where 90 % of the error lies. Coherence with the true residual is about 0 at every r. The sample PSD reaches 22.5x the truth's at Nyquist.",
+        "P1's PASS is real arithmetic but an artefact of the symmetric |log ratio| statistic.\n- The single sample is over-sharpened on 200/200 cubes (hf +2.88, i.e. 17.9x the truth's Laplacian energy); the regressor is blurred on 200/200 (-3.19, i.e. 1/24.4).\n- |hf_single| < |hf_regressor| on only 131/200 cubes.\n- x_r plus white noise with sigma of about 0.009 on [0, 1] gives |r_HF| of about 0, so it would pass by a wider margin.\n- Gradient W1 says the single sample is worse than the regressor: 0.00797 vs 0.00543, +0.0025 with cluster SE 0.0003, worse on 71 % of cubes.\n- An independent-noise model predicts the mean-of-K hf of -0.49 (corr 1.000).\n- The pooled pass rests on P023 (152 cubes); P022 and P024 fail on their own.",
+        "S1's FAIL is finite-K Monte Carlo inflation, not drift.\n- The mean per-element sample variance is 14.38 pct^2. An exactly centred sampler with that spread is expected to show +0.0576 at K = 32; observed is +0.0517.\n- Debiased S1 is -0.0059 (iid SE 0.0039, cluster SE 0.0042), which passes the rule. The implied infinite-K mean RMSE is 4.2260, against 4.2319 for the regressor.\n- There is no global offset (-0.005 pct). The cross-fitted training residual has mean +0.0016 pct (t = 0.06). The clamp contributes only in proportion to the elements it touches.\n- The CRPS cost of centring a Gaussian on mu_K rather than x_r is 0.228 / 0.122 / 0.069 at K = 8 / 16 / 32 (my check), so that cost is 1/K noise.",
+        "S2 has essentially no power for this design. In uq_eval.py the swap rolls both y and the x_r in the condition, but compose() always adds the samples to the TRUE x_r, and the residual's conditional mean is about 0. So the swap only changes the size of the 1/K noise term. The cubes' own spreads predict +0.0040 +- 0.0036; an oracle-calibrated sampler would score +0.0238 +- 0.0186 and also fail. Observed: mean - 2 SE = -0.0102, 17/32 cubes positive; the cluster SE (29 images) is 0.0115.",
+        "P2 cannot be met by any calibrated sampler centred on this regressor.\n- A single sample's MSE is the mean's MSE plus the spread variance: predicted 5.731 vs observed 5.749.\n- A calibrated sampler gives sqrt(2) x 4.2319 = 5.98 % against the baseline's 4.58 %, a paired difference of +1.405 (cluster SE 0.046).\n- Passing needs a spread ratio below 0.18 (median 0.14), which fails C2, or a mean RMSE below 3.24 %.\n- My extension to d = 4 (Stage 0 record): baseline / regressor = 2.3512 / 1.9621 = 1.198 < sqrt(2), and only 9 % of cubes exceed sqrt(2). B's single sample there is 3.088 against the baseline's 2.351. So 'diffusion wins (a)' was unreachable at either stride.",
+        "The model uses its condition (H1 refuted), but only to shape the spread.\n- Under a swap, the std map follows the donor: Spearman 0.546 with the donor's map, 0.254 with its own.\n- Denoiser x0-MSE at t = 900: 0.742 with the true condition, 0.928 swapped, 7.12 zeroed.\n- AUSE is 0.375, against 0.788 for a random ranking.\n- Each sample's texture is set by the seed: same-seed samples under the true and swapped conditions correlate at 0.90, and the condition-driven change is 0.34 of the seed-to-seed difference.\n- x_r matters more than y: at t = 999 the relative change is 0.68 for an x_r-only swap and 0.37 for a sensor-only swap.",
+        "The denoiser is under-fit at low noise levels; two verifiers agree independently, and their numbers reconcile (0.484^2 = 0.234, 0.393^2 = 0.154).\n- Network x0 RMS error (r units) against a per-pixel spectral Wiener filter fitted on training cubes: t = 99 0.286 vs 0.164; t = 199 0.450 vs 0.255; t = 299 0.484 vs 0.339. The network wins only from t >= 399.\n- At t = 99 the error is about 0.29 in every one of the 64 spectral eigen-directions, including directions whose signal is 0.005-0.020.\n- Calm-decile x0-MSE at t = 300 is 0.163, against 0.010 for predicting zero.\n- The x0 error is non-monotone in t: MSE 0.234 at t = 300 vs 0.154 at t = 500.",
+        "Ruled out as causes:\n- sigma_r scale or cross-fit mismatch: ratio 0.971; the half-centre row changes CRPS by +0.0035 +- 0.0040 (cluster).\n- The x0 clamp at +-2/sigma_r: it never binds (largest sample |r| 11.3, bound 22.4).\n- L1 median shrinkage: regression slopes 0.95-1.02 at t = 499-699.\n- The [-1, 1] output clamp: it favours the diffusion.\n- Estimator or scale errors in the CRPS.\n- The centre entering only through x0_hat: the varhead uses the same path and localises (grid sigma 0.49 % vs interior 4.34 %).",
+        "More sampler steps do not help (one cube, P023/34_10; varhead CRPS 0.8485):\n- DDIM-10, K = 32: CRPS 1.146-1.147, RMS spread 3.37 %.\n- DDIM-50, K = 16: 1.223, 3.94 %.\n- DDPM-1000, K = 8: 1.234, 4.00 %, after 4523 s on CPU.\nThe true error at the grid there is 0.34 %. In all three the deviations stay white (band correlation 0.10-0.12).",
+        "Post hoc hybrid repair (8 stored cubes, no retraining; I checked the log means). Replacing the network for t < 399 with the spectral filter (wpos) or with a top-8 PCA projection (proj) moves the CRPS from 2.0251 to 1.9251 / 1.9343, against the varhead's 1.8640: the gap shrinks from +0.161 to +0.061 / +0.070. Band correlation of the deviations rises from 0.28 to 0.97 / 0.99, and single-sample hf drops from 2.77 to 1.09 / 0.54. But the samples become under-dispersed (spread ratio 0.32 / 0.28, cov90 0.83 / 0.80, cov50 0.48 / 0.44). Only an in-sample global inflation reaches parity (+0.012 +- 0.024).",
+        "No evaluated method meets C2's 50 % band. The comparator varhead itself has cov50 0.6235 (cov90 0.930) and is over-dispersed (spread ratio 1.48). The diffusion beats the 2-member ensemble (CRPS diffusion - ensemble = -0.2124, cluster SE 0.0161), but that ensemble is degenerate (cov90 0.186, spread ratio 0.039)."
+      ],
+      "discrepancies_resolved": [
+        "S1 predictions at larger K (provenance vs steelman). Provenance gives +0.029 / +0.0145 / +0.0073 at K = 64 / 128 / 256; steelman gives +0.0231 / +0.0086. My recompute (synthesis/s1_p2.py) reproduces both, so both are right. Provenance's figures are the null inflation of a perfectly centred sampler (infinite-K mean = x_r). Steelman's are the literal S1 predicted from the measured infinite-K mean (RMSE 4.2260), and equal the null minus 0.0059. Against 2 SE_cluster = 0.0092, the literal S1 still fails at K = 64 (+0.0231) and passes in expectation only at K >= 128 (+0.0086); a perfectly centred sampler needs K of about 256 (+0.0073).",
+        "Expected S1 inflation at K = 32: +0.0576 (bootstrap, provenance), +0.0585 (seed-0 draw), +0.0531 (first-order s^2/(2 K rmse)), +0.066 (steelman). These are the same quantity under different spread assumptions: the measured per-cube spread for the first three, and spread equal to the error (spread ratio 1, sqrt(1 + 1/32) - 1 times 4.2319 = 0.0656) for steelman. All exceed the observed +0.0517.",
+        "Varhead Spearman with |x - x_r|: 0.589 (condition-blindness, steelman) vs 0.63 (metric-validity). The first is the mean of per-cube Spearman values, the second is pooled over the 8 cubes. I reproduced both: varhead 0.589 per-cube / 0.629 pooled, diffusion 0.378 / 0.393. Pooling helps the varhead because its sigma also scales with each cube's error, and the diffusion's spread does not.",
+        "Spread at the measured grid pixels: diffusion 3.36 % (metric-validity) vs 3.56 % (steelman); varhead 0.40 % vs 0.49 %. The first figures are means over phase (0, 0), the second RMS values. My recompute: diffusion mean 3.361 / RMS 3.568, varhead mean 0.399 / RMS 0.508, error RMS 0.426. Across the 64 phases the ratios are error 14.07x, diffusion 1.15x, varhead 13.07x (RMS).",
+        "Condition-blindness says the model uses its condition (H1 refuted); steelman says the condition predicts almost nothing about the residual mean (t = 999 x0 error 1.035 vs 1.059 for predicting zero). Both hold: the condition sets the per-pixel variance (the shrinkage of x_t; the std map follows the donor) and not the mean. The residual mean is about 0 by construction: training residual mean +0.0016 pct, and the implied infinite-K mean lies within 0.006 RMSE of x_r. This is also why S2 cannot see condition use.",
+        "Metric-validity says the mean-of-K drift costs 0.069 CRPS; provenance and bootstrap say there is no drift. My check: the CRPS cost of N(mu_K, sigma_vh) against N(x_r, sigma_vh) is 0.2276 / 0.1220 / 0.0686 at K = 8 / 16 / 32, roughly halving with each doubling of K. It is finite-K noise in mu_K, not a systematic offset; 'drift' should not appear in the note.",
+        "More training: condition-blindness marks it UNCERTAIN, steelman REFUTED. The evidence is the same: val loss 0.1033 / 0.1031 / 0.1030 at epochs 80 / 90 / 100, under a cosine LR ending at 3.3e-6; calm-decile x0-MSE at t = 300 of 0.208 / 0.177 / 0.164 / 0.163 at epochs 25 / 50 / 90 / 100, against a 0.010 target; x0 RMS error at t = 149 from 0.404 to 0.385. Resolution: the same recipe for longer is unlikely to close the gap, but this was not tested by retraining, so the honest label is unlikely-but-untested.",
+        "Two different clamps appear in the findings and are not in conflict. The x0 clamp at +-2/sigma_r = +-22.4 r-units never binds (steelman). The output clamp to [-1, 1] binds on 2.19 % of sample values (1.75 % at -1, 0.44 % at +1) and on 11 % of elements for at least one draw (provenance, metric-validity). It favours the diffusion in CRPS and accounts for only a proportionate share of the S1 inflation.",
+        "The cause of metric-validity's 8-band spread anomaly is partly narrowed by my check (synthesis/cubes.py). It is NOT the output clamp: bands 56, 57, 62 and 63 have zero clamped samples, and their sd on clamp-free elements is unchanged (0.945 / 0.864 / 0.563 / 0.551 % vs 4.50-4.66 % in bands 10 / 12 / 30). Band 3 has a normal sd with 12.8 % of samples clamped, so the clamp follows the spread rather than the reverse. It is not the truth level either: band 55 has truth mean 0.356 and sd 3.67, band 56 has 0.329 and 0.95. The pattern also includes over-dispersion: bands 58-61 have sd 3.56-3.69 % against an RMS error of 1.07-1.54 %. The cause is still unexplained.",
+        "S2's SE: the verdict uses the iid SE, while spec 5.6 makes '2 SE' the clustered SE unless stated. The clustered SE over the 29 images of the y-swap cubes is 0.011503 against 0.011368, so S2 fails either way.",
+        "The y-swap block's 'true' mean-of-K comes from separate draws (batch of 32, not 4), so it differs from per_cube.diffusion.mean_rmse_pct by up to 0.079. Using the main-run value instead gives S2 = 0.0185 +- 0.0127, still FAIL. The record is internally consistent.",
+        "Unlabelled directions in the verdict file: the ensemble block is diffusion - ensemble (CRPS -0.2124, so the diffusion is better), and the half-centre block is halfcentre - diffusion (+0.0035). The results note must state these directions.",
+        "Completeness gap that no verifier flagged: spec 5.7 lists the DDPM-1000 reference as a report-only row, but d8_main has none; the plan only produces it inside the fix round (d8_fix_ddpm, K = 8, ddpm subset of 50 cubes from 45 images). uq_verdict.check_k (ruling R10) refuses any record with K < 19 unless --report_only. So the fix round's DDPM arm, as written in plan T15 step 3, cannot be judged 'with the same thresholds' as the spec requires; this needs a ruling.",
+        "Minor asymmetry that no verifier flagged: uq_eval computes the diffusion's AUSE and spread ratio against the mean-of-K error (mu_K - x), and the varhead's against x_r - x. The diffusion's spread ratio is therefore understated by about 1/(1 + sr/K), roughly 3 %. On the 8 cubes, the pooled Spearman of sd with |x - mu_K| is 0.369 against 0.391 with |x - x_r|. No gated clause uses either metric (C3 is report-only)."
+      ],
+      "mechanisms": [
+        "C1 FAIL (+0.1720, 25 cluster SEs). Spread allocation, not centre, scale or estimator. The diffusion's spread is almost the same size everywhere: cube slope 0.13 vs 0.72, phase range 1.15x vs an error range of 14x, 8x too wide at the measured pixels. As a predictive distribution it is therefore equivalent to one constant-width Gaussian around x_r (1.9325 vs 1.9472, not significant). The varhead's whole advantage (0.187 over that Gaussian) is localisation. Leading upstream cause, supported diagnostically: the denoiser is under-fit at t <= 299. It leaves about 0.29 r-units of noise in every spectral direction, is worse than a linear spectral filter there, and is worse than predicting zero in calm regions. That noise ends up in every sample as white, high-frequency spread, which sets a floor on the spread size everywhere. In the post hoc hybrid (8 cubes), repairing only those steps removes about 60 % of the gap (+0.161 to +0.061/+0.070), which supports causality but is not gate evidence.",
+        "C2 FAIL (cov50 0.674; cov90 0.908 sits in its band only by compensation). Same mechanism. A spread of nearly constant size is too wide where the error is small: at the grid pixels cov50 is 0.971 and cov90 0.999; in the calmest varhead decile cov50 is 0.837. It is too narrow where the error is large: the top decile has cov50 0.326, the top quintile cov90 0.756. Calm, well-determined elements are the majority, so pooled cov50 lands high, and the over- and under-covered strata average cov90 into the band. The marginal shape is near Gaussian (Gaussian-fit 0.674/0.894); the normalised errors are a scale mixture (excess kurtosis 20.5). An unexplained collapse of spread in 8 bands (cov50 0.31-0.40 there) and over-dispersion in bands 58-61 add to this. The clause is also strict: the varhead (0.624) and the best homoscedastic Gaussian (0.598) also miss the 50 % band.",
+        "P2 FAIL (+1.1695). Mostly structural: a single draw's MSE is the mean's MSE plus the spread variance (5.731 predicted vs 5.749 observed). With spread ratio about 1, the single sample sits near sqrt(2) times the regressor RMSE (5.98 %), well above the baseline's 4.58 %; passing would need a spread ratio below 0.18, which contradicts C2. The baseline/regressor ratio is 1.08 at d = 8 and 1.20 at d = 4, both below sqrt(2). The white high-frequency spread makes it worse (SAM 6.71 deg vs 2.84 deg) but is not needed to explain the FAIL.",
+        "S1 FAIL (+0.0517). The finite-K Monte Carlo term: E RMSE^2(mean of K) = RMSE^2(infinite-K mean) + v/K, with v = 14.38 pct^2. A perfectly centred sampler would show +0.0576. The debiased statistic is -0.0059 +- 0.0042 (cluster) and passes; the infinite-K mean is, if anything, very slightly better than the regressor. No offset, band bias, clamp effect or training-residual mean is needed to explain it. The rule is mis-specified for any K below about 256.",
+        "S2 FAIL (+0.0125 +- 0.0114, t = 1.10). Low power by design. The swap changes the residual model's condition, but compose() adds the samples to the TRUE x_r, and the residual mean is about 0. The swap therefore changes only the size of the 1/K noise term, which the cubes' own spreads predict at +0.0040, and an oracle-calibrated sampler would also fail at +0.024 +- 0.019. The FAIL says nothing about whether y is used; the swap probes show it is used, for the spread.",
+        "P1 PASS (-0.3124 +- 0.0651 cluster). The statistic |log E(sample)/E(truth)| treats over-sharpening and blur alike. The single sample carries 17.9x the truth's Laplacian energy, the regressor 1/24.4 of it, and |+2.88| < |-3.19|. The extra energy is the same white noise that is not removed at low t: it is uncorrelated with the truth, averages away as 1/K (mean-of-K hf -0.49), and is reproduced by x_r plus white noise. W1 and SAM say the sample is worse than the regressor. The only partial real content is restored mid-band power (r 5-12: 0.785 of truth vs the regressor's 0.384), and it is not aligned with the truth (coherence 0.04). The PASS is a property of the metric, not texture recovery."
+      ],
+      "uncertain": [
+        "Whether the low-t under-fit is the root cause on the gate. The evidence is diagnostic only: the denoiser probe and the hybrid on the 8 stored cubes (iid SE, 7 of 8 from the unseen classes P023/P024), and DDPM-1000 / DDIM-50 on one cube. The hybrid's parity result relies on an inflation factor fitted on the same 8 cubes.",
+        "Why the low-t defect exists. Candidates: the 64-channel full-resolution v-prediction path with a 1x1 output layer (a channel bottleneck), plain under-optimisation, or the objective. Min-SNR weights at those timesteps are 0.52-0.79, so loss weighting is not an obvious cause. No retraining discriminated between these.",
+        "The cause of the 8-band spread collapse (bands 0, 1, 2, 11, 56, 57, 62, 63) and of the over-dispersion in bands 58-61. The output clamp and the truth level are excluded; a channel-specific artefact in the model or sampler remains possible.",
+        "Whether a repaired diffusion could beat, rather than tie, the varhead. On 8 cubes the predictive shape is worth only about 0.2 % CRPS over a well-scaled Gaussian. The varhead itself is over-dispersed (spread ratio 1.48), and a single 0.7x rescale improves it by about 2 % in-sample, so a fair comparison would need both models rescaled on the monitoring split.",
+        "Whether longer or re-warmed training of the same recipe would help: plausible but small, and untested.",
+        "The d = 4 contrast (T16, training in progress): the spec expects smaller CRPS and texture gaps. Stage 0 already showed B at d = 4 with cov50 0.697 and spread slope 0.18, which predicts the same failure mode.",
+        "P1's per-class robustness: it passes only in P023, and fails alone in P022 (-0.190 +- 0.218) and P024 (-0.058 +- 0.115).",
+        "The condition-blindness probes under the zeroed, sensor-only and x_r-only conditions were covered only by the one-call denoiser test, not by sampling.",
+        "The GPU cost of the fix round. My estimates extrapolate from d8_main's 5499 s for about 148k diffusion cube-steps (about 27 per second): K = 64 is about 3 GPU-h with the half-centre row. DDPM-1000 at K = 8 on the 50-cube subset plus the 32-cube y-swap block is about 0.9-1.3M cube-steps, roughly 9-13 GPU-h, and about 4x that at K >= 19. These are not measured."
+      ],
+      "fix_round_recommendation": "Run the pre-registered fix round, but treat it as closing the protocol, not as a rescue attempt, and get one ruling first.\n\n1. K = 64 DDIM-10 on the gate (d8_fix_k64): run it as plan T15 step 3 specifies. It is cheap (about 3 GPU-h by extrapolation) and it is the step the plan requires when calibration fails. It also checks two mechanism predictions, which should be written into the results note before it runs:\n   - C1 unchanged within about 1 SE (+0.17), because the fair CRPS is K-invariant.\n   - cov50 about 0.67.\n   - Literal S1 about +0.023 (still FAIL), against a null of +0.029; this tests the 1/K explanation.\n   - P2 about +1.17.\n   - S2 still underpowered.\n\n2. DDPM-1000 arm: it needs a ruling before it runs, because as planned (K = 8) uq_verdict.check_k refuses it under R10; it cannot be judged 'with the same thresholds'. Recommended: run it at K = 8 with --report_only, as the pre-registered DDPM-1000 reference row that d8_main lacks. Do not spend roughly 4x the GPU on K >= 19 for a gate it cannot plausibly pass: on one cube DDPM-1000 was worse (1.234 vs 1.146) and its spread wider and still white.\n\n3. Scheduling: run both only after the d = 4 trainings (T16a/b) free a GPU, never on a GPU the user's dm_snn sweep is using.\n\nIf the user prefers not to spend the GPU time, skipping the round is also consistent with the spec: the round is 'allowed', not required, and the result is already reported as a failure. Either way no failed clause is expected to flip. C1 and C2 fail in 100 % of bootstrap draws and neither depends on K. P2 cannot be met by a calibrated sampler.",
+      "next_experiment": "Run the zero-training hybrid sampler on all 200 gate cubes (report-only and labelled post hoc), with every fitted component taken from the monitoring/training split and never from the gate.\n\nDesign:\n- The network samples for t >= 399 of the DDIM-10 grid.\n- Below that, the steps use either the training-fitted position-aware per-pixel spectral filter (wpos) or the network's x0 projected onto the top-8 training spectral components (proj).\n- K = 32, same seeds, same centre x_r.\n- Any single global spread inflation is fitted on the monitoring split, and the same one-parameter rescale is applied to the varhead.\n\nMeasures: the paired C1 gap against both the pre-registered and the rescaled varhead (mean, cluster SE), cov50/cov90, AUSE, the per-cube spread slope, grid-phase spread, single-sample hf/SAM/W1, and the 8-band anomaly. Alongside, run the per-timestep x0-error probe against the Wiener filter on the monitoring split.\n\nWhy this one: it is the cheapest experiment that discriminates between the two remaining readings of the failure. If the gate gap falls from +0.172 to about +0.06-0.07, with spread now tracking error (slope approaching the varhead's 0.72) as on the 8 cubes, the d = 8 negative is an implementation defect of the low-t denoiser. A retrain aimed at it is then justified (PCA-8 latent or x0-prediction, gated first on beating the spectral filter at every t <= 299). If the gap does not shrink, the leading mechanism is wrong, and part (a) closes as a failure without spending GPU-days on retraining.\n\nCost: no training, and fewer network calls than d8_main because the network runs only on the high-noise steps.",
+      "summary": "The verdict is correct and robust.\n- Two independent recomputes reproduce every clause bit-for-bit; provenance checks out on every hash, epoch and sigma_r; the C1 comparison is like for like.\n- C1, C2 and P2 fail in 100 % of 5000 cluster-bootstrap draws, and calibration, perceptual and wins pass in 0/5000.\n- C1: the diffusion's CRPS gap to the variance head is +0.172 (cluster SE 0.0068), and it is better on only 7/200 cubes.\n- The diffusion is statistically no better than one constant-width Gaussian around x_r (1.9325 vs 1.9472, cluster SE 0.0101).\n\nMechanism. The diffusion's spread is nearly homoscedastic:\n- Cube-level slope 0.13 vs 0.72. Across sensor phases it varies 1.15x while the error varies 14x. At the measured pixels it is 3.57 % against an error of 0.43 %.\n- It is white, high-frequency noise: band correlation 0.29 vs 0.975, and 61 % of its energy at high frequency vs 10 % for the true residual.\n- This produces the C1 gap and the cov50 of 0.674. cov90 falls in its band only because over- and under-covered regions average out.\n- The upstream cause, supported diagnostically: the low-t denoiser is under-fit. A linear spectral filter beats it at every t <= 299, and in calm regions it is worse than predicting zero.\n- The model does use y and x_r, but only to shape the spread.\n\nThree clauses do not measure what their names say:\n- P1 PASS is an artefact of the symmetric |log ratio|: the sample has 17.9x the truth's high-frequency energy, the regressor 1/24 of it.\n- S1 FAIL is 1/K Monte Carlo inflation, not drift: debiased -0.0059 +- 0.0042, which passes; the rule is unattainable below K of about 256.\n- S2 has no power, because compose() always adds the samples to the true x_r.\n- P2 is structurally infeasible for any calibrated sampler around this regressor, at d = 8 and at d = 4.\n\nDisagreements between verifiers all resolve to definitions, which I re-checked on CPU: null vs actual-mean S1 predictions, per-cube vs pooled Spearman, mean vs RMS grid spread, mean-of-K 'drift' that is 1/K noise, and condition use for the spread but not the mean.\n\nNew completeness findings:\n- The pre-registered DDPM-1000 reference row is missing from d8_main.\n- The plan's K = 8 DDPM fix-round arm would be refused by uq_verdict (R10).\n- The diffusion's AUSE and spread ratio use the mean-of-K error.\n- The 8-band spread collapse is not caused by the clamp.\n\nRecommendation: run the K = 64 arm as protocol closure with its outcomes predicted in advance, and run DDPM-1000 report-only at K = 8 after a ruling, once the d = 4 trainings free a GPU. The next experiment is the hybrid low-t repair on the 200 gate cubes with all fitted parts taken from the monitoring split.\n\nMy scripts are in /home/staff/c/chaoyi_he/.claude/jobs/97dc7552/tmp/verify_d8/synthesis/: keys.py, ls.py, subset.py, s1_p2.py, cubes.py, spearman_pc.py, c4.py, c4b.py."
+    }
+  },
+  "workflowProgress": [
+    {
+      "type": "workflow_phase",
+      "index": 1,
+      "title": "Verify"
+    },
+    {
+      "type": "workflow_phase",
+      "index": 2,
+      "title": "Synthesize"
+    },
+    {
+      "type": "workflow_agent",
+      "index": 1,
+      "label": "recompute-numpy",
+      "phaseIndex": 1,
+      "phaseTitle": "Verify",
+      "agentId": "ac500bb693518bfab",
+      "model": "claude-opus-5-5",
+      "state": "done",
+      "startedAt": 1792799279132,
+      "queuedAt": 1792799279096,
+      "attempt": 1,
+      "lastToolName": "StructuredOutput",
+      "lastToolSummary": "My numpy recompute matches the verdict exactly, and no pass…",
+      "promptPreview": "PROJECT CONTEXT (read carefully; you are one of several independent verifiers).\nRepo (git worktree, read-only for you): /data/chaoyi_he/HSI/Diffu/.claude/worktrees/phase1-plan\nPython: /home/grads/c/chaoyi_he/Desktop/conda/envs/hsi/bin/python  — ALWAYS run with CUDA_VISIBLE_DEVICES= (CPU only; both GPUs are busy with training you must not disturb).\nScratch dir for any file you write: /home/staff/c/…",
+      "promptFramed": true,
+      "lastProgressAt": 1792799525859,
+      "tokens": 85818,
+      "toolCalls": 14,
+      "durationMs": 246726,
+      "resultPreview": "{\"claims\":[{\"id\":\"C1\",\"statement\":\"C1 FAIL: mean(CRPS_diffusion - CRPS_varhead) = +0.1720 +- 0.0058 iid (cluster 0.0068, 113 clusters, n=200).\",\"verdict\":\"CONFIRMED\",\"evidence\":\"Own numpy recompute: mean 0.1720118049990721, iid SE 0.005805124025440598, cluster SE 0.006833697373668377, G=113. Identical to the verdict file down to float64 print precision. mean + 2 SE_c = +0.1857 > 0, so FAIL; mean/S…"
+    },
+    {
+      "type": "workflow_agent",
+      "index": 2,
+      "label": "recompute-bootstrap",
+      "phaseIndex": 1,
+      "phaseTitle": "Verify",
+      "agentId": "a5be7814e64e4d551",
+      "model": "claude-opus-5-5",
+      "state": "done",
+      "startedAt": 1792799279132,
+      "queuedAt": 1792799279096,
+      "attempt": 1,
+      "lastToolName": "StructuredOutput",
+      "lastToolSummary": "I recomputed every clause from the per-cube arrays in d8_ma…",
+      "promptPreview": "PROJECT CONTEXT (read carefully; you are one of several independent verifiers).\nRepo (git worktree, read-only for you): /data/chaoyi_he/HSI/Diffu/.claude/worktrees/phase1-plan\nPython: /home/grads/c/chaoyi_he/Desktop/conda/envs/hsi/bin/python  — ALWAYS run with CUDA_VISIBLE_DEVICES= (CPU only; both GPUs are busy with training you must not disturb).\nScratch dir for any file you write: /home/staff/c/…",
+      "promptFramed": true,
+      "lastProgressAt": 1792799755351,
+      "tokens": 123477,
+      "toolCalls": 28,
+      "durationMs": 471218,
+      "resultPreview": "{\"claims\":[{\"id\":\"R0\",\"statement\":\"Recomputing every clause from the per-cube arrays in d8_main.json, with my own code that imports nothing from the repo, reproduces the verdict file exactly.\",\"verdict\":\"CONFIRMED\",\"evidence\":\"recompute.py. The 200 record files are the same set as tests/data/val_subset_200.json (different order) and fall in 113 source-image clusters (52 images with 1 cube, 43 with…"
+    },
+    {
+      "type": "workflow_agent",
+      "index": 3,
+      "label": "condition-blindness",
+      "phaseIndex": 1,
+      "phaseTitle": "Verify",
+      "agentId": "ad5f0f0908e40fda0",
+      "model": "claude-opus-5-5",
+      "state": "done",
+      "startedAt": 1792799279132,
+      "queuedAt": 1792799279096,
+      "attempt": 1,
+      "lastToolName": "StructuredOutput",
+      "lastToolSummary": "H1 is REFUTED as stated, though a weaker version holds. res…",
+      "promptPreview": "PROJECT CONTEXT (read carefully; you are one of several independent verifiers).\nRepo (git worktree, read-only for you): /data/chaoyi_he/HSI/Diffu/.claude/worktrees/phase1-plan\nPython: /home/grads/c/chaoyi_he/Desktop/conda/envs/hsi/bin/python  — ALWAYS run with CUDA_VISIBLE_DEVICES= (CPU only; both GPUs are busy with training you must not disturb).\nScratch dir for any file you write: /home/staff/c/…",
+      "promptFramed": true,
+      "lastProgressAt": 1792801030423,
+      "tokens": 182845,
+      "toolCalls": 68,
+      "durationMs": 1746271,
+      "resultPreview": "{\"summary\":\"H1 is REFUTED as stated, though a weaker version holds. residual_reg_d8_b64@100 does use the condition. At high noise (t ≥ 700) its denoiser responds strongly to (y, x_r): swapping both raises the x0-MSE at t = 900 from 0.742 to 0.928, and zeroing them raises it to 7.1. Its per-pixel sample spread also follows the condition: when the condition is swapped, the std map follows the donor …"
+    },
+    {
+      "type": "workflow_agent",
+      "index": 4,
+      "label": "metric-validity",
+      "phaseIndex": 1,
+      "phaseTitle": "Verify",
+      "agentId": "a735696a139cb88a5",
+      "model": "claude-opus-5-5",
+      "state": "done",
+      "startedAt": 1792799279132,
+      "queuedAt": 1792799279096,
+      "attempt": 1,
+      "lastToolName": "StructuredOutput",
+      "lastToolSummary": "Metric-validity lens, d = 8. P1 passes as computed (-0.3124…",
+      "promptPreview": "PROJECT CONTEXT (read carefully; you are one of several independent verifiers).\nRepo (git worktree, read-only for you): /data/chaoyi_he/HSI/Diffu/.claude/worktrees/phase1-plan\nPython: /home/grads/c/chaoyi_he/Desktop/conda/envs/hsi/bin/python  — ALWAYS run with CUDA_VISIBLE_DEVICES= (CPU only; both GPUs are busy with training you must not disturb).\nScratch dir for any file you write: /home/staff/c/…",
+      "promptFramed": true,
+      "lastProgressAt": 1792799974561,
+      "tokens": 133478,
+      "toolCalls": 33,
+      "durationMs": 690370,
+      "resultPreview": "{\"claims\":[{\"id\":\"P1-arith\",\"statement\":\"The P1 statistic is computed as specified and passes the pre-registered rule: mean(|hf_single| - |hf_regressor|) = -0.3124, cluster SE 0.0651, 113 clusters.\",\"verdict\":\"CONFIRMED\",\"evidence\":\"p1_se.py on the record's per-cube arrays gives mean -0.3124, se_iid 0.0525, se_cluster 0.0651, G 113, mean + 2 SE = -0.1823 < 0. The stored cubes reproduce the record'…"
+    },
+    {
+      "type": "workflow_agent",
+      "index": 5,
+      "label": "provenance",
+      "phaseIndex": 1,
+      "phaseTitle": "Verify",
+      "agentId": "a659d74e0b9d2f8ef",
+      "model": "claude-opus-5-5",
+      "state": "done",
+      "startedAt": 1792799279132,
+      "queuedAt": 1792799279097,
+      "attempt": 1,
+      "lastToolName": "StructuredOutput",
+      "lastToolSummary": "The provenance all checks out. Re-hashing the files on disk…",
+      "promptPreview": "PROJECT CONTEXT (read carefully; you are one of several independent verifiers).\nRepo (git worktree, read-only for you): /data/chaoyi_he/HSI/Diffu/.claude/worktrees/phase1-plan\nPython: /home/grads/c/chaoyi_he/Desktop/conda/envs/hsi/bin/python  — ALWAYS run with CUDA_VISIBLE_DEVICES= (CPU only; both GPUs are busy with training you must not disturb).\nScratch dir for any file you write: /home/staff/c/…",
+      "promptFramed": true,
+      "lastProgressAt": 1792800048906,
+      "tokens": 143376,
+      "toolCalls": 41,
+      "durationMs": 764696,
+      "resultPreview": "{\"claims\":[{\"id\":\"P1-sha-checkpoints\",\"statement\":\"The sha256 of every checkpoint file on disk equals the record's provenance: centre regress_l1_sel_d8_b64@11, diffusion residual_reg_d8_b64@100, varhead_d8_b64@10, ensemble member regress_l1_sel_s43_d8_b64@12, half1 regress_l1_half1_d8_b64@15, half2 regress_l1_half2_d8_b64@13\",\"verdict\":\"CONFIRMED\",\"evidence\":\"All 7 entries match after re-hashing t…"
+    },
+    {
+      "type": "workflow_agent",
+      "index": 6,
+      "label": "steelman",
+      "phaseIndex": 1,
+      "phaseTitle": "Verify",
+      "agentId": "a9cc89588bf20ffdf",
+      "model": "claude-opus-5-5",
+      "state": "done",
+      "startedAt": 1792799279133,
+      "queuedAt": 1792799279097,
+      "attempt": 1,
+      "lastToolName": "StructuredOutput",
+      "lastToolSummary": "Label: steelman. Short answer: the d = 8 verdict is a corre…",
+      "promptPreview": "PROJECT CONTEXT (read carefully; you are one of several independent verifiers).\nRepo (git worktree, read-only for you): /data/chaoyi_he/HSI/Diffu/.claude/worktrees/phase1-plan\nPython: /home/grads/c/chaoyi_he/Desktop/conda/envs/hsi/bin/python  — ALWAYS run with CUDA_VISIBLE_DEVICES= (CPU only; both GPUs are busy with training you must not disturb).\nScratch dir for any file you write: /home/staff/c/…",
+      "promptFramed": true,
+      "lastProgressAt": 1792805183826,
+      "tokens": 287021,
+      "toolCalls": 68,
+      "durationMs": 5899602,
+      "resultPreview": "{\"summary\":\"Label: steelman. Short answer: the d = 8 verdict is a correct reading of the pre-registered clauses for this checkpoint and sampler, and the single fix round (K = 64 DDIM-10; DDPM-1000 on the 50-cube subset) is very unlikely to flip any failed clause. The steelman is right about the cause, though. The negative result comes mostly from one implementation defect that can be fixed: the tr…"
+    },
+    {
+      "type": "workflow_agent",
+      "index": 7,
+      "label": "synthesis",
+      "phaseIndex": 2,
+      "phaseTitle": "Synthesize",
+      "agentId": "aa43eb538e66c91d9",
+      "model": "claude-opus-5-5",
+      "state": "done",
+      "startedAt": 1792805186204,
+      "queuedAt": 1792805186164,
+      "attempt": 1,
+      "lastToolName": "StructuredOutput",
+      "lastToolSummary": "Run the pre-registered fix round, but treat it as closing t…",
+      "promptPreview": "PROJECT CONTEXT (read carefully; you are one of several independent verifiers).\nRepo (git worktree, read-only for you): /data/chaoyi_he/HSI/Diffu/.claude/worktrees/phase1-plan\nPython: /home/grads/c/chaoyi_he/Desktop/conda/envs/hsi/bin/python  — ALWAYS run with CUDA_VISIBLE_DEVICES= (CPU only; both GPUs are busy with training you must not disturb).\nScratch dir for any file you write: /home/staff/c/…",
+      "promptFramed": true,
+      "lastProgressAt": 1792805773507,
+      "tokens": 168993,
+      "toolCalls": 40,
+      "durationMs": 587302,
+      "resultPreview": "{\"confirmed\":[\"Every clause in verdict__d8_main.json is reproduced exactly. Two independent recomputes match in float64, and two cluster-SE formulas agree to 1e-6 (G = 113 source images). C1 = +0.1720 (iid SE 0.0058, cluster SE 0.0068) FAIL. C2: cov90 0.9082, cov50 0.6741, FAIL on cov50 alone. P1 = -0.3124 (0.0525, 0.0651) PASS. P2 = +1.1695 (0.0394, 0.0442) FAIL. S1 = +0.0517 (0.0042, 0.0046) FAI…"
+    }
+  ],
+  "totalTokens": 1125008,
+  "totalToolCalls": 292
+}
