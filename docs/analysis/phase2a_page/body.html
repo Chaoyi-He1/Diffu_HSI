@@ -1,0 +1,180 @@
+<main>
+<header>
+  <div class="eyebrow">Diffu_HSI · residual warm-start · Phase 2a · 24 October 2026</div>
+  <h1>Around the one-call regressor, the residual diffusion scores like a fixed-width Gaussian on CRPS, and a variance head beats both</h1>
+  <p class="lede">Phase 2a asked whether a diffusion model centred on the one-call regressor gives calibrated per-pixel uncertainty and better texture than a regressor that predicts its own per-pixel variance. The main test ran at stride 8, where 63 of every 64 pixels are interpolated. The pre-registered verdict is no, and a second stride gives the same answer. The diffusion's CRPS is 10 to 11 % worse than the variance head's at both strides (9.8 % at stride 8, 10.9 % at stride 4, as a ratio of means). Its spread has almost the same width everywhere and is mostly white, high-frequency noise, so as a predictive distribution it does no better than one fixed-width Gaussian around the regressor. Three of the six pre-registered clauses turned out to be out of reach for a well-calibrated sampler (S2 only by chance); section 4 explains why, and the pre-registered verdict stands. The two calibration clauses were passable and failed on merit.</p>
+  <div class="kv">
+    <div><small>variance head · CRPS · d&nbsp;=&nbsp;8</small><b class="hi">1.760 %</b><small>below the diffusion on 193 of 200 cubes</small></div>
+    <div><small>residual diffusion · CRPS · d&nbsp;=&nbsp;8</small><b class="hi">1.932 %</b><small><span class="pill no">C1 FAIL</span> +0.172 ± 0.007</small></div>
+    <div><small>one fixed-width Gaussian</small><b class="hi">1.947 %</b><small>diffusion − Gaussian −0.015 ± 0.010</small></div>
+    <div><small>error ranking · AUSE (lower is better)</small><b class="hi">0.37 vs 0.18</b><small>diffusion vs variance head</small></div>
+    <div><small>pre-registered verdict</small><b class="hi">wins: false</b><small><span class="pill no">d = 8</span> <span class="pill nt">d = 4 report: false</span></small></div>
+  </div>
+  <figure>
+    <div class="scroll" data-fig="pipeline" data-aria="The one-call regressor gives a centre estimate. Two uncertainty models sit around that same centre: a residual diffusion model that draws 32 samples, and a variance head that predicts a Gaussian width per pixel. Both are scored on the 200 gate cubes with CRPS, coverage, error ranking and texture measures."></div>
+    <figcaption>What was compared. Both uncertainty models share the same centre, the one-call regressor's estimate $\hat x_R$ from the low-resolution sensor image. The residual diffusion models $r=(x-\hat x_R)/\sigma_R$ and returns 32 samples per cube. The variance head is the same U-Net trained with a Gaussian likelihood to predict one width per pixel and band. To keep the diffusion's training residuals honest, every training cube's centre comes from a regressor trained on the other half of the data (cross-fitting). Centring the samples on the two half regressors' average instead of the full regressor, the pre-registered sensitivity row, changes the diffusion's CRPS by +0.004 ± 0.004 at $d=8$ and +0.012 ± 0.002 at $d=4$. Everything is scored on the same 200 held-out gate cubes.</figcaption>
+  </figure>
+  <nav class="toc" aria-label="Contents">
+    <a href="#s1"><b>1</b>The test</a><a href="#s2"><b>2</b>The d = 8 verdict</a><a href="#s3"><b>3</b>Why it failed</a><a href="#s4"><b>4</b>Clauses that could not pass</a><a href="#s5"><b>5</b>Fix round</a><a href="#s6"><b>6</b>The d = 4 contrast</a><a href="#s7"><b>7</b>Decision</a><a href="#s8"><b>8</b>Rulings and compute</a>
+  </nav>
+  <div class="gloss">
+    <h3>Terms used below</h3>
+    <div><b>Centre $\hat x_R$</b>the pre-registered one-call regressor's estimate: <code>regress_l1_sel_d8_b64</code> epoch 11 at $d=8$, <code>regress_l1_sel_d4_b64</code> epoch 17 at $d=4$</div>
+    <div><b>$\sigma_R$</b>RMS of $x-\hat x_R$ over the cross-fitted training cubes: 0.0893 at $d=8$, 0.0406 at $d=4$ ([−1, 1] scale)</div>
+    <div><b>Residual diffusion</b>the U-Net of B (Phase 1a's linear-centred residual diffusion) with $\hat x_R$ as its input channels, v-prediction, 100 epochs; 32 DDIM-10 samples per cube, composed as $\mathrm{clamp}(\hat x_R+\sigma_R r_k)$</div>
+    <div><b>Variance head</b>the same U-Net, one call, predicting $\log\sigma^2$ per pixel and band of $r$, trained with a Gaussian likelihood around $\hat x_R$</div>
+    <div><b>CRPS</b>continuous ranked probability score of the predictive distribution against the truth, per element, in % of range; lower is better; it rewards both a good centre and a spread matched to the error</div>
+    <div><b>Coverage cov50 / cov90</b>share of elements inside the central 50 % / 90 % interval; a calibrated model gives 0.50 / 0.90 (sample quantiles use Weibull positions, nominal for $K\ge 19$ up to a ≈ +0.009 residual at the 90 % level)</div>
+    <div><b>AUSE</b>area between the sparsification curve (remove the elements with the largest predicted spread first) and the oracle's; 0 means the spread ranks the errors perfectly</div>
+    <div><b>Spread ratio</b>mean predicted variance over mean squared error; 1 for a model whose spread has the right overall size</div>
+    <div><b>Log HF ratio</b>$\log$ of the Laplacian high-frequency energy of an estimate over the truth's; 0 is right, below 0 is blur, above 0 is excess roughness</div>
+    <div><b>Gradient W1</b>Wasserstein distance between the gradient-magnitude histograms of an estimate and the truth; 0 is right</div>
+    <div><b>Fixed-width Gaussian</b>$N(\hat x_R,(c\,\sigma_R)^2)$ with one width $c$ for every pixel of every cube, the best $c$ chosen on the gate itself (a generous reference)</div>
+    <div><b>Stride $d$</b>the sensor samples one pixel in each $d\times d$ block: 1 in 64 at $d=8$ (the gate), 1 in 16 at $d=4$ (report-only contrast)</div>
+    <div><b>± values</b>standard errors over the 200 cubes, clustered by their 113 source images as the pre-registered rules require, unless marked otherwise; S2's is the iid SE over its 32 y-swap cubes</div>
+  </div>
+</header>
+
+<!-- ============================================================ -->
+<section id="s1">
+  <h2><span class="no">01</span>The test, fixed before any number was seen</h2>
+  <p class="lead">The spec of 22 October fixed six clauses at $d=8$ before training began. Calibration passes if C1 and C2 pass, the perceptual test passes if P1 and P2 pass, and "diffusion wins" needs both plus the sanity clause S1 and the validity clause S2. The $d=4$ run uses the same code and reports the same clauses without a gate.</p>
+  <div class="tbl" data-table="clauses"></div>
+  <h3>What was trained</h3>
+  <p>Each stride needed two half-data regressors for the cross-fitted centres, the residual diffusion and the variance head; $d=8$ also got a second-seed regressor for an ensemble baseline. Selection followed the pre-registered rule, the epoch with the lowest monitoring loss, on the 800 validation files that never include a gate cube.</p>
+  <div class="tbl" data-table="runs"></div>
+</section>
+
+<!-- ============================================================ -->
+<section id="s2">
+  <h2><span class="no">02</span>The d = 8 verdict: the variance head is the better uncertainty model</h2>
+  <p class="lead">The single pre-registered verdict, taken once on 23 October at 18:44, fails five of six clauses. The variance head has the lower CRPS on 193 of the 200 cubes, and its per-pixel width ranks the errors with half the diffusion's AUSE (0.18 against 0.37). Of the pre-registered comparators the diffusion beats only the two-member regressor ensemble, whose spread is far too narrow to be useful; it ties the fixed-width Gaussian (−0.015 ± 0.010).</p>
+  <div class="tbl" data-table="verdicts"></div>
+  <figure>
+    <p class="charthead">CRPS by predictive model on the 200 gate cubes (lower is better)</p>
+    <div class="seg" role="group" aria-label="Stride"><button type="button" data-crps="d8" aria-pressed="true">d = 8 (gate)</button><button type="button" data-crps="d4" aria-pressed="false">d = 4 (report only)</button></div>
+    <div class="scroll" data-chart="crps" data-aria="Horizontal bars of mean CRPS per predictive model. At d = 8 the variance head is lowest at 1.760, the best fixed-width Gaussian 1.947, the residual diffusion 1.932 and the two-member ensemble 2.145."></div>
+    <figcaption>The diffusion lands next to the best single-width Gaussian around the same centre, chosen with hindsight on the gate. Everything the variance head gains over that Gaussian comes from putting more width where the errors are larger. At $d=4$ the linear-centred diffusion B from Phase 1a is added for reference; its centre is the weaker linear estimate.</figcaption>
+  </figure>
+  <figure>
+    <p class="charthead">Cube by cube: diffusion CRPS against the variance head's</p>
+    <div class="seg" role="group" aria-label="Stride"><button type="button" data-sc="d8" aria-pressed="true">d = 8</button><button type="button" data-sc="d4" aria-pressed="false">d = 4</button></div>
+    <div class="scroll" data-chart="scatter" data-aria="Scatter of per-cube CRPS, variance head on the x axis and diffusion on the y axis. Almost every point lies above the diagonal."></div>
+    <figcaption>Points above the dashed diagonal are cubes where the diffusion is worse. Colours mark the source class: P022 is seen in training, P023 and P024 are not. C1 fails in every class at both strides.</figcaption>
+  </figure>
+  <div class="thm">
+    <span class="lbl">VERIFIED BEFORE IT WAS WRITTEN UP</span>
+    Six independent checks ran on the record before this page existed. Two recomputations, one from scratch in numpy and one as a 5000-draw bootstrap over the 113 source images, reproduce every clause bit for bit. Calibration, the perceptual test and "wins" pass in none of the 5000 draws. Every checkpoint, the centre cache, the prior and the split re-hash to the record, and the epochs are the ones the selection rule picks. The scripts and their structured result are in <code>docs/analysis/phase2a_verify_d8/</code>.
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section id="s3">
+  <h2><span class="no">03</span>Why: the spread has almost the same width everywhere, and it is noise</h2>
+  <p class="lead">A good per-pixel uncertainty is narrow where the error is small and wide where it is large. The variance head behaves that way. The diffusion's spread barely changes: across cubes its log width rises with log error at slope 0.14 at $d=8$ and 0.07 at $d=4$, against 0.72 and 0.82 for the variance head.</p>
+  <figure>
+    <p class="charthead">Error and predicted spread by sensor phase (pixel position within the d × d block; 8 stored cubes)</p>
+    <div class="seg" role="group" aria-label="Stride"><button type="button" data-ph="d8" aria-pressed="true">d = 8 · 64 phases</button><button type="button" data-ph="d4" aria-pressed="false">d = 4 · 16 phases</button></div>
+    <div class="legend"><span><i style="background:var(--ink-2)"></i>RMS error of $\hat x_R$</span><span><i style="background:var(--s2)"></i>diffusion spread (RMS sd of 32 samples)</span><span><i style="background:var(--accent)"></i>variance head width (RMS $\sigma$)</span></div>
+    <div class="scroll" data-chart="phase" data-aria="Lines over the sensor phases sorted by error. The error and the variance-head width both rise by about an order of magnitude from the measured pixel to the farthest pixel; the diffusion spread stays flat."></div>
+    <figcaption>Phases are sorted by error; the first point is the measured pixel, where the regressor is almost exact. As ratios of the plotted RMS values, at $d=8$ the error varies 14-fold across phases and the variance head's width 13-fold, while the diffusion's spread varies 1.15-fold; at $d=4$ the figures are 8.7-fold, 9.5-fold and 1.17-fold. Most of that range comes from the measured pixel: without it the error varies 3.3-fold at $d=8$ and 1.8-fold at $d=4$, the variance head's width 3.1-fold and 1.8-fold, and the diffusion's spread 1.14-fold and 1.12-fold. At $d=8$, at the measured pixel the diffusion's spread is 3.6 % against an error of 0.43 %, so its 90 % intervals cover 99.9 % of those elements.</figcaption>
+  </figure>
+  <figure>
+    <p class="charthead">Coverage of the central interval, by decile of the variance head's predicted width (8 stored cubes)</p>
+    <div class="seg" role="group" aria-label="Stride and level"><button type="button" data-cv="d8:50" aria-pressed="true">d = 8 · 50 %</button><button type="button" data-cv="d8:90" aria-pressed="false">d = 8 · 90 %</button><button type="button" data-cv="d4:50" aria-pressed="false">d = 4 · 50 %</button><button type="button" data-cv="d4:90" aria-pressed="false">d = 4 · 90 %</button></div>
+    <div class="legend"><span><i style="background:var(--s2)"></i>residual diffusion</span><span><i style="background:var(--accent)"></i>variance head</span><span><i class="sq" style="background:var(--good-bg);border:1px solid var(--good)"></i>C2 band</span></div>
+    <div class="scroll" data-chart="cov" data-aria="Coverage against the decile of predicted width. The variance head's coverage stays roughly level across deciles: at d = 8 its 50 % coverage is 0.60 to 0.68, above the nominal 0.50 in every decile, and at d = 4 it is 0.49 to 0.56. The diffusion over-covers in calm deciles and under-covers in the most uncertain ones."></div>
+    <figcaption>A fixed width is too wide in calm regions and too narrow in rough ones. Calm elements are the majority, so at $d=8$, pooled over all elements of the 200 gate cubes, the diffusion's 50 % interval covers 0.674, outside the band; its 90 % coverage of 0.908 lands inside only because the over- and under-covered strata average out (0.666 and 0.918 at $d=4$).</figcaption>
+  </figure>
+  <div class="twocol">
+    <figure>
+      <p class="charthead">Spatial spectrum of the true residual and of a sample's deviation (d = 8, 8 stored cubes)</p>
+      <div class="legend"><span><i style="background:var(--ink-2)"></i>true residual $x-\hat x_R$</span><span><i style="background:var(--s2)"></i>sample deviation $x_k-\hat x_R$</span></div>
+      <div class="scroll" data-chart="psd" data-aria="Log power against spatial frequency. The true residual's power falls steeply with frequency; the sample deviation's power is nearly flat and exceeds the truth at high frequency."></div>
+      <figcaption>The true residual is smooth: 90 % of its energy sits below radius 12.5. A sample's deviation is close to white, with 61 % of its energy above that radius, and its coherence with the true residual is about zero at every frequency.</figcaption>
+    </figure>
+    <figure>
+      <p class="charthead">Low-noise denoiser: x₀ error by timestep (d = 4, r units, 8 stored cubes)</p>
+      <div class="legend"><span><i style="background:var(--s2)"></i>network</span><span><i style="background:var(--accent)"></i>spectral linear filter</span><span><i class="dash"></i>no denoising ($\sqrt{\bar\alpha_t}\,x_t$)</span></div>
+      <div class="scroll" data-chart="probe" data-aria="x0 error against timestep. Below t = 399 a linear spectral filter fitted on training cubes has a lower error than the network; above it the network is better."></div>
+      <figcaption>At low noise the network does worse than a linear filter fitted on training cubes, at every $t\le 299$ and at both strides. The noise it leaves is the likely source of the white roughness in every sample. Replacing those steps with the filter on the 8 stored $d=8$ cubes removed about 60 % of the C1 gap, but the samples then became under-dispersed (spread ratio 0.32, cov90 0.83), and only a global spread inflation fitted on those same 8 cubes reached parity with the variance head. That is a post hoc diagnostic, not a gate result.</figcaption>
+    </figure>
+  </div>
+  <div class="remark"><b>The model does use its condition, but only to shape the spread.</b> On the 8 stored $d=8$ cubes, under a swapped condition its spread map follows the donor cube (Spearman 0.55 with the donor, 0.25 with its own). The residual's conditional mean is close to zero by construction, so the condition has little else to do. On one cube, more sampling steps did not help: DDIM-50 and DDPM-1000 give a slightly worse CRPS than DDIM-10, with the same white deviations.</div>
+</section>
+
+<!-- ============================================================ -->
+<section id="s4">
+  <h2><span class="no">04</span>Three clauses no calibrated sampler could pass, and one pass that means nothing</h2>
+  <p class="lead">The verification found a flaw in the spec I wrote. P2 and S1 at $K=32$ cannot be passed by any sampler whose spread matches its error, and S2 has too little power to pass except by chance, so "diffusion wins" was unreachable at either stride, whatever the model. P1 passed for a reason unrelated to texture. C1 and C2 were passable; they are the result.</p>
+  <figure>
+    <p class="charthead">P2: a calibrated single sample is about √2 times the regressor's error, above the baseline</p>
+    <div class="scroll" data-chart="p2" data-aria="Bars of RMSE per stride: regressor, baseline, observed single sample, and the RMSE expected for a calibrated single sample, which is the regressor's times the square root of two."></div>
+    <figcaption>A single draw's squared error is the centre's plus the spread's variance. A calibrated spread doubles it, so the draw's RMSE is about $\sqrt 2$ times the regressor's: 5.98 % at $d=8$ against the baseline's 4.58 %. The baseline is only 1.08 times worse than the regressor at $d=8$ and 1.20 times at $d=4$, so P2 could pass only with a spread far too narrow to meet C2.</figcaption>
+  </figure>
+  <div class="thm warn">
+    <span class="lbl">S1 MEASURED MONTE CARLO NOISE, NOT DRIFT</span>
+    The mean of $K$ draws carries the extra error $v/K$ from the spread $v$. A perfectly centred sampler with this spread is expected to show S1 = +0.058 at $K=32$; the run showed +0.052. Removing that term after the fact gives −0.006 ± 0.004 at $d=8$ and +0.001 ± 0.001 at $d=4$, both inside the rule's 2 SE; the pre-registered S1 still fails at both strides. The fix round confirmed the $1/K$ term: at $K=64$ S1 halved to +0.025. As written, S1 would need $K\approx 256$ at $d=8$ for a perfectly centred sampler.
+  </div>
+  <div class="thm warn">
+    <span class="lbl">S2 HAD NO POWER IN THIS DESIGN</span>
+    The samples are always added to the true centre, and the residual's conditional mean is near zero, so swapping the condition only changes the size of the $1/K$ noise term. Even an oracle-calibrated sampler would score +0.024 ± 0.019 at $d=8$ and fail in expectation. S2's failure says nothing about whether the condition is used; the probes in section 3 show it is.
+  </div>
+  <figure>
+    <p class="charthead">P1: texture by log high-frequency ratio (0 is right; below 0 blurs, above 0 is rough)</p>
+    <div class="scroll" data-chart="hf" data-aria="Bars of log high-frequency ratio per estimate. The regressor and the baseline sit far below zero, a single sample far above zero, and the mean of 32 samples in between."></div>
+    <figcaption>P1 compares absolute values, so a single sample with 18 times the truth's high-frequency energy (+2.88) beats a regressor with 1/24 of it (−3.19). The extra energy is white noise: the sample's gradient W1 is worse than the regressor's (0.0080 against 0.0054), and the regressor plus white noise would pass P1 by a wider margin. The pooled pass also rests on P023 alone; P022 and P024 fail on their own.</figcaption>
+  </figure>
+</section>
+
+<!-- ============================================================ -->
+<section id="s5">
+  <h2><span class="no">05</span>The pre-registered fix round: the K = 64 predictions, written first, all held</h2>
+  <p class="lead">The spec allows one fix round when calibration fails: $K=64$ on the gate, and DDPM-1000 on the 50-cube DDPM subset. The predictions below were written into the results note before the run. P1 and P2 repeat the $K=32$ values by construction (the single sample is draw 0 with the same seed), so the informative predictions are C1, C2 and S1. The DDPM-1000 row's prediction (CRPS no better than DDIM-10, spread at least as wide and still white) is tested when its record lands.</p>
+  <div class="tbl" data-table="fix"></div>
+  <p data-slot="ddpm"></p>
+  <p>Under the spec, part (a) has failed at $d=8$.</p>
+</section>
+
+<!-- ============================================================ -->
+<section id="s6">
+  <h2><span class="no">06</span>The d = 4 contrast: smaller in absolute terms, not in relative ones</h2>
+  <p class="lead">The spec predicted smaller gaps at $d=4$, where the posterior is narrower. In absolute units the CRPS gap halves, but so does the error itself. Scaled by the variance head's CRPS the gap does not shrink: 9.8 % at $d=8$ and 10.9 % at $d=4$ as a ratio of means, 12.4 % and 11.9 % as a mean of per-cube ratios. The diffusion now loses on all 200 cubes. The same white, nearly fixed-width spread appears, if anything stronger. Two strides are only two points, and they also differ in regressor, $\sigma_R$ and the roughness of the true residual, so none of these changes can be attributed to the stride alone.</p>
+  <div class="tbl" data-table="dose"></div>
+  <p>Two findings change the picture at $d=4$. The variance head becomes nearly calibrated, with cov50 0.537 and cov90 0.897, inside both C2 bands. And comparing the regressor-centred diffusion with the linear-centred B separates centre from spread: the new diffusion has the lower CRPS (−0.058 ± 0.004) because its centre is better, while B's spread ranks the errors better, on 197 of 200 cubes.</p>
+</section>
+
+<!-- ============================================================ -->
+<section id="s7">
+  <h2><span class="no">07</span>The decision</h2>
+  <ul class="concl">
+    <li><b>Part (a) failed under the pre-registered protocol.</b>At $d=8$ the residual diffusion does not give better calibrated uncertainty than the variance head, and the fix round's $K=64$ arm changed nothing; its report-only DDPM-1000 row is still running. The $d=4$ contrast shows the same.<span class="cost"><b>Settled by</b>the single $d=8$ verdict, its $K=64$ fix round, and two independent verifications.</span></li>
+    <li><b>For per-pixel uncertainty around the regressor, use the variance head.</b>It is one network call, ranks the errors well at both strides, and is nearly calibrated at $d=4$. At $d=8$ it is somewhat too wide (spread ratio 1.48); one global rescale fitted on the monitoring split may fix that (untested; an in-sample 0.7× rescale on the 8 stored $d=8$ cubes improved its CRPS by about 2 %).<span class="cost"><b>Cost</b>none: it is already trained at both strides.</span></li>
+    <li><b>The diagnostics point to one likely cause.</b>At low noise the denoiser is worse than a linear filter fitted on training cubes. One cheap experiment tests this on the gate: on all 200 gate cubes, without retraining, replace the network below $t=399$ with the training-fitted filter, fit any global spread inflation on the monitoring split and apply the same rescale to the variance head. If most of the gap closes and the spread now tracks the error (cube slope well above 0.14), a retrain aimed at the low-noise denoiser is justified; on the 8 stored cubes the repaired sampler reached at best a tie with the variance head. If the gap does not shrink, the leading explanation is wrong and part (a) closes.<span class="cost"><b>Cost</b>no training; fewer network calls than the $d=8$ evaluation. Not run: it is new scope and your call.</span></li>
+    <li><b>Part (b), a prior reused across sensors and strides, is next only if you want it.</b>This phase gives it a benchmark harness and a strong baseline to beat, the variance head.<span class="cost"><b>Cost</b>a new spec.</span></li>
+  </ul>
+</section>
+
+<!-- ============================================================ -->
+<section id="s8">
+  <h2><span class="no">08</span>Rulings and compute</h2>
+  <p class="lead">Decisions taken during execution that changed the spec, each recorded with its reason before it took effect. The last item is different: a finding made after the verdict, which changes nothing in it.</p>
+  <ul class="plain">
+    <li><b>K = 32 at both strides.</b> Empirical coverage uses Weibull quantile positions, which give the nominal level for a calibrated sampler only when $K\ge 19$ at the 90 % level. The spec's $K=16$ at $d=4$ was withdrawn.</li>
+    <li><b>Provenance checks.</b> A half regressor records the hash of the split it was trained on. The cache builder refuses a regressor whose residual scale or prior differs from the data's. The evaluator refuses a checkpoint sampled under the wrong parameterisation.</li>
+    <li><b>Stored figure cubes</b> come from the class-stratified y-swap batch, not the first gate files.</li>
+    <li><b>The DDPM-1000 fix-round arm runs report-only at K = 8</b> on the 50-cube subset. The verdict refuses $K<19$, and a $K\ge19$ DDPM run would cost about 40 GPU-hours for a gate it cannot plausibly change.</li>
+    <li><b>Found after the verdict: a spec design flaw.</b> P2 and S1 at $K=32$ could not be passed by a calibrated sampler, and S2 had too little power (section 4). They are recorded as failures, as pre-registered, and explained here.</li>
+  </ul>
+  <h3>Compute</h3>
+  <div class="tbl" data-table="compute"></div>
+  <figure>
+    <p class="charthead">The binding verdict, as printed</p>
+    <pre class="gate" data-slot="verdict"></pre>
+  </figure>
+</section>
+
+<footer>
+  Sources: records <code>results/residual_warmstart/uq/d8/eval/d8_main.json</code>, <code>d8_fix_k64.json</code>, <code>uq/d4/eval/d4_contrast.json</code> and their verdict files; verification scripts and results in <code>docs/analysis/phase2a_verify_d8/</code> and <code>docs/analysis/phase2a_verify_d4/</code>; page data built by <code>docs/analysis/phase2a_page/extract_page_data.py</code>. Spec <code>docs/superpowers/specs/2026-10-22-regressor-centred-uq-diffusion-design.md</code>; results note <code>docs/superpowers/plans/2026-10-22-regressor-centred-uq-diffusion-RESULTS.md</code>; branch <code>worktree-phase1-plan</code>.
+</footer>
+</main>
