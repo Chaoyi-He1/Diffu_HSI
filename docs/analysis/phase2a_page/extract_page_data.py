@@ -113,9 +113,18 @@ page['bootstrap8'] = load(os.path.join(V8, 'recompute-bootstrap', 'recompute_boo
 SE_P = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'spread_error.json')  # from spread_error_posthoc.py
 if os.path.exists(SE_P):
     page['spread_err'] = {k: {m: dict(mor=r4(s['mean_of_ratios']), rom=r4(s['ratio_of_means']['value']),
+                                    rom_kc=r4(s['ratio_of_means_kc']['value']) if 'ratio_of_means_kc' in s else None,
                                     rom_ci=[r4(x) for x in s['ratio_of_means']['ci95']], r=r4(s['pearson_log']['value']),
                                     r_ci=[r4(x) for x in s['pearson_log']['ci95']], rho=r4(s['spearman']['value']))
                               for m, s in v.items() if m != 'record'} for k, v in load(SE_P).items() if v}
+DC_P = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ddpm_compare__d8_fix_ddpm.json')  # from ddpm_compare.py
+if page['runs'].get('d8ddpm') and os.path.exists(DC_P):
+    dc = load(DC_P)
+    page['ddpm_cmp'] = dict(n=dc['n'], rows={k: {kk: r4(vv) for kk, vv in v.items()} for k, v in dc['rows'].items()},
+                            gap={k: r4(v) for k, v in dc['gap_vs_varhead'].items()},
+                            spread={k: {kk: r4(vv) for kk, vv in v.items()} for k, v in dc['spread'].items()},
+                            white={k: {kk: r4(v[kk]) for kk in ('lag1_dev', 'lag1_true', 'rms_sd_pct', 'K')} for k, v in dc['whiteness'].items()},
+                            clusters=dc['rows']['crps']['clusters'])
 if page['runs'].get('d8ddpm'):
     page['ddpm_hours'] = round(load(os.path.join(R, RUNS['d8ddpm'][0]))['provenance']['seconds'] / 3600, 3)
 

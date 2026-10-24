@@ -165,13 +165,26 @@ T.dose=function(h){const d8=D.dose.d8,d4=D.dose.d4,se=D.dose_se,pp=D.dose_paired
     ['AUSE gap, diffusion − variance head',num(sg(d8.ause_gap_abs,3)+' ± '+fx(se.ause_gap_abs.d8,3)),num(sg(d4.ause_gap_abs,3)+' ± '+fx(se.ause_gap_abs.d4,3)),pm2(pp.ause_gap_abs_d4_minus_d8.mean,pp.ause_gap_abs_d4_minus_d8.se_cluster,3)],
     ['error-ranking skill, diffusion / variance head',num(fx(100*d8.ause_skill_d,0)+' % / '+fx(100*d8.ause_skill_v,0)+' %'),num(fx(100*d4.ause_skill_d,0)+' % / '+fx(100*d4.ause_skill_v,0)+' %'),num('—')],
     ['spread slope on error, diffusion / variance head',num(fx(D.slope['8'].diffusion,2)+' / '+fx(D.slope['8'].varhead,2)),num(fx(D.slope['4'].diffusion,2)+' / '+fx(D.slope['4'].varhead,2)),num('—')],
-    ['spread size pooled over cubes (Σ variance / Σ squared error), diffusion / variance head',num(fx(D.spread_err.d8.diffusion.rom,2)+' / '+fx(D.spread_err.d8.varhead.rom,2)),num(fx(D.spread_err.d4.diffusion.rom,2)+' / '+fx(D.spread_err.d4.varhead.rom,2)),num('—')],
+    ['spread size pooled over cubes (Σ predicted variance / Σ squared error of the mean; for the diffusion the mean’s 1/K term is removed), diffusion / variance head',num(fx(D.spread_err.d8.diffusion.rom_kc,2)+' / '+fx(D.spread_err.d8.varhead.rom,2)),num(fx(D.spread_err.d4.diffusion.rom_kc,2)+' / '+fx(D.spread_err.d4.varhead.rom,2)),num('—')],
     ['spread–error correlation across cubes (log scale), diffusion / variance head',num(fx(D.spread_err.d8.diffusion.r,2)+' / '+fx(D.spread_err.d8.varhead.r,2)),num(fx(D.spread_err.d4.diffusion.r,2)+' / '+fx(D.spread_err.d4.varhead.r,2)),num('—')],
     ['cov50, diffusion / variance head',num(fx(d8.cov50_d,3)+' / '+fx(d8.cov50_v,3)),num(fx(d4.cov50_d,3)+' / '+fx(d4.cov50_v,3)),pm2(pp.cov50_diff_d4_minus_d8.mean,pp.cov50_diff_d4_minus_d8.se_cluster,3,' (diffusion)')],
     ['cov90, diffusion / variance head',num(fx(d8.cov90_d,3)+' / '+fx(d8.cov90_v,3)),num(fx(d4.cov90_d,3)+' / '+fx(d4.cov90_v,3)),pm2(pp.cov90_diff_d4_minus_d8.mean,pp.cov90_diff_d4_minus_d8.se_cluster,3,' (diffusion)')],
     ['single-sample log HF ratio',num(sg(d8.hf_single,2)),num(sg(d4.hf_single,2)),pm2(pp.hf_single_d4_minus_d8.mean,pp.hf_single_d4_minus_d8.se_cluster,3)],
     ['single-sample gradient-W1 penalty over the regressor',num(sg(100*d8.w1_pen_rel_ratio,0)+' % ± '+fx(100*se.w1_pen_rel_ratio.d8,0)),num(sg(100*d4.w1_pen_rel_ratio,0)+' % ± '+fx(100*se.w1_pen_rel_ratio.d4,0)),num(sg(100*pp.w1_gap_rel_d4_minus_d8.mean,1)+' ± '+fx(100*pp.w1_gap_rel_d4_minus_d8.se_cluster_delta,1)+' pp')],
     ['P1 statistic',num(sg(d8.p1,3)+' ± '+fx(se.p1.d8,3)),num(sg(d4.p1,3)+' ± '+fx(se.p1.d4,3)),pm2(pp.P1_abs_d4_minus_d8.mean,pp.P1_abs_d4_minus_d8.se_cluster,3)]]);};
+T.ddpm=function(h){const c=D.ddpm_cmp;if(!c){h.innerHTML='';return;}const R=c.rows,sp=c.spread,w=c.white;
+  function df(r,n){return num(sg(r.diff,n)+' ± '+fx(r.se_cluster,n));}
+  tbl(h,['measure ('+c.n+' shared cubes)','DDIM-10, K = 32 (the verdict record)','DDPM-1000, K = 8','DDPM − DDIM ± cluster SE'],[
+    ['CRPS (% of range; the fair estimator does not depend on K)',num(fx(R.crps.base,4)),num(fx(R.crps.other,4)),{v:df(R.crps,4).v+' · DDPM worse on '+Math.round(c.n*(1-R.crps.frac_other_lower))+' of '+c.n,cls:'num'}],
+    ['CRPS gap to the variance head',num(sg(c.gap.base,4)),num(sg(c.gap.other,4)),num('—')],
+    ['predicted variance, mean over elements (%²)',num(fx(R.pred_var_pct2.base,2)),num(fx(R.pred_var_pct2.other,2)),df(R.pred_var_pct2,2)],
+    ['pooled spread size, 1/K term removed (variance head '+fx(sp.varhead.pooled,2)+')',num(fx(sp.base.pooled_kc,2)),num(fx(sp.other.pooled_kc,2)),num('—')],
+    ['spread–error correlation across cubes, log scale (variance head '+fx(sp.varhead.corr_log,2)+')',num(fx(sp.base.corr_log,2)),num(fx(sp.other.corr_log,2)),num('—')],
+    ['single draw: RMSE (%)',num(fx(R.single_rmse_pct.base,3)),num(fx(R.single_rmse_pct.other,3)),df(R.single_rmse_pct,3)],
+    ['single draw: log HF-energy ratio',num(sg(R.single_hf.base,3)),num(sg(R.single_hf.other,3)),df(R.single_hf,3)],
+    ['lag-1 autocorrelation of sample deviations, 8 stored cubes (true residual '+fx(w.base.lag1_true,2)+')',num(fx(w.base.lag1_dev,2)),num(fx(w.other.lag1_dev,2)),num('—')],
+    ['RMS sample sd, 8 stored cubes (%)',num(fx(w.base.rms_sd_pct,2)),num(fx(w.other.rms_sd_pct,2)),num('—')]]);
+  const p=document.createElement('p');p.style.fontSize='14px';p.style.color='var(--muted)';p.textContent='Only quantities that do not depend on K are compared. Coverage and AUSE are biased at K = 8 and are left out. Cluster SE over '+c.clusters+' source images.';h.appendChild(p);};
 T.compute=function(h){const rows=[['Stage 0 harness check (d = 4 assets)','0.55','22 Oct'],['d = 8 half regressors, 2 × 40 epochs','3.67','22 Oct'],['d = 8 residual diffusion, 100 epochs','8.97','22–23 Oct'],['d = 8 variance head, 40 epochs','3.58','22–23 Oct'],['d = 8 second-seed regressor, 100 epochs','9.05','23 Oct'],['centre caches, both strides','0.20','22–23 Oct'],['d = 8 verdict evaluation (K = 32)','1.53','23 Oct'],['d = 8 fix round, K = 64','2.48','23–24 Oct'],['d = 4 half regressors','3.88','23 Oct'],['d = 4 residual diffusion','8.33','23–24 Oct'],['d = 4 variance head','3.99','23 Oct'],['d = 4 contrast evaluation','2.09','24 Oct']];
   let tot=rows.reduce(function(a,r){return a+(+r[1]);},0);
   if(RUN.ddpm&&D.ddpm_hours){rows.push(['d = 8 DDPM-1000 reference row (K = 8)',fx(D.ddpm_hours,2),'24 Oct']);tot+=D.ddpm_hours;}
@@ -185,8 +198,9 @@ function verdictText(c){const L=[];const w=function(k,body){L.push(k+': '+(c[k].
   L.push('calibration '+(c.calibration_pass?'PASS':'FAIL')+'; perceptual '+(c.perceptual_pass?'PASS':'FAIL')+'; diffusion wins (a): '+(c.wins?'True':'False'));return L.join('\n');}
 const S={};
 S.verdict=function(h){h.textContent=verdictText(RUN.d8.clauses);};
-S.ddpm=function(h){const r=RUN.ddpm;if(!r){h.innerHTML='<b>DDPM-1000 reference row:</b> still running at the time of writing; it is reported without a gate because the verdict refuses $K&lt;19$.';return;}
-  const m=r.means;h.innerHTML='<b>DDPM-1000 reference row</b> (report only, $K=8$, the 50-cube DDPM subset): diffusion CRPS '+fx(m.diffusion.crps,4)+' against the variance head’s '+fx(m.varhead.crps,4)+' on the same cubes; cov50 '+fx(m.diffusion.cov50,3)+', cov90 '+fx(m.diffusion.cov90,3)+', AUSE '+fx(m.diffusion.ause,3)+'; single-sample log HF ratio '+sg(m.diffusion.single_hf,2)+'.';};
+S.ddpm=function(h){const r=RUN.ddpm,c=D.ddpm_cmp;if(!r||!c){h.innerHTML='<b>DDPM-1000 reference row:</b> still running at the time of writing; it is reported without a gate because the verdict refuses $K&lt;19$.';return;}
+  const cl=r.clauses,sp=c.spread;const nf=['C1','C2','P1','P2','S1','S2'].filter(function(k){return !cl[k].passed;}).length;
+  h.innerHTML='<b>DDPM-1000 reference row</b> (report only, $K=8$, the 50-cube DDPM subset, '+fx(D.ddpm_hours,1)+' GPU-hours). All three predictions held. Its CRPS is worse than DDIM-10’s on the same cubes, and its spread is wider and just as white. The spread now has about the right overall size, but it follows the error no better, so the extra width costs CRPS. Single draws are rougher, so even P1’s artefactual pass disappears. '+(nf===6?'All six clauses fail':nf+' of six clauses fail')+' in its report-only verdict. Its S1 of '+sg(cl.S1.mean,2)+' is the $1/K$ term at $K=8$: with that term removed, the sampler’s own centre has RMSE '+fx(sp.other.centre_rmse,2)+' % against the regressor’s '+fx(sp.other.regressor_rmse,2)+' %.';};
 
 document.querySelectorAll('[data-fig]').forEach(function(h){const f=F[h.dataset.fig];if(f)f(h);});
 document.querySelectorAll('[data-chart]').forEach(function(h){const f=CH[h.dataset.chart];if(f)f(h);});

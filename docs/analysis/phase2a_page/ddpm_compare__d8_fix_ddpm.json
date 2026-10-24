@@ -1,0 +1,156 @@
+{
+ "other": "d8_fix_ddpm",
+ "K_other": 8,
+ "sampler_other": "ddpm1000",
+ "K_base": 32,
+ "sampler_base": "ddim10",
+ "n": 50,
+ "varhead_crps_max_abs_diff": 3.8925488348162673e-05,
+ "rows": {
+  "crps": {
+   "other": 1.971835242304558,
+   "base": 1.9178406192338822,
+   "diff": 0.053994623070675936,
+   "se": 0.006414778160332228,
+   "se_cluster": 0.006305140495321879,
+   "clusters": 45,
+   "frac_other_lower": 0.16
+  },
+  "pred_var_pct2": {
+   "other": 21.426980685851746,
+   "base": 14.282624832989526,
+   "diff": 7.14435585286222,
+   "se": 0.39319911162082627,
+   "se_cluster": 0.43639382860001147,
+   "clusters": 45,
+   "frac_other_lower": 0.0
+  },
+  "single_rmse_pct": {
+   "other": 6.265482444763183,
+   "base": 5.749161834716797,
+   "diff": 0.5163206100463867,
+   "se": 0.03517603865848285,
+   "se_cluster": 0.03347782086526206,
+   "clusters": 45,
+   "frac_other_lower": 0.0
+  },
+  "single_hf": {
+   "other": 3.18895050639522,
+   "base": 2.8269208635046374,
+   "diff": 0.3620296428905832,
+   "se": 0.0009193448100867644,
+   "se_cluster": 0.000987857678517727,
+   "clusters": 45,
+   "frac_other_lower": 0.0
+  },
+  "single_w1": {
+   "other": 0.010354093933105468,
+   "base": 0.007939921188354493,
+   "diff": 0.0024141727447509766,
+   "se": 9.477488131963362e-05,
+   "se_cluster": 8.720542246176967e-05,
+   "clusters": 45,
+   "frac_other_lower": 0.0
+  },
+  "mean_rmse_pct": {
+   "other": 4.594449062347412,
+   "base": 4.346104364395142,
+   "diff": 0.24834469795227052,
+   "se": 0.017910083293717505,
+   "se_cluster": 0.01802394248081067,
+   "clusters": 45,
+   "frac_other_lower": 0.02
+  },
+  "cov50": {
+   "other": 0.6859159851074219,
+   "base": 0.6756745147705078,
+   "diff": 0.010241470336914062,
+   "se": 0.0029102746592062135,
+   "se_cluster": 0.0030382570220966027,
+   "clusters": 45,
+   "frac_other_lower": 0.38
+  },
+  "cov90": {
+   "other": 0.8725963592529297,
+   "base": 0.9079171752929688,
+   "diff": -0.03532081604003906,
+   "se": 0.0012721669972799846,
+   "se_cluster": 0.0013013223357928269,
+   "clusters": 45,
+   "frac_other_lower": 1.0
+  },
+  "ause": {
+   "other": 0.4203535496360606,
+   "base": 0.3652827667881289,
+   "diff": 0.05507078284793182,
+   "se": 0.004655391338759908,
+   "se_cluster": 0.004618385682302747,
+   "clusters": 45,
+   "frac_other_lower": 0.04
+  }
+ },
+ "gap_vs_varhead": {
+  "other": 0.22663052738654899,
+  "base": 0.17263636556658868,
+  "se_cluster_other": 0.01402714897056156,
+  "other_loses_on": 48
+ },
+ "whiteness": {
+  "base": {
+   "files": [
+    "MatFlower60/Train/P022/91_1.mat",
+    "MatFlower60/Train/P023/100_10.mat",
+    "MatFlower60/Train/P023/21_4.mat",
+    "MatFlower60/Train/P023/34_10.mat",
+    "MatFlower60/Train/P023/72_5.mat",
+    "MatFlower60/Train/P023/85_12.mat",
+    "MatFlower60/Train/P023/99_10.mat",
+    "MatFlower60/Train/P024/37_2.mat"
+   ],
+   "K": 32,
+   "lag1_dev": 0.2523569024781087,
+   "lag1_true": 0.8721132072406113,
+   "rms_sd_pct": 3.939907884141738
+  },
+  "other": {
+   "files": [
+    "MatFlower60/Train/P022/91_1.mat",
+    "MatFlower60/Train/P023/100_10.mat",
+    "MatFlower60/Train/P023/21_4.mat",
+    "MatFlower60/Train/P023/34_10.mat",
+    "MatFlower60/Train/P023/72_5.mat",
+    "MatFlower60/Train/P023/85_12.mat",
+    "MatFlower60/Train/P023/99_10.mat",
+    "MatFlower60/Train/P024/37_2.mat"
+   ],
+   "K": 8,
+   "lag1_dev": 0.28575579036334037,
+   "lag1_true": 0.8721132072406113,
+   "rms_sd_pct": 4.9824455444838875
+  }
+ },
+ "spread": {
+  "base": {
+   "K": 32,
+   "pooled_kc": 0.7311128170281396,
+   "corr_log": 0.5758598932604947,
+   "s1_literal": 0.043185148239135746,
+   "centre_rmse": 4.292330757605704,
+   "centre_minus_regressor": -0.01058845855030211,
+   "regressor_rmse": 4.302919216156006
+  },
+  "other": {
+   "K": 8,
+   "pooled_kc": 1.1002881676239111,
+   "corr_log": 0.5693783242146964,
+   "s1_literal": 0.29152984619140626,
+   "centre_rmse": 4.284355095228431,
+   "centre_minus_regressor": -0.018564120927574434,
+   "regressor_rmse": 4.302919216156006
+  },
+  "varhead": {
+   "pooled": 1.35347249792615,
+   "corr_log": 0.6586261806771141
+  }
+ }
+}

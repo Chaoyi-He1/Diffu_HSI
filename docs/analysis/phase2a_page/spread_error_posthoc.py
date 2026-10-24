@@ -6,6 +6,10 @@ scale) and the per-cube RMSE (%) of the same mean, so mean(err_i^2) = (rmse_i / 
 This script derives, per record and method:
   - mean_of_ratios: the recorded summary (mean over cubes of sr_i);
   - ratio_of_means: sum_i pred_var_i / sum_i err_i^2 (the pooled calibration of the spread's size);
+  - ratio_of_means_kc (diffusion only): the same with the mean-of-K's Monte-Carlo term removed from the denominator,
+    sum_i pred_var_i / sum_i (err_i^2 - pred_var_i / K). The mean of K draws has E[err^2] = (centre error)^2 + v / K, so
+    this compares the spread with the error of the sampler's centre and is comparable across K (at K = 32 it is about
+    2 % above ratio_of_means, at K = 8 about 14 %). The variance head and the ensemble have no such term;
   - pearson_log: Pearson correlation over cubes of log pred_var_i with log err_i^2 (does the spread track the error);
   - spearman: rank correlation of the same two quantities;
 with 95 % cluster-bootstrap intervals that resample source images (2000 draws, seed 0).
@@ -31,12 +35,15 @@ METHODS = ('diffusion', 'varhead', 'ensemble')
 B, SEED = 2000, 0
 
 
-def stats(pv, e2):
+def stats(pv, e2, K=None):
     lp, le = np.log(pv), np.log(e2)
     rp = np.argsort(np.argsort(pv)).astype(float)
     re_ = np.argsort(np.argsort(e2)).astype(float)
-    return dict(ratio_of_means=float(pv.sum() / e2.sum()), pearson_log=float(np.corrcoef(lp, le)[0, 1]),
-                spearman=float(np.corrcoef(rp, re_)[0, 1]))
+    out = dict(ratio_of_means=float(pv.sum() / e2.sum()), pearson_log=float(np.corrcoef(lp, le)[0, 1]),
+               spearman=float(np.corrcoef(rp, re_)[0, 1]))
+    if K:
+        out['ratio_of_means_kc'] = float(pv.sum() / (e2 - pv / K).sum())
+    return out
 
 
 def summarise(rec, method, rng):
@@ -44,15 +51,16 @@ def summarise(rec, method, rng):
     sr = np.asarray(pc['spread_ratio'], dtype=np.float64)
     e2 = (np.asarray(pc['mean_rmse_pct'], dtype=np.float64) / 100.0) ** 2
     pv = sr * e2
-    point = stats(pv, e2)
+    K = rec['K'] if method == 'diffusion' else None
+    point = stats(pv, e2, K)
     keys = np.array([source_image(f) for f in rec['files']])
     groups = [np.flatnonzero(keys == k) for k in np.unique(keys)]
     boot = {k: [] for k in point}
     for _ in range(B):
         idx = np.concatenate([groups[g] for g in rng.integers(0, len(groups), len(groups))])
-        for k, v in stats(pv[idx], e2[idx]).items():
+        for k, v in stats(pv[idx], e2[idx], K).items():
             boot[k].append(v)
-    out = dict(mean_of_ratios=float(sr.mean()), n=int(len(sr)), clusters=len(groups))
+    out = dict(mean_of_ratios=float(sr.mean()), n=int(len(sr)), clusters=len(groups), K=K)
     for k, v in point.items():
         lo, hi = np.percentile(boot[k], [2.5, 97.5])
         out[k] = dict(value=v, ci95=[float(lo), float(hi)])
@@ -84,7 +92,8 @@ def main():
             s = v[m]
             print(f"{key:7s} {m:9s} n={s['n']:3d} mean-of-ratios {s['mean_of_ratios']:.3f}  ratio-of-means {s['ratio_of_means']['value']:.3f} "
                   f"[{s['ratio_of_means']['ci95'][0]:.3f}, {s['ratio_of_means']['ci95'][1]:.3f}]  r(log) {s['pearson_log']['value']:.3f} "
-                  f"[{s['pearson_log']['ci95'][0]:.3f}, {s['pearson_log']['ci95'][1]:.3f}]  rho {s['spearman']['value']:.3f}")
+                  f"[{s['pearson_log']['ci95'][0]:.3f}, {s['pearson_log']['ci95'][1]:.3f}]  rho {s['spearman']['value']:.3f}"
+                  + (f"  K-corrected ratio-of-means {s['ratio_of_means_kc']['value']:.3f} [{s['ratio_of_means_kc']['ci95'][0]:.3f}, {s['ratio_of_means_kc']['ci95'][1]:.3f}]" if 'ratio_of_means_kc' in s else ''))
     print('wrote', out)
 
 

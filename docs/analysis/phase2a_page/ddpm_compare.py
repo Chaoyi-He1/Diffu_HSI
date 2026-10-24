@@ -11,7 +11,10 @@ Coverage and AUSE are listed for information only: at K = 8 Weibull coverage is 
 ranks a noisier sd. Differences are other - verdict record, with iid and cluster SE (source images).
 Whiteness: on the 8 stored cubes of each record, the spatial lag-1 autocorrelation of the sample deviation s_k - mean
 (first 4 draws; mean over its own K draws) against that of the true residual x - x_r. A white deviation has lag-1 near 0.
-Reads the records read-only; writes ddpm_compare.json next to this file.
+Also on the shared cubes: the pooled spread ratio with the mean-of-K's 1/K term removed (sum v / sum(err^2 - v/K)), the
+cross-cube correlation of log v with log err^2, and S1 split into the 1/K term and the sampler's own centre error
+(per cube sqrt(err^2 - v/K) against the regressor's RMSE).
+Reads the records read-only; writes ddpm_compare__<OTHER_NAME>.json next to this file.
 
     python docs/analysis/phase2a_page/ddpm_compare.py [OTHER_NAME]      # default d8_fix_ddpm; d8_fix_k64 as a dry run
 """
@@ -86,6 +89,17 @@ def main():
     res['gap_vs_varhead'] = dict(other=float(g_o.mean()), base=float(g_b.mean()), se_cluster_other=cluster_se(g_o, files)[0],
                                  other_loses_on=int(np.sum(g_o > 0)))
     res['whiteness'] = dict(base=whiteness('d8_main'), other=whiteness(NAME))
+    reg = np.asarray(other['per_cube']['regressor']['rmse_pct'], dtype=np.float64)
+    res['spread'] = {}
+    for tag, pc, K in (('base', {k: v[idx] for k, v in pb.items()}, base['K']), ('other', po, other['K'])):
+        e2, v = pc['mean_rmse_pct'] ** 2, pc['pred_var_pct2']
+        centre = np.sqrt(e2 - v / K)
+        res['spread'][tag] = dict(K=K, pooled_kc=float(v.sum() / (e2 - v / K).sum()), corr_log=float(np.corrcoef(np.log(v), np.log(e2))[0, 1]),
+                                  s1_literal=float((pc['mean_rmse_pct'] - reg).mean()), centre_rmse=float(centre.mean()),
+                                  centre_minus_regressor=float((centre - reg).mean()), regressor_rmse=float(reg.mean()))
+    vv = per_cube(other, 'varhead')
+    res['spread']['varhead'] = dict(pooled=float(vv['pred_var_pct2'].sum() / (vv['mean_rmse_pct'] ** 2).sum()),
+                                    corr_log=float(np.corrcoef(np.log(vv['pred_var_pct2']), np.log(vv['mean_rmse_pct'] ** 2))[0, 1]))
     with open(os.path.join(HERE, f'ddpm_compare__{NAME}.json'), 'w') as f:
         json.dump(res, f, indent=1)
     print(f"{NAME} (K = {res['K_other']}, {res['sampler_other']}) vs d8_main (K = {res['K_base']}, {res['sampler_base']}) on {res['n']} shared cubes; "
@@ -95,6 +109,8 @@ def main():
               f"other lower on {100 * r['frac_other_lower']:.0f} %")
     g = res['gap_vs_varhead']
     print(f"  CRPS gap to the variance head: other {g['other']:+.4f} (cluster SE {g['se_cluster_other']:.4f}; loses on {g['other_loses_on']}/{res['n']}), base {g['base']:+.4f}")
+    for k, sp in res['spread'].items():
+        print(f'  spread {k}: ' + ', '.join(f'{a} {b:.4f}' for a, b in sp.items()))
     for k, w in res['whiteness'].items():
         print(f'  whiteness {k}: ' + ('no stored cubes' if w is None else f"K {w['K']} lag-1 of sample deviation {w['lag1_dev']:+.3f}, of the true residual {w['lag1_true']:+.3f}, RMS sd {w['rms_sd_pct']:.3f} %"))
 
