@@ -110,6 +110,12 @@ page['dose'] = {k: {kk: r4(vv) for kk, vv in syn[k].items() if isinstance(vv, (i
 page['dose_se'] = {k: {kk: r4(vv) for kk, vv in v.items() if isinstance(vv, (int, float))} for k, v in syn['delta_cluster_se'].items()}
 page['dose_paired'] = {k: {kk: r4(vv) for kk, vv in v.items() if isinstance(vv, (int, float))} for k, v in dose['paired_d4_minus_d8'].items()}
 page['bootstrap8'] = load(os.path.join(V8, 'recompute-bootstrap', 'recompute_bootstrap.json'))['bootstrap']['joint']
+SE_P = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'spread_error.json')  # from spread_error_posthoc.py
+if os.path.exists(SE_P):
+    page['spread_err'] = {k: {m: dict(mor=r4(s['mean_of_ratios']), rom=r4(s['ratio_of_means']['value']),
+                                    rom_ci=[r4(x) for x in s['ratio_of_means']['ci95']], r=r4(s['pearson_log']['value']),
+                                    r_ci=[r4(x) for x in s['pearson_log']['ci95']], rho=r4(s['spearman']['value']))
+                              for m, s in v.items() if m != 'record'} for k, v in load(SE_P).items() if v}
 if page['runs'].get('d8ddpm'):
     page['ddpm_hours'] = round(load(os.path.join(R, RUNS['d8ddpm'][0]))['provenance']['seconds'] / 3600, 3)
 

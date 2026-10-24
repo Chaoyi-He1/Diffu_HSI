@@ -71,7 +71,7 @@
 <!-- ============================================================ -->
 <section id="s3">
   <h2><span class="no">03</span>Why: the spread has almost the same width everywhere, and it is noise</h2>
-  <p class="lead">A good per-pixel uncertainty is narrow where the error is small and wide where it is large. The variance head behaves that way. The diffusion's spread barely changes: across cubes its log width rises with log error at slope 0.14 at $d=8$ and 0.07 at $d=4$, against 0.72 and 0.82 for the variance head.</p>
+  <p class="lead">A good per-pixel uncertainty is narrow where the error is small and wide where it is large. The variance head behaves that way. The diffusion's spread barely changes: across cubes its log width rises with log error at slope 0.14 at $d=8$ and 0.07 at $d=4$, against 0.72 and 0.82 for the variance head. Across cubes the diffusion's log predicted variance correlates with the log squared error at 0.59 at $d=8$ and 0.48 at $d=4$, against 0.83 and 0.90 for the variance head. Pooled over the cubes, its predicted variance is only 0.71 of its squared error at $d=8$ (0.65 at $d=4$), although the mean of the per-cube spread ratios is 1.05 (0.93): a near-constant width is too wide on easy cubes and too narrow on hard ones.</p>
   <figure>
     <p class="charthead">Error and predicted spread by sensor phase (pixel position within the d × d block; 8 stored cubes)</p>
     <div class="seg" role="group" aria-label="Stride"><button type="button" data-ph="d8" aria-pressed="true">d = 8 · 64 phases</button><button type="button" data-ph="d4" aria-pressed="false">d = 4 · 16 phases</button></div>
@@ -149,7 +149,7 @@
   <h2><span class="no">07</span>The decision</h2>
   <ul class="concl">
     <li><b>Part (a) failed under the pre-registered protocol.</b>At $d=8$ the residual diffusion does not give better calibrated uncertainty than the variance head, and the fix round's $K=64$ arm changed nothing; its report-only DDPM-1000 row is still running. The $d=4$ contrast shows the same.<span class="cost"><b>Settled by</b>the single $d=8$ verdict, its $K=64$ fix round, and two independent verifications.</span></li>
-    <li><b>For per-pixel uncertainty around the regressor, use the variance head.</b>It is one network call, ranks the errors well at both strides, and is nearly calibrated at $d=4$. At $d=8$ it is somewhat too wide (spread ratio 1.48); one global rescale fitted on the monitoring split may fix that (untested; an in-sample 0.7× rescale on the 8 stored $d=8$ cubes improved its CRPS by about 2 %).<span class="cost"><b>Cost</b>none: it is already trained at both strides.</span></li>
+    <li><b>For per-pixel uncertainty around the regressor, use the variance head.</b>It is one network call, ranks the errors well at both strides, and is nearly calibrated at $d=4$. At $d=8$ it is somewhat too wide (spread ratio 1.48 as a mean over cubes, 1.31 pooled); one global rescale fitted on the monitoring split may fix that (untested; an in-sample 0.7× rescale on the 8 stored $d=8$ cubes improved its CRPS by about 2 %).<span class="cost"><b>Cost</b>none: it is already trained at both strides.</span></li>
     <li><b>The diagnostics point to one likely cause.</b>At low noise the denoiser is worse than a linear filter fitted on training cubes. One cheap experiment tests this on the gate: on all 200 gate cubes, without retraining, replace the network below $t=399$ with the training-fitted filter, fit any global spread inflation on the monitoring split and apply the same rescale to the variance head. If most of the gap closes and the spread now tracks the error (cube slope well above 0.14), a retrain aimed at the low-noise denoiser is justified; on the 8 stored cubes the repaired sampler reached at best a tie with the variance head. If the gap does not shrink, the leading explanation is wrong and part (a) closes.<span class="cost"><b>Cost</b>no training; fewer network calls than the $d=8$ evaluation. Not run: it is new scope and your call.</span></li>
     <li><b>Part (b), a prior reused across sensors and strides, is next only if you want it.</b>This phase gives it a benchmark harness and a strong baseline to beat, the variance head.<span class="cost"><b>Cost</b>a new spec.</span></li>
   </ul>
@@ -158,13 +158,14 @@
 <!-- ============================================================ -->
 <section id="s8">
   <h2><span class="no">08</span>Rulings and compute</h2>
-  <p class="lead">Decisions taken during execution that changed the spec, each recorded with its reason before it took effect. The last item is different: a finding made after the verdict, which changes nothing in it.</p>
+  <p class="lead">Decisions taken during execution that changed the spec, each recorded with its reason before it took effect. The last two items are different: findings made after the verdict, which change nothing in it.</p>
   <ul class="plain">
     <li><b>K = 32 at both strides.</b> Empirical coverage uses Weibull quantile positions, which give the nominal level for a calibrated sampler only when $K\ge 19$ at the 90 % level. The spec's $K=16$ at $d=4$ was withdrawn.</li>
     <li><b>Provenance checks.</b> A half regressor records the hash of the split it was trained on. The cache builder refuses a regressor whose residual scale or prior differs from the data's. The evaluator refuses a checkpoint sampled under the wrong parameterisation.</li>
     <li><b>Stored figure cubes</b> come from the class-stratified y-swap batch, not the first gate files.</li>
     <li><b>The DDPM-1000 fix-round arm runs report-only at K = 8</b> on the 50-cube subset. The verdict refuses $K<19$, and a $K\ge19$ DDPM run would cost about 40 GPU-hours for a gate it cannot plausibly change.</li>
     <li><b>Found after the verdict: a spec design flaw.</b> P2 and S1 at $K=32$ could not be passed by a calibrated sampler, and S2 had too little power (section 4). They are recorded as failures, as pre-registered, and explained here.</li>
+    <li><b>Found by the final code review: noise seeded per batch, not per cube.</b> Draw $k$ seeds its initial noise once per batch, so cubes at the same position in different batches share it, where the spec asked for a seed per cube. Records therefore reproduce bit for bit only at the same batch size; every record used 4. The review found that no clause could change: C1, P1, P2 and S1 miss or clear their thresholds by at least 4.8 cluster SE, C2's cov50 is far outside its band, and S2 compares cubes within one batch. A per-cube seed is deferred until after this phase's last record, so that all fix-round records share one scheme.</li>
   </ul>
   <h3>Compute</h3>
   <div class="tbl" data-table="compute"></div>
@@ -175,6 +176,6 @@
 </section>
 
 <footer>
-  Sources: records <code>results/residual_warmstart/uq/d8/eval/d8_main.json</code>, <code>d8_fix_k64.json</code>, <code>uq/d4/eval/d4_contrast.json</code> and their verdict files; verification scripts and results in <code>docs/analysis/phase2a_verify_d8/</code> and <code>docs/analysis/phase2a_verify_d4/</code>; page data built by <code>docs/analysis/phase2a_page/extract_page_data.py</code>. Spec <code>docs/superpowers/specs/2026-10-22-regressor-centred-uq-diffusion-design.md</code>; results note <code>docs/superpowers/plans/2026-10-22-regressor-centred-uq-diffusion-RESULTS.md</code>; branch <code>worktree-phase1-plan</code>.
+  Sources: records <code>results/residual_warmstart/uq/d8/eval/d8_main.json</code>, <code>d8_fix_k64.json</code>, <code>uq/d4/eval/d4_contrast.json</code> and their verdict files; verification scripts and results in <code>docs/analysis/phase2a_verify_d8/</code> and <code>docs/analysis/phase2a_verify_d4/</code>; page data built by <code>docs/analysis/phase2a_page/extract_page_data.py</code>, spread–error summaries by <code>spread_error_posthoc.py</code> in the same folder. Spec <code>docs/superpowers/specs/2026-10-22-regressor-centred-uq-diffusion-design.md</code>; results note <code>docs/superpowers/plans/2026-10-22-regressor-centred-uq-diffusion-RESULTS.md</code>; branch <code>worktree-phase1-plan</code>.
 </footer>
 </main>
