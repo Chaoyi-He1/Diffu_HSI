@@ -84,6 +84,20 @@ Ruling R15 (controller, 2026-10-23): the spec allows exactly one fix round when 
 
 Predictions for `d8_fix_k64` (from the mechanism above): C1 unchanged within ≈ 1 SE (≈ +0.17; the fair CRPS is K-invariant); cov50 ≈ 0.67 (FAIL); S1 literal ≈ +0.023 (still FAIL; a perfectly centred sampler would show +0.029); P2 ≈ +1.17 (FAIL); S2 still underpowered; P1 ≈ unchanged (PASS, artefact). Prediction for the DDPM-1000 row: CRPS no better than DDIM-10, spread at least as wide and still white.
 
+**K = 64 arm result (2026-10-24 01:15, GPU 1, 2.5 h; record `uq/d8/eval/d8_fix_k64.json`, verdict `uq/d8/verdict__d8_fix_k64.json`) — every prediction held:**
+
+```
+C1: FAIL  +0.1733 ± 0.0057 (cluster 0.0066)
+C2: FAIL  cov90 0.901 cov50 0.681
+P1: PASS  -0.3124 ± 0.0525 (cluster 0.0651)
+P2: FAIL  +1.1695 ± 0.0394 (cluster 0.0442)
+S1: FAIL  +0.0246 ± 0.0037 (cluster 0.0039)
+S2: FAIL  +0.0126 ± 0.0096
+calibration FAIL; perceptual FAIL; diffusion wins (a): False
+```
+
+C1 moved by +0.0013 (K-invariant, as predicted); S1 halved from +0.0517 to +0.0246, which is the 1/K Monte Carlo term predicted (+0.023), not drift; the mean of 64 samples has RMSE 4.2565 (vs 4.2836 at K = 32 and the regressor's 4.2319) and log HF −1.10 (vs −0.49 at K = 32: the white noise averages away as 1/K); AUSE 0.346 (vs 0.375). P1 and P2 are identical to K = 32 because the single sample is draw 0 with the same seed. Under the spec, the fix round's K = 64 arm leaves part (a) failed at d = 8.
+
 ## Stage 2 — the d = 4 contrast (report only)
 
 Same recipe at `--ds 4`; the full centre is `regress_l1_sel_d4_b64@17`; the same split JSON.
@@ -91,7 +105,9 @@ Same recipe at `--ds 4`; the full centre is `regress_l1_sel_d4_b64@17`; the same
 - `regress_l1_half1_d4_b64`: launched 2026-10-23 08:25 on GPU 0 (after the d = 8 diffusion finished); DONE = 40 at 10:21 (1.97 h, 155 s/epoch, 0 skipped). **Selection = epoch 12** (monitoring loss 0.43100; epoch 40 = 0.45764). Pruned to 12 and 40.
 - `regress_l1_half2_d4_b64`: launched 2026-10-23 ≈ 10:25 on GPU 0; DONE = 40 at ≈ 12:15 (≈ 1.9 h). **Selection = epoch 20** (monitoring loss 0.43155; epoch 40 = 0.44948). Pruned to 20 and 40.
 - d = 4 centre cache (2026-10-23 17:12–17:18, GPU 0; `half1@12`, `half2@20`, full `regress_l1_sel_d4_b64@17`) → `uq/d4/xr_cache/` (5.0 GB): **σ_R = 0.040619**, σ_full = 0.040775, ratio **1.0038** (not flagged); σ_d at d = 4 is 0.051661 for reference. The cross-fit mismatch is smaller than at d = 8 (0.3 % against 3 %).
-- `residual_reg_d4_b64`: launched 2026-10-23 17:18 on GPU 0 (100 epochs, ≈ 9 h). `varhead_d4_b64` launches on GPU 1 after the d = 8 evaluation.
+- `residual_reg_d4_b64`: launched 2026-10-23 17:18 on GPU 0 (100 epochs, ≈ 9 h).
+- `varhead_d4_b64`: launched 2026-10-23 18:46 on GPU 1; DONE = 40 at 22:45 (3.99 h, 0 skipped). **Selection = epoch 12** (monitoring NLL −0.2016; epoch 40 = −0.1703). Pruned to 12 and 40.
+- The d = 8 fix round's K = 64 arm (`d8_fix_k64`) started on GPU 1 at ≈ 22:47.
 
 ## Stage 0 — harness validation on the existing d = 4 assets (2026-10-22, GPU 0, ≈ 40 min)
 
