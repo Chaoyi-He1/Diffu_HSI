@@ -194,3 +194,18 @@ Record `results/residual_warmstart/uq/d4/eval/stage0_d4_assets.json`: centre `re
 **Harness accepted:** the regressor's 1.9621 % and the baseline's 2.3512 % reproduce the B-track gate records to the last digit. Side observations (not gates): the three-member ensemble is sharp but badly under-dispersed (90 % intervals cover 24 % of elements) and its paired mean beats the single regressor; B's 32-draw mean (2.145 %) sits where the Phase 1a′ chain-mean estimate put it (2.11–2.15 %), its single draw is far worse (3.09 %) with 6 × the truth's high-frequency energy (log ratio +1.8: residual noise, not texture), its 90 % coverage is 0.93, and despite its worse mean it already beats the ensemble on CRPS (0.948 vs 0.969) — a calibrated-but-blunt sampler outscores a sharp-but-overconfident one under a proper scoring rule. Every log HF ratio of a mean estimate is strongly negative (−1.85 for the regressor: its texture energy is e^{−1.85} ≈ 16 % of the truth's), which is the blur the perceptual clause P1 is about.
 
 No d = 8 number has been looked at.
+
+## Deferred review items (final whole-branch review, 2026-10-24)
+
+The final review (verdict "with fixes"; fixes in e8295a2, scoped re-review clean) found nothing that could change a recorded result. These Minor items were deferred; none blocks a merge. The full review output and the execution ledger with rulings R1–R17 are archived in `results/residual_warmstart/uq/sdd_archive/`.
+
+- **SE-1** `uq_eval.draw_samples` seeds draw k once per batch, so cubes at the same batch position share noise; switch to a per-cube generator (seed = file index · K_max + k) and record a `seed_scheme` key. Every Phase 2a record used batch size 4.
+- **SE-3** label the direction of the reported `ensemble` (diffusion − ensemble) and `halfcentre` (halfcentre − diffusion) blocks in `uq_verdict.py`.
+- **SE-4 (code part)** store per-cube predicted variance in `uq_eval` records; the page's spread–error numbers are derived post hoc by `docs/analysis/phase2a_page/spread_error_posthoc.py`.
+- **SE-5** `uq_verdict.paired()` should raise a ValueError, not a TypeError, with fewer than 2 source images.
+- **SE-6** tests: C2's upper bound, the half-centre branch of `run_eval`, per-cube order across several batches.
+- **SE-7** `uq_eval` should refuse `--centre_halves` without `--diffusion`.
+- **TD-3** launcher guard tying `_d<N>_` in RUN_NAME to `--ds N`.
+- **TD-6/TR-5** unit test of the `--train_half` filter (the smoke and an in-code self-check cover it today).
+- **TR-7** launcher scans requiring `--xr_cache` for the Phase 2a modes and `--prediction_type direct` for varhead.
+- Re-review residuals: an unused import and parameter in `tests/test_uq_verdict.py`; the launcher's prefix guard hard-codes the six mode names.
