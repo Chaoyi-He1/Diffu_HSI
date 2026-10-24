@@ -1,14 +1,17 @@
 #!/bin/bash
 # CPU end-to-end smoke of Phase 2a on 16 training files (base 8, 1 epoch each): split -> half regressors -> full
 # regressors (seeds 42, 43) -> centre cache -> residual_reg -> varhead -> uq_eval (K = 2) -> uq_verdict (--no_centre_check).
-# Needs the HFD dataset and the real prior; writes only under $SMOKE_UQ_TMP (default /tmp/smoke_uq_<pid>). ~10 min.
+# Needs the HFD dataset and the real prior; writes only under $SMOKE_UQ_TMP. ~10 min. SMOKE_UQ_TMP names the smoke's own
+# directory (default /tmp/smoke_uq_<pid>); it is deleted and recreated, and an existing directory without the smoke's
+# marker (.smoke_uq) is refused.
 # K = 2 < min_k_for(0.9) = 19: uq_eval's coverage warnings and uq_verdict's report-only WARNING are expected.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 PY=${PILOT_PY:-/home/grads/c/chaoyi_he/Desktop/conda/envs/hsi/bin/python}
 REAL_ROOT=${REAL_RESULTS_ROOT:-/data/chaoyi_he/HSI/Diffu/results/residual_warmstart}
 T=${SMOKE_UQ_TMP:-/tmp/smoke_uq_$$}
-rm -rf "$T"; mkdir -p "$T/root/runs" "$T/root/uq"
+if [[ -e "$T" && ! -f "$T/.smoke_uq" ]]; then echo "$T exists and was not made by smoke_uq.sh; refusing" >&2; exit 1; fi
+rm -rf "$T"; mkdir -p "$T/root/runs" "$T/root/uq"; touch "$T/.smoke_uq"
 cp "$REAL_ROOT/linear_prior_R1.npz" "$T/root/"                    # the prior with its sigma_d table
 export RESIDUAL_WARMSTART_RESULTS=$T/root CUDA_VISIBLE_DEVICES= OMP_NUM_THREADS=4
 R=$T/root/runs; SPLIT=$T/root/uq/split_halves.json; CACHE=$T/root/uq/d4/xr_cache

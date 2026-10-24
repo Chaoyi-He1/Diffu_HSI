@@ -11,7 +11,7 @@ N = 40
 FILES = [f'MatFlower60/Train/P02{2 + (i // 4) % 3}/{i // 4}_{i % 4}.mat' for i in range(N)]    # 10 images x 4 patches
 
 
-def record(tmp_path=None, **over):
+def record(tmp_path=None):
     rng = np.random.default_rng(0)
     base = 4.5 + rng.normal(0, 0.3, N)
     reg = base - 0.35 + rng.normal(0, 0.05, N)
@@ -28,8 +28,6 @@ def record(tmp_path=None, **over):
     ys = dict(K=32, files=FILES[:8], true=(4.0 + rng.normal(0, 0.1, 8)).tolist(), swap_full=(4.8 + rng.normal(0, 0.1, 8)).tolist())
     rec = dict(name='t', d=8, K=32, sampler='ddim10', n=N, files=FILES, per_cube=pc, yswap=ys,
                provenance=dict(centre=dict(run='regress_l1_sel_d8_b64', epoch=11)))
-    for k, v in over.items():
-        rec['per_cube'][k[0]][k[1]] = v if isinstance(k, tuple) else v
     return rec
 
 

@@ -2,7 +2,6 @@
 and the split; XRCachedData substitutes x_r for x0_hat and sigma_r for sigma_d and refuses a cache of another stride,
 a cache whose halves are crossed, and missing files."""
 import hashlib
-import json
 import os
 
 import numpy as np
@@ -108,6 +107,18 @@ def test_a_cache_of_another_stride_is_refused(tmp_path):
     base = StubBase(d=8)
     cd, _ = build_cache(tmp_path, base, meta_for(d=4))
     with pytest.raises(ValueError, match='d=8'):
+        XRCachedData(base, cd, 'train', ROOT)
+
+
+@pytest.mark.parametrize('key', ['split_sha256', 'd', 'sigma_r'])
+def test_a_meta_lacking_a_required_key_is_refused_up_front(tmp_path, key):
+    """Final review F6: refused in __init__ with a ValueError naming the key, not a bare KeyError (d, sigma_r) or a late
+    one in checkpoint_extra() after the model and optimizer are built (split_sha256)."""
+    base = StubBase()
+    meta = meta_for()
+    del meta[key]
+    cd, _ = build_cache(tmp_path, base, meta)
+    with pytest.raises(ValueError, match=f"meta lacks \\['{key}'\\]"):
         XRCachedData(base, cd, 'train', ROOT)
 
 

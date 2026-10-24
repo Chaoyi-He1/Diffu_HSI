@@ -164,3 +164,30 @@ def test_both_modes_train_on_the_stub_cache_and_write_the_meta(tmp_path, mode, e
     assert m['mode'] == mode and m['sigma_d'] == 0.05 and m['sigma_r'] == 0.05 and m['xr_cache_sha256'] == 'stubsha' and m['centre']['run'] == 'stub'
     if mode == 'varhead':
         assert log[1]['loss'] < log[0]['loss']
+
+
+@pytest.mark.parametrize('mode, extra', [('residual_reg', ('--xr_cache', '/c')),
+                                         ('varhead', ('--xr_cache', '/c', '--prediction_type', 'direct', '--loss_type', 'nll'))])
+def test_build_everything_resumes_an_xr_run_and_refuses_a_rebuilt_cache(tmp_path, monkeypatch, mode, extra):
+    """The wiring (sibling of test_train_residual.py::test_build_everything_checks_resume_meta): build_everything hands
+    the cache sha to check_resume_meta, so a matching XR checkpoint resumes with sigma_d = sigma_R (spec §8), and a
+    rebuilt cache that keeps sigma_R is refused by its sha alone."""
+    a = args_for(tmp_path, mode, *extra)
+    ds, _, model, _, opt, sched = parts_for(a, StubXRSet())
+    path = str(tmp_path / 'run' / 'checkpoint_epoch_1.pth')
+    tr.save_checkpoint(model, opt, sched, 0, 0.5, tr.checkpoint_meta(a, ds.sigma_d, 3e-7, 'p' * 64, extra=StubXRSet().checkpoint_extra()),
+                       path, 0.0, tr.NO_DIST)
+    monkeypatch.setattr(tr, 'make_datasets', lambda args: (StubXRSet(), StubXRSet()))
+    monkeypatch.setattr(tr, 'file_sha256', lambda p: 'p' * 64)
+    a.resume = path
+    parts = tr.build_everything(a, tr.NO_DIST, CPU)
+    assert parts.start_epoch == 1 and parts.resume_path == path
+    assert parts.train_ds.sigma_d == StubXRSet.sigma_r
+
+    class RebuiltCache(StubXRSet):
+        def checkpoint_extra(self):
+            return dict(super().checkpoint_extra(), xr_cache_sha256='rebuilt')     # sigma_r unchanged
+    assert RebuiltCache().checkpoint_extra()['sigma_r'] == StubXRSet.sigma_r
+    monkeypatch.setattr(tr, 'make_datasets', lambda args: (RebuiltCache(), RebuiltCache()))
+    with pytest.raises(ValueError, match='xr_cache_sha256'):
+        tr.build_everything(a, tr.NO_DIST, CPU)

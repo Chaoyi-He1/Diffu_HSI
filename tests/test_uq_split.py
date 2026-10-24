@@ -1,7 +1,6 @@
 """Phase 2a Task 1: the cross-fitting split keeps every patch of a source image in one half, balances the halves
 within one image per class, is deterministic, and the selection rule picks the lowest monitoring loss."""
 import json
-import os
 
 import pytest
 
@@ -80,5 +79,25 @@ def test_select_epoch_skips_epochs_without_a_monitoring_loss(tmp_path):
     (run / 'train_log.jsonl').write_text('\n'.join(json.dumps(r) for r in recs) + '\n')
     assert select_epoch(str(run))['epoch'] == 2
     (run / 'train_log.jsonl').write_text(json.dumps(dict(epoch=1, loss=0.5)) + '\n')
+    with pytest.raises(ValueError, match='no monitoring'):
+        select_epoch(str(run))
+
+
+@pytest.mark.parametrize('vals, want', [([float('nan'), 0.4, 0.3], 3), ([float('inf'), 0.4], 2)])
+def test_select_epoch_skips_non_finite_monitoring_losses(tmp_path, vals, want):
+    """json.dumps writes NaN / Infinity literals exactly as the trainer's log does; a non-finite loss is never selected,
+    even when it is the first record (min() never replaces a leading NaN)."""
+    run = tmp_path / 'run'
+    run.mkdir()
+    recs = [dict(epoch=i + 1, loss=0.5, val_loss=v) for i, v in enumerate(vals)]
+    (run / 'train_log.jsonl').write_text('\n'.join(json.dumps(r) for r in recs) + '\n')
+    assert select_epoch(str(run))['epoch'] == want
+
+
+def test_select_epoch_refuses_an_all_non_finite_log(tmp_path):
+    run = tmp_path / 'run'
+    run.mkdir()
+    recs = [dict(epoch=i + 1, loss=0.5, val_loss=float('nan')) for i in range(3)]
+    (run / 'train_log.jsonl').write_text('\n'.join(json.dumps(r) for r in recs) + '\n')
     with pytest.raises(ValueError, match='no monitoring'):
         select_epoch(str(run))

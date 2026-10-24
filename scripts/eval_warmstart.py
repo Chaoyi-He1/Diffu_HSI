@@ -20,6 +20,9 @@ with a `provenance` record. A checkpoint carrying a `meta` dict must agree with 
 the prior file's sha256 (else ValueError).
 
 Metrics are on the [0, 1] display scale of (x + 1) / 2: RMSE in % of range, PSNR with peak 1, SAM in degrees.
+
+The Phase 2a modes (XR_MODES: residual_reg, varhead) are refused here (the CLI, checkpoint_eval, reconstruct and
+yswap_check): they are evaluated with scripts/uq_eval.py.
 """
 import argparse
 import json
@@ -35,7 +38,7 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO)
 from data_loader.hfd_residual import HFDResidualData, limit_worker_threads, residual_collate_fn  # noqa: E402
 from model.diffusion_trainer import DiffusionTrainer  # noqa: E402
-from model.residual_wrapper import MODES, REGRESS_T, build_residual_model, regress_forward  # noqa: E402
+from model.residual_wrapper import MODES, REGRESS_T, XR_MODES, build_residual_model, regress_forward  # noqa: E402
 from scripts.paired_stats import cluster_se  # noqa: E402
 from scripts.gate_1a import ckpt_epoch  # noqa: E402
 # Defined once (fix item 15) and re-exported from here: scripts/make_baseline_record.py and the tests import them from
@@ -261,10 +264,23 @@ def _check_regress_only(model, mode, tta):
         raise ValueError(f"ensembles and tta are for mode 'regress' only (mode={mode!r}, tta={tta!r})")
 
 
+PHASE1_MODES = ('residual', 'standard', 'standard_xhat', 'regress')     # the modes reconstruct / yswap_check compose
+
+
+def _check_phase1_mode(mode):
+    """The XR modes put x_r in the x0_hat slot and scale by sigma_r: no branch below composes them, and a mode outside
+    PHASE1_MODES would fall through to the 'standard' branch and score wrong numbers silently."""
+    if mode not in PHASE1_MODES:
+        raise ValueError(f'mode {mode!r} is not one of the Phase 1 modes {PHASE1_MODES}; the Phase 2a modes {XR_MODES} '
+                         f'are evaluated with scripts/uq_eval.py')
+
+
 def reconstruct(model, trainer, mode, batch, cfg, sigma_d, seed, tta='none'):
     """batch = (x, y_d, x0_hat) tensors. Returns x_hat [B, 64, H, W] clamped to [-1, 1]. Mode regress takes the
     'direct' cfg only (one deterministic call; `seed` unused) and every other mode takes a sampler cfg. In mode regress
-    `model` may be a list (an ensemble) and tta 'transpose' (see regress_predict); trainer.last_nfe counts the calls."""
+    `model` may be a list (an ensemble) and tta 'transpose' (see regress_predict); trainer.last_nfe counts the calls.
+    Refuses (ValueError) any mode outside PHASE1_MODES."""
+    _check_phase1_mode(mode)
     x, y_d, x0_hat = [b.to(trainer.device) for b in batch]
     cond = {'sensor': y_d, 'x0_hat': x0_hat}
     if (cfg['method'] == 'direct') != (mode == 'regress'):
@@ -344,7 +360,8 @@ def yswap_check(model, trainer, mode, batch, t_values=(100, 300), sigma_d=None, 
                  noise.
     Mode regress: one deterministic call per variant at t = REGRESS_T on its zero x_t (t_values and x_t do not
     apply); `model` may be a list (an ensemble) and tta 'transpose', and every variant then scores regress_predict's
-    mean."""
+    mean. Refuses (ValueError) any mode outside PHASE1_MODES."""
+    _check_phase1_mode(mode)
     x, y_d, x0_hat = [b.to(trainer.device) for b in batch]
     _check_regress_only(model, mode, tta)
     if x.shape[0] < 2:
@@ -466,6 +483,8 @@ def ensemble_output_path(d, ckpts, tta='none'):
 
 
 def checkpoint_eval(args):
+    if args.mode in XR_MODES:
+        raise ValueError(f'--mode {args.mode} is a Phase 2a mode; evaluate it with scripts/uq_eval.py')
     grid = getattr(args, 'grid', 'full')
     if (args.mode == 'regress') != (grid == 'direct'):
         raise ValueError(f"--mode regress needs --grid direct, and --grid direct needs --mode regress "
@@ -581,7 +600,8 @@ def main():
     ap.add_argument('--d', type=int, required=True)
     ap.add_argument('--baseline', action='store_true')
     ap.add_argument('--ckpt', nargs='+', help='one checkpoint, or several (an ensemble; --mode regress only)')
-    ap.add_argument('--mode', choices=list(MODES))
+    ap.add_argument('--mode', choices=[m for m in MODES if m not in XR_MODES],
+                    help='a Phase 1 mode; the Phase 2a modes (residual_reg, varhead) are evaluated with scripts/uq_eval.py')
     ap.add_argument('--tta', choices=list(TTA_CHOICES), default='none',
                     help="'transpose': average each regressor call with one on the transposed patch (--mode regress)")
     ap.add_argument('--grid', choices=['full', 'quick', 'direct'], default='full')

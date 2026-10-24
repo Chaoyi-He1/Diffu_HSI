@@ -809,3 +809,33 @@ def test_yswap_one_step_records_the_git_head_at_launch(tmp_path, monkeypatch):
     monkeypatch.setattr(yo, 'yswap_check', commit_lands)
     rec = yo.main(argv + ['--out', str(tmp_path / 'o.json')])
     assert rec['provenance']['git_head'] == 'a' * 40 and head[0] == 'b' * 40
+
+
+# ----------------------------------------------------------------------------- the Phase 2a modes (final review F4)
+@pytest.mark.parametrize('mode', ['residual_reg', 'varhead'])
+def test_phase1_evaluators_refuse_the_phase2a_modes(tmp_path, monkeypatch, mode):
+    """The XR modes are evaluated by scripts/uq_eval.py only. eval_warmstart's and yswap_one_step's CLIs and
+    checkpoint_eval refuse them before anything is loaded; reconstruct and yswap_check refuse every mode outside the four
+    Phase 1 modes (a meta-less XR checkpoint used to fall through to the 'standard' branch and score wrong numbers)."""
+    import argparse
+    import sys
+    from scripts import eval_warmstart as ew
+    from scripts import yswap_one_step as yo
+    with pytest.raises(ValueError, match='Phase 2a mode; evaluate it with scripts/uq_eval.py'):
+        ew.checkpoint_eval(argparse.Namespace(
+            d=4, ckpt=str(tmp_path / 'missing.pth'), mode=mode, grid='full', prediction_type='direct' if mode == 'varhead' else 'v',
+            base_channels=8, seeds=[0, 1], batch_size=4, device='cpu', data_root=str(tmp_path), prior=str(tmp_path / 'p.npz'),
+            run_name=None, yswap_n=None))
+    batch = (torch.zeros(2, 4, 8, 8), torch.zeros(2, 3, 2, 2), torch.zeros(2, 4, 8, 8))
+    with pytest.raises(ValueError, match='Phase 1 modes'):
+        reconstruct(ZeroModel(), _cpu_trainer(), mode, batch, dict(name='ddim1', method='ddim', n_steps=1), sigma_d=0.1, seed=0)
+    with pytest.raises(ValueError, match='Phase 1 modes'):
+        yswap_check(ZeroModel(), _cpu_trainer(), mode, batch, sigma_d=0.1)
+    got = []
+    monkeypatch.setattr(ew, 'checkpoint_eval', got.append)
+    monkeypatch.setattr(sys, 'argv', ['eval_warmstart.py', '--d', '4', '--ckpt', 'x.pth', '--mode', mode])
+    with pytest.raises(SystemExit):
+        ew.main()                                                          # argparse: not one of the choices
+    assert got == []
+    with pytest.raises(SystemExit):
+        yo.get_parser().parse_args(['--checkpoint', 'c.pth', '--mode', mode, '--out', 'o.json'])

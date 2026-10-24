@@ -233,6 +233,8 @@ def test_the_phase_2a_launches_are_accepted(env, tmp_path, run_name, mode, gpu, 
     ('regress_l1_sel_d8_b64', 'regress', L1 + ('--train_half', '2'), 'names no _half'),
     ('varhead_d8_b64', 'varhead', ('--prediction_type', 'direct') + XR, 'needs --loss_type nll'),
     ('varhead_d8_b64', 'varhead', ('--prediction_type', 'direct', '--loss_type', 'l1') + XR, 'needs --loss_type nll'),
+    ('residual_reg_d8_b64', 'residual', D8, "belongs to mode residual_reg, not residual"),   # passes ^residual_ (F5)
+    ('standard_xhat_d4_b64', 'standard', (), "belongs to mode standard_xhat, not standard"),
 ])
 def test_phase_2a_contradictions_are_refused_before_anything_starts(env, tmp_path, run_name, mode, extra, why):
     r = launch(env, run_name, mode, 0, *extra)

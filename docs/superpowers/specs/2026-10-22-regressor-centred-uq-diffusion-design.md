@@ -172,4 +172,5 @@ Never: `data_loader/HFD_dataset.py`, anything under `results/residual_warmstart/
 - R11 (amends §6): the stored figure cubes are `--store_cubes` evenly spaced cubes of the class-stratified y-swap batch (record key `stored_files`), not the first gate files; `uq_eval` also checks the sampler parameterisation (`prediction_type` v, 1000 steps) of the diffusion and B and the prior sha of every checkpoint, and records the cache's σ_full / σ_R ratio and flag in `provenance.xr_cache`.
 - `uq_eval` also refuses a `--centre`, ensemble member or `--b` with `train_half ≠ 0`, a one-member ensemble and an existing `<name>__cubes.npz`; the half regressors are therefore never ensemble members (the CPU smoke `scripts/pilot/smoke_uq.sh` uses a second full-data seed as its second member).
 - R12: `uq_verdict` runs the centre and K checks before the exists check; the reported AUSE key is `C3`.
+- S2 uses the iid SE over the 32 y-swap cubes, as plan Task 9 specified (an amendment to §5.6's clustered-SE default); the clustered SE is within about 2 % of it, and S2 fails under either.
 - Also: the mean CRPS of N(0,1) against N(0,1) is 1/√π (a plan test constant was corrected).

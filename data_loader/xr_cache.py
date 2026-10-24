@@ -73,6 +73,9 @@ class XRCachedData(torch.utils.data.Dataset):
     def __init__(self, base, cache_dir, split, data_root):
         self.base, self.cache_dir, self.split, self.data_root = base, cache_dir, split, data_root
         self.meta = read_meta(cache_dir)
+        missing = [k for k in ('d', 'sigma_r', 'split_sha256', 'half1', 'half2', 'full') if k not in self.meta]
+        if missing:                            # up front, not a KeyError here or in checkpoint_extra() after the model is built
+            raise ValueError(f'cache {cache_dir} meta lacks {missing}')
         if int(self.meta['d']) != int(base.d):
             raise ValueError(f'cache {cache_dir} was built at d={int(self.meta["d"])} but the dataset is at d={int(base.d)}')
         check_crossfit_meta(self.meta)

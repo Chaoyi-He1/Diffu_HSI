@@ -14,6 +14,10 @@ that already used the whole --max_hours budget.
 
 Modes (model/residual_wrapper.py): residual (B), standard (A), standard_xhat (A'). --batch_size is PER GPU.
 Mode regress (R, the one-step residual regressor): --mode regress --prediction_type direct --loss_type l1|l2.
+Phase 2a (spec 2026-10-22, regressor-centred uncertainty diffusion; the centre cache from scripts/uq/build_xr_cache.py):
+  half regressors: --mode regress ... --train_half 1|2 --split_json <split> (the split from scripts/uq/split_halves.py);
+  --mode residual_reg --xr_cache <cache dir>: B around the cached regressor centre x_r, target (x - x_r) / sigma_r;
+  --mode varhead --xr_cache <cache dir> --prediction_type direct --loss_type nll: the variance head around x_r.
 Conventions taken from main_2d_fsdp.py (FSDP wrap, bf16, AdamW + cosine per epoch, FULL_STATE_DICT checkpoints) without
 its rank-0-only checkpoint calls, worker cap and save-path rewriting. Every distributed decision (non-finite skip, memory
 refusal, wall-clock stop) is collective. No ds warm-up: d is fixed because x0_hat and sigma_d depend on it.
@@ -75,7 +79,7 @@ def get_parser():
     ap.add_argument('--weight_decay', type=float, default=0.0); ap.add_argument('--grad_clip', type=float, default=1.0)
     ap.add_argument('--prediction_type', choices=['eps', 'x0', 'v', 'direct'], default='v',
                     help="diffusion parameterisation; 'direct' is required by, and only allowed with, --mode regress / varhead")
-    ap.add_argument('--loss_type', choices=['l1', 'l2', 'nll'], default='l1')
+    ap.add_argument('--loss_type', choices=['l1', 'l2', 'nll'], default='l1', help='l1 | l2; nll for --mode varhead only')
     ap.add_argument('--train_half', type=int, choices=[0, 1, 2], default=0,
                     help='Phase 2a: train a regressor on half 1 or 2 of the cross-fitting split only (0 = all files)')
     ap.add_argument('--split_json', default=SPLIT_JSON, help='the cross-fitting split (scripts/uq/split_halves.py)')
@@ -439,7 +443,8 @@ def train_one_epoch(model, trainer, loader, optimizer, args, device, dist_ctx, m
 
 @torch.no_grad()
 def validate(model, trainer, loader, args, device, dist_ctx, mode, sigma_d):
-    """Loss-only (the training objective) with a fixed RNG so epochs are comparable; never used for selection."""
+    """Loss-only (the training objective) with a fixed RNG so epochs are comparable; scripts/uq/select_epoch.py selects the
+    checkpoint on it (finite values only)."""
     model.eval()
     use_bf16 = not args.no_bf16 and device.type == 'cuda'
     tot, n = 0.0, 0

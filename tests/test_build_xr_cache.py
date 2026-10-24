@@ -1,7 +1,6 @@
 """Phase 2a Task 5: the cache builder refuses a regressor whose train_half does not match its role, centres every
 training cube with the OTHER half's regressor and every test-split cube with the full one, stores float16, and writes
 sigma_r (RMS over the cross-fitted training residuals) and sigma_full (monitoring files only) into the meta."""
-import json
 import os
 from types import SimpleNamespace
 

@@ -41,7 +41,7 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO)
 from data_loader.warmstart_paths import DATA_ROOT, PRIOR, RESULTS_ROOT, file_sha256, git_head  # noqa: E402
 from model.diffusion_trainer import DiffusionTrainer  # noqa: E402
-from model.residual_wrapper import MODES  # noqa: E402
+from model.residual_wrapper import MODES, XR_MODES  # noqa: E402
 from scripts.eval_warmstart import (YSWAP_NOISE_SEED, YSWAP_X_T, _mean_se, build_model, check_meta,  # noqa: E402
                                     check_yswap_x_t, yswap_batch, yswap_check)
 from scripts.paired_stats import cluster_se  # noqa: E402
@@ -58,7 +58,8 @@ CONTRASTS = (('swap_full_minus_true', 'swap_full', 'true'),
 def get_parser():
     ap = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
     ap.add_argument('--checkpoint', required=True)
-    ap.add_argument('--mode', required=True, choices=list(MODES))
+    ap.add_argument('--mode', required=True, choices=[m for m in MODES if m not in XR_MODES],
+                    help='a Phase 1 mode; the Phase 2a modes (residual_reg, varhead) are evaluated with scripts/uq_eval.py')
     ap.add_argument('--t', type=int, nargs='+', default=[100, 300, 999])
     ap.add_argument('--n', type=int, default=32, help='cubes, picked by yswap_files (32 = the gate batch, 8 = spec §7)')
     ap.add_argument('--x_t', choices=list(YSWAP_X_T), default='q_sample',
