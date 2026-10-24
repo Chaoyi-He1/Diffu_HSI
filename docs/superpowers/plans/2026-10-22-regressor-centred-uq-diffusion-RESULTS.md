@@ -108,6 +108,40 @@ Same recipe at `--ds 4`; the full centre is `regress_l1_sel_d4_b64@17`; the same
 - `residual_reg_d4_b64`: launched 2026-10-23 17:18 on GPU 0 (100 epochs, ≈ 9 h).
 - `varhead_d4_b64`: launched 2026-10-23 18:46 on GPU 1; DONE = 40 at 22:45 (3.99 h, 0 skipped). **Selection = epoch 12** (monitoring NLL −0.2016; epoch 40 = −0.1703). Pruned to 12 and 40.
 - The d = 8 fix round's K = 64 arm (`d8_fix_k64`) started on GPU 1 at ≈ 22:47.
+- `residual_reg_d4_b64`: DONE = 100 at 01:39 on 2026-10-24 (8.33 h; monitoring loss 0.1107, plateaued over epochs 80–100).
+
+### d = 4 contrast result (report only; 2026-10-24 03:44, GPU 0)
+
+Record `uq/d4/eval/d4_contrast.json` (+ `__cubes.npz`), report `uq/d4/verdict__d4_contrast__report.json`; centre `regress_l1_sel_d4_b64@17`, diffusion `residual_reg_d4_b64@100`, variance head `varhead_d4_b64@12`, 3-member ensemble, B `residual_d4_b64@100`, half-centre row, K = 32 (R10), same 200 gate cubes in the same order as d = 8 (so every d4 − d8 difference is paired).
+
+```
+C1: FAIL  +0.0876 ± 0.0017 (cluster 0.0021)
+C2: FAIL  cov90 0.918 cov50 0.666
+P1: PASS  -0.4389 ± 0.0384 (cluster 0.0468)
+P2: FAIL  +0.2701 ± 0.0244 (cluster 0.0268)
+S1: FAIL  +0.0255 ± 0.0009 (cluster 0.0009)
+S2: FAIL  +0.0035 ± 0.0020
+calibration FAIL; perceptual FAIL; diffusion wins (a): False   (REPORT ONLY, no gate)
+```
+
+| method (d = 4, gate) | RMSE % | log HF ratio | CRPS % | cov50 | cov90 | AUSE | spread ratio |
+|---|---|---|---|---|---|---|---|
+| baseline x̂₀ | 2.3512 | −1.992 | — | — | — | — | — |
+| regressor x̂_R (centre) | 1.9621 | −1.846 | — | — | — | — | — |
+| variance head | 1.9621 | −1.846 | **0.8024** | 0.537 | 0.897 | **0.178** | 1.04 |
+| residual diffusion, mean of 32 | 1.9876 | −1.204 | 0.8900 | 0.666 | 0.918 | 0.427 | 0.93 |
+| residual diffusion, single sample | 2.6213 | +1.407 | | | | | |
+| B (linear-centred residual diffusion), mean of 32 | 2.1450 | −1.155 | 0.9478 | 0.697 | 0.933 | 0.329 | 1.32 |
+| 3-member ensemble | 1.9244 | −1.938 | 0.9689 | — | 0.241 | 0.319 | — |
+
+Verification (2026-10-24; 2 verifiers + synthesis, scripts and structured result in `docs/analysis/phase2a_verify_d4/`): an independent numpy recomputation reproduces the report and the d = 8 verdict bit for bit. Findings:
+- **The diffusion loses C1 on all 200 cubes** (7 went the other way at d = 8), in every class (P022 +0.061, P023 +0.093, P024 +0.082).
+- **Dose-response — the spec's prediction holds only in absolute units.** The absolute CRPS gap halves (+0.172 → +0.088; paired d4 − d8 = −0.084 ± 0.007, cluster), but so does the error scale (regressor RMSE 4.23 → 1.96 %). Scale-free, the gap does not shrink: ratio of means 9.8 % ± 0.6 → 10.9 % ± 0.4 of the variance head's CRPS (+1.1 ± 0.5 pp), mean of per-cube ratios 12.4 % → 11.9 % (−0.5 ± 0.5 pp). The error ranking gets worse: AUSE gap +0.195 → +0.249 (paired +0.054 ± 0.005); the diffusion's ranking skill (1 − AUSE/AUSE_random) falls from 52 % to 45 % while the variance head's stays at 77 %.
+- **The d = 8 mechanism repeats, if anything stronger:** cube-level spread slope 0.07 (0.14 at d = 8; variance head 0.82); across the 16 sensor phases the spread varies 1.16× while the error varies 8.7×; the spread is white and high-frequency (lag-1 0.14 vs the true residual's 0.70; adjacent-band correlation 0.2 vs 0.94); the diffusion's CRPS equals a constant-width Gaussian N(x̂_R, (0.5 σ_R)²) on all 200 cubes (−0.0017 ± 0.0029); a training-fitted linear spectral filter beats the denoiser at every t ≤ 299, with the crossover at t = 399 at both strides.
+- **Texture:** a single sample's gradient-W1 penalty over the regressor falls from +47 % to +24 % and its over-sharpening from 17.9× to 4.1× the truth's high-frequency energy — partly because the true d = 4 residual is itself rougher (32 % of its spatial energy at high frequency vs 11 % at d = 8). The pre-registered P1 statistic moves the other way (−0.31 → −0.44), consistent with P1 being an artefact.
+- **The spec-design flaws repeat:** S1's literal fail is the 1/K term (debiased +0.0011 ± 0.0007, a pass); P2 is unattainable for a calibrated sampler (baseline/regressor ratio 1.198 < √2).
+- **The variance head becomes nearly calibrated at d = 4** (cov50 0.537 and cov90 0.897, inside both C2 bands; ranking skill 77 %).
+- **B vs the regressor-centred diffusion separates centre from spread:** centring on x̂_R lowers the CRPS (diffusion − B = −0.058 ± 0.004) through the better centre, while B's spread ranks errors better (AUSE lower on 197/200 cubes; B's spread slope 0.19). Re-centring the residual on the regressor removed the little error localisation the linear-centred diffusion had.
 
 ## Stage 0 — harness validation on the existing d = 4 assets (2026-10-22, GPU 0, ≈ 40 min)
 

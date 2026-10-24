@@ -1,0 +1,300 @@
+{
+  "summary": "Verify the Phase 2a d = 4 contrast and quantify the d = 4 vs d = 8 dose-response",
+  "agentCount": 3,
+  "logs": [
+    "2/2 d = 4 verifiers returned"
+  ],
+  "result": {
+    "verifiers": [
+      {
+        "lens": "recompute-d4",
+        "claims": [
+          {
+            "id": "R1",
+            "statement": "An independent recomputation of all six clauses at d = 4 (from the d4_contrast per-cube arrays, with my own CR1 cluster SE over the 113 source images P0xx/<img>) gives exactly the numbers in verdict__d4_contrast__report.json.",
+            "verdict": "CONFIRMED",
+            "evidence": "Largest absolute difference across every mean, SE and cluster SE: 0.0 (bit-for-bit). Every boolean matches. C1 +0.087568 ± 0.001708 (cluster 0.002121), FAIL. C2 cov90 0.91810, cov50 0.66611, FAIL (cluster SEs of the coverages are 0.0035 and 0.0065). P1 -0.43891 ± 0.03837 (cluster 0.04680), PASS. P2 +0.27008 ± 0.02436 (cluster 0.02683), FAIL. S1 +0.025467 ± 0.000891 (cluster 0.000915), FAIL. S2 +0.003519 ± 0.002015 (iid, n = 32), FAIL. calibration_pass, perceptual_pass and wins are all False. Running the same code on d8_main also reproduces verdict__d8_main.json with a largest difference of 0.0. Record checks: the means block equals the per-cube means exactly; every array has length 200; K = 32; coverage_exact is true; the centre is regress_l1_sel_d4_b64@17."
+          },
+          {
+            "id": "R2",
+            "statement": "The reported (no-threshold) block at d = 4 reproduces exactly: C3 (AUSE), the spread ratios, the ensemble comparison and the half-centre row.",
+            "verdict": "CONFIRMED",
+            "evidence": "C3 AUSE diffusion - varhead: +0.24899 ± 0.00367 (cluster 0.00470). Spread ratio: diffusion 0.9319, varhead 1.0435. cov90: varhead 0.8971; Gaussian-fit diffusion 0.9054. Ensemble: CRPS diffusion - ensemble -0.07890 (cluster 0.00447); AUSE diffusion - ensemble +0.10845 (cluster 0.00521); ensemble cov90 0.2412. Half-centre: CRPS halfcentre - diffusion +0.01158 (cluster 0.00199); cov90 0.9160. All are bit-identical to the verdict. The diffusion's CRPS and AUSE are worse than the variance head's on 200 of 200 cubes (CRPS was worse on 193/200 at d = 8). C1 fails in every class at d = 4: P022 +0.061 ± 0.005, P023 +0.093 ± 0.002, P024 +0.082 ± 0.005 (cluster SEs)."
+          },
+          {
+            "id": "R3",
+            "statement": "New B comparison (linear-centred residual_d4_b64@100): the regressor-centred diffusion has a lower CRPS than B, but B ranks the errors better (lower AUSE).",
+            "verdict": "CONFIRMED",
+            "evidence": "CRPS diffusion - B: -0.05777 ± 0.00355 iid (cluster 0.00383); B is lower on only 16 of 200 cubes. AUSE diffusion - B: +0.09828 ± 0.00374 (cluster 0.00429); B is lower on 197 of 200. CRPS B - varhead: +0.14533 (cluster 0.00350). B coverage: cov50 0.697, cov90 0.933; spread ratio 1.32. Cube-level slope of log spread on log RMSE: B 0.19, diffusion 0.07, varhead 0.82. Single sample, diffusion minus B: RMSE -0.467 ± 0.013; |hf| -0.397 ± 0.002; W1 -0.00086 ± 0.00003 (cluster SEs)."
+          },
+          {
+            "id": "R4",
+            "statement": "My own metric code reproduces the record on the 8 stored d = 4 cubes (fair CRPS by brute-force pairs, Weibull quantiles, AUSE, Laplacian HF, Sobel W1).",
+            "verdict": "CONFIRMED",
+            "evidence": "Deterministic quantities match the record per cube: regressor RMSE within 7.7e-5, baseline RMSE within 2.4e-7, regressor hf within 2.2e-4, regressor W1 within 6.3e-7. My Weibull interpolation equals numpy method='weibull' to 1e-16. The stored samples are not the gate-loop draws (they come from the y-swap batch of 32, while the gate loop ran in batches of 4, so the noise differs). Sample metrics therefore agree only to Monte Carlo noise. Means over the 8 cubes, stored vs record: CRPS 0.9575 vs 0.9561, cov50 0.6546 vs 0.6550, cov90 0.9101 vs 0.9106, AUSE 0.4405 vs 0.4487, spread ratio 1.0687 vs 1.0678."
+          },
+          {
+            "id": "D1",
+            "statement": "Dose-response: the absolute CRPS gap (diffusion - varhead) is smaller at d = 4 than at d = 8.",
+            "verdict": "CONFIRMED",
+            "evidence": "Gap: d8 +0.1720 ± 0.0068, d4 +0.0876 ± 0.0021 (cluster SEs). The 200 cube files are identical at both strides, so the difference is paired: d4 - d8 = -0.0844 ± 0.0065 (cluster). A 5000-draw joint cluster bootstrap gives 95 % CI [-0.096, -0.072], with d4 < d8 in 100 % of draws. This is the scale effect: both CRPS values roughly halve (diffusion 1.9325 → 0.8900; varhead 1.7604 → 0.8024)."
+          },
+          {
+            "id": "D2",
+            "statement": "Dose-response: the RELATIVE CRPS gap (diffusion - varhead)/varhead is smaller at d = 4 than at d = 8.",
+            "verdict": "REFUTED",
+            "evidence": "Ratio of means (delta-method cluster SE): d8 +9.77 % ± 0.64 %, d4 +10.91 % ± 0.36 %. Paired d4 - d8 = +1.14 pp ± 0.45 pp. Bootstrap SE 0.44 pp, 95 % CI [+0.28, +2.00] pp; d4 is smaller in only 0.46 % of draws. Other normalisations show no difference: mean of per-cube relative gaps 12.40 % ± 0.78 (d8) vs 11.90 % ± 0.43 (d4), d4 - d8 -0.50 ± 0.53 pp; gap / RMSE_regressor 0.0493 ± 0.0030 vs 0.0485 ± 0.0016, d4 - d8 -0.0008 ± 0.0021. So in scale-free terms the gap is unchanged or slightly larger at d = 4, never smaller. The d = 8 relative gap does not depend on K: K = 64 gives 9.84 % ± 0.62 %."
+          },
+          {
+            "id": "D3",
+            "statement": "Dose-response: the AUSE gap (diffusion - varhead) is smaller at d = 4.",
+            "verdict": "REFUTED",
+            "evidence": "Absolute gap: d8 +0.1954 ± 0.0028, d4 +0.2490 ± 0.0047; paired d4 - d8 +0.0536 ± 0.0054, bootstrap CI [+0.044, +0.065]. Relative gap: d8 +109 % ± 3 %, d4 +139 % ± 4 %; d4 - d8 +30 pp ± 5 pp, bootstrap CI [+21, +41] pp. The variance head's AUSE is unchanged (0.179 → 0.178); the diffusion's gets worse (0.375 → 0.427)."
+          },
+          {
+            "id": "D4",
+            "statement": "Coverage at d = 4 vs d = 8: the diffusion over-covers the 50 % interval at both strides (outside the C2 band), while the variance head moves into the C2 band at d = 4.",
+            "verdict": "CONFIRMED",
+            "evidence": "Diffusion cov50 / cov90: d8 0.674 / 0.908, d4 0.666 / 0.918. Paired d4 - d8: cov50 -0.008 ± 0.004, cov90 +0.010 ± 0.002 (cluster). Gaussian-fit diffusion intervals at d4: 0.664 / 0.905. Variance head: d8 0.624 / 0.930, d4 0.537 / 0.897; at d = 4 it would pass both C2 bands. The diffusion's cov50 excess over the variance head grows from 0.051 to 0.129 (d4 - d8 +0.079 ± 0.006)."
+          },
+          {
+            "id": "D5",
+            "statement": "Dose-response: the texture penalty of a single sample relative to the regressor (gradient W1, and the amount of over-sharpening) is smaller at d = 4, in absolute and relative terms.",
+            "verdict": "CONFIRMED",
+            "evidence": "W1 single - regressor: d8 +0.00254 ± 0.00027 (+46.8 % ± 6.4 %), d4 +0.00053 ± 0.00009 (+24.1 % ± 4.7 %). Paired d4 - d8: absolute -0.00201 ± 0.00020, relative -22.6 pp ± 3.5 pp, bootstrap CI [-29.8, -16.2] pp. Single-sample log HF ratio: +2.882 (17.9× the truth's Laplacian energy) at d8 → +1.407 (4.1×) at d4. Regressor blur |hf|: 3.195 → 1.846. At both strides the single sample still has a worse W1 than the regressor (132 of 200 cubes at d4, 142 of 200 at d8) and a worse SAM (3.30° vs 1.63° at d4)."
+          },
+          {
+            "id": "D6",
+            "statement": "Dose-response: the P1 texture statistic's 'advantage' (|hf_single| - |hf_regressor|) is smaller at d = 4.",
+            "verdict": "REFUTED",
+            "evidence": "P1 is more negative at d4: d8 -0.312 ± 0.065, d4 -0.439 ± 0.047; paired d4 - d8 -0.127 ± 0.035, bootstrap CI [-0.197, -0.060]. Relative to |hf_regressor|: -9.8 % ± 1.9 % vs -23.8 % ± 2.2 %; d4 - d8 -14.0 pp ± 1.1 pp. The artefact pattern persists at d4: the single sample over-sharpens on 200/200 cubes and the regressor blurs on 200/200. So which way the 'texture gap' moves depends on its definition (see D5)."
+          },
+          {
+            "id": "D7",
+            "statement": "The d = 8 mechanism (a nearly homoscedastic, white spread that is about equal to one constant-width Gaussian around x_r) persists at d = 4 and is, if anything, stronger.",
+            "verdict": "CONFIRMED",
+            "evidence": "Cube-level slope of log spread on log RMSE: diffusion d8 0.136 ± 0.015 (matches the 0.13 found at d8) vs d4 0.069 ± 0.011, bootstrap d4 - d8 CI [-0.095, -0.040]. Varhead: 0.72 ± 0.04 vs 0.82 ± 0.03. Cross-cube CV of the spread: diffusion 0.080 → 0.046; varhead 0.30 → 0.28. On the 8 stored cubes (n = 8, so indicative only): diffusion CRPS 0.9575; best single-width Gaussian N(x_r, (0.58 σ_R)²) 0.9616; N(x_r, (0.5 σ_R)²) 0.9637; varhead on the same files 0.8696. Whiteness on the same cubes: lag-1 spatial autocorrelation of the spread 0.14 vs 0.73 for the true residual; adjacent-band correlation 0.19 vs 0.94."
+          },
+          {
+            "id": "S1D",
+            "statement": "Once the 1/K Monte Carlo term is removed, S1 passes at d = 4, narrowly; the literal S1 fail is almost entirely that term.",
+            "verdict": "CONFIRMED",
+            "evidence": "Per cube, mean sample variance = spread_ratio × mean_rmse² (checked on the 8 stored cubes: 2.979 %² from the samples vs 2.970 %² derived from the record). Debiased RMSE = sqrt(mean_rmse² - v̄/K). Debiased S1 at d4: +0.00109 ± 0.00074 iid (cluster 0.00071); passes |mean| ≤ 2 SE_cluster at 1.5 SE. Literal S1: +0.02547 (cluster 0.00092). A perfectly centred sampler with this spread is expected to show +0.02440 (cluster 0.00061); the residual is +0.00107 ± 0.00071. On the stored cubes, RMS(mean-of-K - x_r) is 0.323 % against 0.304 % expected from pure 1/K noise, which hints at a small real drift. A literal pass at d4 would need K of roughly 550-1000. Check against d8: debiased -0.0059 ± 0.0042 at K = 32 and -0.0041 ± 0.0038 at K = 64, matching the published d = 8 note (-0.006 ± 0.004)."
+          },
+          {
+            "id": "P2F",
+            "statement": "P2 cannot be passed by a calibrated sampler at d = 4: the baseline/regressor RMSE ratio is below √2.",
+            "verdict": "CONFIRMED",
+            "evidence": "Ratio of means 2.3512 / 1.9621 = 1.198 (d8: 1.082). Per cube: median 1.185; only 18 of 200 cubes exceed √2 (2 of 200 at d8). A calibrated single draw would have RMSE ≈ √2 × 1.962 = 2.775, giving P2 = +0.424 ± 0.029 (cluster), a fail. Passing needs a spread below 0.436 × the regressor's MSE (d8: 0.171). At that spread a Gaussian predictive would cover 0.72 at the 90 % level and 0.34 at the 50 % level, so C2 would fail. The actual sampler's spread is 0.668 × the regressor's MSE; the predicted single-sample RMSE sqrt(RMSE_r² + v̄) = 2.610 matches the observed 2.621, giving the observed P2 of +0.270."
+          }
+        ],
+        "discrepancies": [
+          "None between my recomputation and the verdict file. Every clause, the reported block and the record's means block match to 0.0, and the d = 8 verdict also reproduces exactly. All numbers in the d = 4 report I was given match the record (the report did not state P2's cluster SE, which is 0.0268).",
+          "The spec's d = 4 expectation ('CRPS gap smaller than at d = 8') holds only in absolute units, where it reflects the halving of the error scale. In relative terms the gap is not smaller: ratio of means +10.91 % ± 0.36 at d = 4 vs +9.77 % ± 0.64 at d = 8 (d4 - d8 +1.14 pp ± 0.45, bootstrap CI [+0.28, +2.00] pp). The mean of per-cube relative gaps (-0.50 ± 0.53 pp) and the gap / RMSE_r (-0.0008 ± 0.0021) show no change. Any write-up should say the scale-free calibration gap is stride-invariant (about 10-12 %), not that it shrinks.",
+          "Not anticipated by the spec: the AUSE gap gets larger at d = 4 (+0.195 → +0.249 absolute; +109 % → +139 % relative). The diffusion's spread is even more homoscedastic at d = 4 (cube-level slope 0.07 vs 0.14).",
+          "The 'texture gap' prediction is ambiguous. On W1 and over-sharpening the gap is smaller at d = 4 (W1 penalty +47 % → +24 %; single-sample HF energy 17.9× → 4.1× the truth's). The pre-registered P1 statistic moves the other way (-0.312 → -0.439, d4 - d8 -0.127 ± 0.035), so P1's 'advantage' is larger at d = 4. That is consistent with P1 being an artefact.",
+          "At d = 4 the variance head would pass the C2 coverage band (cov50 0.537, cov90 0.897), while the diffusion's cov50 stays at 0.666.",
+          "B (linear-centred) beats the regressor-centred diffusion on AUSE on 197 of 200 cubes (diffusion - B +0.098 ± 0.004 cluster), although the diffusion's CRPS is lower than B's (-0.058 ± 0.004).",
+          "Caveat for anyone checking per-cube sample metrics against d4_contrast__cubes.npz: the stored samples are from the y-swap batch (batch 32), not the gate loop (batch 4), so they are different draws. Deterministic metrics (regressor and baseline RMSE, hf, W1) match the record; sample metrics match only to Monte Carlo noise."
+        ],
+        "summary": "My independent recomputation of the d = 4 contrast matches the verdict file exactly. Using my own code (numpy only, my own CR1 cluster SE over 113 source images, neither uq_verdict nor paired_stats imported), all six clauses, the reported block and the new B comparison reproduce with a largest difference of 0.0. At d = 4: C1 FAIL (+0.0876, cluster SE 0.0021), C2 FAIL (cov50 0.666, cov90 0.918), P1 PASS but an artefact (-0.439, cluster 0.047), P2 FAIL (+0.270, cluster 0.027), S1 FAIL (+0.0255, cluster 0.0009), S2 FAIL (+0.0035 ± 0.0020).\n\nB comparison: the diffusion's CRPS is lower than B's (-0.058 ± 0.004), but B ranks the errors better (AUSE +0.098 ± 0.004, B lower on 197/200 cubes).\n\nDose-response against d = 8 (same 200 cubes, paired):\n- **CRPS gap:** halves in absolute terms (+0.172 → +0.088; d4 - d8 -0.084 ± 0.006). It does not shrink in relative terms: +9.8 % → +10.9 % (+1.1 ± 0.45 pp by ratio of means; no change by the other normalisations).\n- **AUSE gap:** grows (+0.195 → +0.249; relative +109 % → +139 %).\n- **Coverage:** the diffusion's cov50 stays near 0.67 at both strides, while the variance head enters the C2 band at d = 4 (0.537, 0.897).\n- **Texture:** the gap shrinks on W1 (penalty +47 % → +24 %) and on over-sharpening (17.9× → 4.1× the truth's HF energy), but the P1 statistic's 'advantage' grows (-0.31 → -0.44).\n- **Mechanism:** the homoscedastic, white spread persists and is stronger at d = 4 (slope 0.07 vs 0.14). On the 8 stored cubes the diffusion's CRPS is about equal to that of one constant-width Gaussian around x_r.\n\nS1 with the 1/K term removed: +0.0011 ± 0.0007, a narrow pass. The literal +0.0255 is almost exactly the +0.0244 that a perfectly centred sampler would show.\n\nP2 cannot be passed by a calibrated sampler at d = 4 either. The baseline/regressor RMSE ratio is 1.198, below √2. A calibrated sampler would give P2 = +0.42 ± 0.03. Passing would need a spread ratio below 0.44, at which coverage would be 0.72 / 0.34, failing C2.\n\nScripts and outputs are in /home/staff/c/chaoyi_he/.claude/jobs/97dc7552/tmp/verify_d4/recompute-d4/:\n- recompute.py → clauses.json\n- dose.py → dose.json\n- stored.py → stored.json\n- extra.py\n- means_check.py\n- look_record.py"
+      },
+      {
+        "lens": "mechanism-d4",
+        "claims": [
+          {
+            "id": "M1-cube-slope",
+            "statement": "(1) Cube level: the d = 4 diffusion's spread is nearly the same size in every cube, as at d = 8, while the variance head scales with the error.",
+            "verdict": "CONFIRMED",
+            "evidence": "Record, 200 cubes, same estimator as the d = 8 record_analysis (spread_c = sqrt(spread_ratio_c) x RMSE(mean)_c). d = 4: the slope of log spread on log RMSE is 0.069 for the diffusion (cluster-bootstrap SE 0.011, 113 images) and 0.820 for the variance head (SE 0.031). d = 8, recomputed with the same code: 0.136 (0.015) vs 0.721 (0.037), which matches the reported 0.13 / 0.72. Spread varies very little against the error: CoV 0.046 vs 0.308 at d = 4 (d = 8: 0.080 vs 0.328). The d = 4 spread p5-p95 is 1.58-1.85 % while the error p5-p95 is 1.13-3.11 %. corr(log spread_ratio, log RMSE) is -0.991 (d = 8: -0.978). By class, the spread ratio is P022 1.30, P023 0.92, P024 0.61. On the 8 stored cubes with a CPU forward of varhead_d4_b64@12 (record varhead CRPS reproduced to 1e-4): slope 0.061 vs 0.632; the d = 8 cubes with the same code give 0.175 vs 1.046. B (residual_d4_b64) at d = 4 has slope 0.191 and the 3-member ensemble 1.07. So the d = 4 diffusion is even more homoscedastic than the d = 8 one."
+          },
+          {
+            "id": "M2-sensor-phase",
+            "statement": "(2) Across the 16 sensor phases (i mod 4, j mod 4) the diffusion's spread barely changes while the error and the varhead's sigma change about 8-fold; at the measured phase (0, 0) the diffusion is far too wide.",
+            "verdict": "CONFIRMED",
+            "evidence": "8 stored cubes, all pixels. d = 4: RMS error 0.0032-0.0277 (8.7x); diffusion mean sd 0.0149-0.0173 (1.16x); varhead sigma 0.0022-0.0178 (8.1x). Interior only (pixels <= 60): 7.7x / 1.14x / 7.3x. d = 8 with the same code: 14.1x / 1.135x / 12.4x (interior 11.4x / 1.11x / 10.7x). (0, 0) is the lowest-error phase at both strides. At d = 4 phase (0, 0): RMS error 0.0032 against a median phase of 0.0235. The diffusion sd there is 0.0149, 4.7x the error, with cov50 0.970 and cov90 1.000. The varhead has sigma 0.0022, cov50 0.572 and cov90 0.904. d = 8 at (0, 0): error 0.0043, diffusion sd 0.0336 (7.9x, cov 0.971 / 0.999), varhead 0.0040 (0.601 / 0.922). With (0, 0) excluded, the d = 4 error still varies 1.79x and the sd 1.10x. The phase profile of sd correlates 0.92 with the error: right direction, compressed range. On the extrapolated edge (> 60) the error is 0.0432 against an sd of 0.0192 (under-wide 2.25x) and a varhead sigma of 0.0305. Over all 200 gate cubes, the CPU varhead phase profile tracks the error (9.2x vs 9.0x). Training cubes have residual variance at phase (0, 0) of 0.026 of the mean."
+          },
+          {
+            "id": "M3-white-structure",
+            "statement": "(3) The sample deviations at d = 4 are close to white noise in space and across bands, unlike the true residual, and a single sample is statistically like x_r plus independent iid noise.",
+            "verdict": "CONFIRMED",
+            "evidence": "8 stored cubes, sample deviations s_k - mu (4 draws) against the true residual x - x_r. Spatial lag-1 autocorrelation: d = 4 0.142 vs 0.671 (d = 8 0.252 vs 0.872). Adjacent-band correlation: 0.248 vs 0.928 (d = 8 0.294 vs 0.975). Top-3 spectral-PC energy: 0.214 vs 0.817 (0.303 vs 0.954). Laplacian energy / variance: 16.7 vs 3.6, against 20 for white noise (d = 8: 14.6 vs 0.76). Sampled residual s0 - x_r vs true: energy 0.21x at radial frequency r < 12.5 and 1.48x at r >= 12.5 (d = 8: 0.28x / 4.56x). Coherence with the true residual is -0.005 (low) and +0.001 (high), about 0 as at d = 8. The true residual shows a sensor-grid line at kx = 16 (1.45x its neighbours); the samples do not (1.07). Single-sample hf on the stored cubes is +1.30; x_r + iid N(0, sd^2) gives +1.47. Gradient W1: sample 0.00276, that noise control 0.00268, regressor 0.00218. Record: single-sample hf +1.41 (4.1x truth's HF energy), over-sharpened in 200/200 cubes. Mean-of-32 RMSE is 1.9876 vs 1.9870 predicted for x_r plus independent noise (per-cube Pearson 0.9999; d = 8: 4.2836 vs 4.2901)."
+          },
+          {
+            "id": "M4-coverage-strata",
+            "statement": "(4) Coverage of the 50 % / 90 % Weibull intervals is strongly heteroscedastic at d = 4 (over-covered in calm elements, under-covered in rough ones), while the varhead is flat. Same signature as d = 8.",
+            "verdict": "CONFIRMED",
+            "evidence": "Pooled 8 cubes: cov50 / cov90 = 0.655 / 0.910, against 0.655 / 0.911 in the record for the same cubes; matches metrics.coverage_samples. By varhead-sigma quintile (calm to rough), d = 4 diffusion: cov50 0.865 -> 0.368, cov90 0.985 -> 0.727. Varhead: 0.49-0.55 / 0.857-0.906. By decile: diffusion 0.932 -> 0.288 / 0.993 -> 0.633. d = 8 by quintile, same code: 0.839 -> 0.394 / 0.961 -> 0.756. In sigma_r units, the calm decile has diffusion RMS std 0.69 vs error 0.12 (d = 8: 0.62 vs 0.10); the rough decile 1.10 vs 2.86 (d = 8: 1.25 vs 2.55). By Sobel |grad x_r| quintile: diffusion 0.799 -> 0.449 / 0.972 -> 0.781 (d = 8: 0.774 -> 0.462 / 0.941 -> 0.805); varhead 0.566 -> 0.505. Pixel-level P90/P10 ratios: diffusion sd 1.28, varhead 4.77, error 5.37 (d = 8: 1.44 / 7.70 / 8.89). SD of log std: 0.44 vs varhead 0.86 (d = 8: 0.65 / 0.98). Spearman(std, |err|): 0.283 vs 0.583 (d = 8: 0.393 / 0.629). Excess kurtosis of z = (x - mu)/sd: 47.5 vs varhead 3.6 (d = 8: 20.5 vs 4.1). The PIT histogram has a central hump (0.051 vs uniform 0.030)."
+          },
+          {
+            "id": "M5-const-gaussian",
+            "statement": "At d = 4 the diffusion's CRPS is indistinguishable from one constant-width Gaussian N(x_r, (0.5 sigma_r)^2) around the same centre, as at d = 8.",
+            "verdict": "CONFIRMED",
+            "evidence": "All 200 gate cubes on CPU. The centre re-forward matches the record regressor RMSE within 0.00035, and the varhead CRPS within 8e-5. Best constant c = 0.5: CRPS 0.8917, against the diffusion's 0.8900 in the record. Difference -0.0017 +- 0.0029 (cluster SE); the diffusion is better on 50.5 % of cubes. d = 8: -0.0147 +- 0.0101, 48 %. The varhead beats that constant Gaussian by 0.089 +- 0.004. On the 8 stored cubes, the diffusion samples score 0.9575 against 0.9564 for the Gaussian N(x_r, sd_diff) fitted to their own sd, so the sample shape adds nothing. Removing the r >= 12.5 band of the sampled residual leaves the CRPS unchanged (0.9582); at d = 8 it improved it from 2.028 to 1.954. B scores 0.9478, worse than the constant Gaussian by +0.056 +- 0.005, but B is centred on x0_hat, not x_r."
+          },
+          {
+            "id": "M6-lowt-denoiser",
+            "statement": "(5) The d = 4 diffusion's denoiser is under-fit at low noise: a per-pixel spectral linear filter fitted on training cubes beats it at every t <= 299, it leaves about 0.3 units of noise in every spectral direction, and it is worse than predicting zero at measured pixels and in calm regions.",
+            "verdict": "CONFIRMED",
+            "evidence": "residual_reg_d4_b64@100 on the 8 stored cubes, fixed noise. The 64x64 Wiener filter is fitted on 200 cross-fitted training cubes from uq/d4/xr_cache. x0 RMS error in r units, network vs filter: t = 49 0.161 vs 0.115; t = 99 0.291 vs 0.202; t = 149 0.396 vs 0.271; t = 199 0.471 vs 0.331; t = 299 0.536 vs 0.439. The network wins only from t = 399 (0.534 vs 0.555; t = 499 0.536 vs 0.696). d = 8: 0.286 vs 0.164 at t = 99, 0.450 vs 0.255 at 199, 0.484 vs 0.339 at 299, network winning from t = 399. At t = 99 the error is 0.27-0.32 in every eigen-direction, including ones with almost no signal: k31 signal 0.020, net error 0.299, Wiener 0.020; k63 signal 0.008, net 0.286, Wiener 0.008 (d = 8: k31 0.020 / 0.302, k63 0.005 / 0.294). Lag-1 of the network's error is 0.013 (white). At the measured grid pixels at t = 99: net 0.287, position-aware Wiener 0.155, varhead-sigma Wiener 0.126, zero predictor 0.156. In the calm varhead-sigma bin (< P10, E[r^2] 0.013), network x0-MSE is 0.184 at t = 299 and 0.071 at t = 99, against 0.013 for the varhead Wiener (d = 8: 0.163 vs 0.010). The network's x0 error is flat in t (0.536 / 0.534 / 0.536 at t = 299 / 399 / 499). Training val_loss plateaued: 0.1111 (epoch 80) -> 0.1107 (epoch 100), LR cosine to 0 (d = 8: 0.1034 -> 0.1030)."
+          },
+          {
+            "id": "M7-lowt-condition",
+            "statement": "At low t the d = 4 denoiser output barely depends on the condition (y, x_r); the dependence appears only at high noise, as at d = 8.",
+            "verdict": "CONFIRMED",
+            "evidence": "Relative change ||x0(swapped cond) - x0(true cond)|| / ||x0(true)||, with (y, x_r) rolled across the 8 cubes and the same x_t: t = 99 0.020, 199 0.036, 299 0.053, 499 0.107, 699 0.242, 999 0.472. The d = 8 condition-blindness lens reported 0.02 (t = 100), 0.07 (300), 0.14 (500), 0.31 (700), 0.73 (900). Its normalisation may differ from mine, so compare the trend, not the levels."
+          },
+          {
+            "id": "M8-band-anomaly",
+            "statement": "The d = 8 anomaly of a few spectral bands with collapsed diffusion spread recurs at d = 4, in different bands.",
+            "verdict": "CONFIRMED",
+            "evidence": "d = 4: bands 1, 2, 3, 8 and 9 have diffusion sd 0.0055-0.0084, against a median of 0.0176, although their error is ordinary (0.017-0.027). Their cov50 is 0.375-0.495 and cov90 0.74-0.81. Bands 60-62 are also collapsed, but their error is low too (0.005-0.006), so they stay covered. In the other bands, sd stays at 0.0150-0.0191 while the error runs from 0.0062 to 0.0294 (cov50 0.53-0.89). The d = 8 stored cubes with the same code give bands 0, 1, 2, 11, 56, 57, 62 and 63, matching the d = 8 report. The cause is not established."
+          },
+          {
+            "id": "M9-spec-prediction",
+            "statement": "The spec predicted a smaller CRPS gap and texture gap at d = 4. That holds only in absolute units: relative to the error, the CRPS gap is unchanged, and the d = 4 diffusion beats the varhead on no cube.",
+            "verdict": "CONFIRMED",
+            "evidence": "C1 absolute: +0.0876 (d = 4) vs +0.1720 (d = 8). Relative per-cube gap (diffusion / varhead - 1): 0.119 +- 0.004 vs 0.124 +- 0.008. Gap / regressor RMSE: 0.0485 vs 0.0493. Cubes where the diffusion has lower CRPS than the varhead: 0/200 vs 7/200. Texture gap is smaller at d = 4: single-sample hf +1.41 vs +2.88, W1 single/regressor 1.24 vs 1.47 (sample worse in 66 % vs 71 % of cubes). Part of that is because the d = 4 true residual has more high-frequency content: 30 % of its energy at r >= 12.5 vs 10 %, lag-1 0.67 vs 0.87. The structural defect itself is at least as strong at d = 4 (lag-1 0.14, Laplacian ratio 16.7 of 20 for white noise)."
+          },
+          {
+            "id": "M10-mechanism-repeats",
+            "statement": "Overall, the d = 8 failure mechanism repeats at d = 4: a nearly homoscedastic, white, high-frequency spread from a low-noise denoiser that is under-fit, giving CRPS equal to a constant-width Gaussian around x_r.",
+            "verdict": "CONFIRMED",
+            "evidence": "All six d = 8 signatures reproduce at d = 4 with the same scripts, and four are stronger: cube slope 0.069 vs 0.136; pixel P90/P10 1.28 vs 1.44; z kurtosis 47.5 vs 20.5; sample lag-1 0.14 vs 0.25. The phase-sd range is 1.16x vs 1.14x, but against an error range of 8.7x vs 14x. CRPS is equal to N(x_r, (0.5 sigma_r)^2): -0.0017 +- 0.0029. The Wiener filter beats the network at t <= 299, with the crossover at t = 399 at both strides."
+          }
+        ],
+        "discrepancies": [
+          "The spec's prediction of a smaller CRPS gap at d = 4 is true only in absolute units. The relative gap is unchanged (11.9 % +- 0.4 vs 12.4 % +- 0.8; gap / regressor RMSE 0.0485 vs 0.0493), and at d = 4 the diffusion beats the varhead on 0/200 cubes against 7/200 at d = 8. The d = 4 contrast therefore does not show a milder defect; the defect scales with the error.",
+          "The d = 4 diffusion is more homoscedastic than the d = 8 one, not less: cube slope 0.069 vs 0.136, spread CoV 0.046 vs 0.080, excess kurtosis of z 47.5 vs 20.5, pixel P90/P10 1.28 vs 1.44. The smaller texture gap at d = 4 (hf +1.41 vs +2.88) comes partly from the d = 4 true residual having more high-frequency energy (30 % vs 10 % at r >= 12.5), not from more realistic samples: the sample lag-1 is 0.14 vs 0.25 at d = 8.",
+          "Removing the r >= 12.5 band of the sampled residual helped the d = 8 CRPS (2.028 -> 1.954) but does nothing at d = 4 (0.9575 -> 0.9582). At d = 4 most of the gap is spread in the wrong place at every frequency, not excess high-frequency noise.",
+          "The collapsed-spread bands recur at d = 4 in different bands (1-3, 8-9, 60-62 vs 0-2, 11, 56-57, 62-63 at d = 8). This looks like a recipe-level artefact, not a d = 8 quirk; the cause is still unidentified.",
+          "The condition-swap relative change (M7) uses ||x0_swap - x0_true|| / ||x0_true||. The d = 8 lens's normalisation may differ, so only the trend is comparable.",
+          "Scope: the element-level analyses (M2-M4, M8, the CRPS decomposition and M6-M7) use the 8 stored cubes: 1 from P022, 6 from P023, 1 from P024, all in the gate set. They reproduce the record on those cubes (pooled cov 0.655 / 0.910 vs 0.655 / 0.911; varhead CRPS exact; diffusion CRPS 0.9575 vs 0.9561). M1, M5 and M9 use all 200 cubes. The denoiser probe uses one noise draw per t; total CPU time was about 6 minutes, with no GPU used.",
+          "B (linear-centred) at d = 4 is also nearly homoscedastic (cube slope 0.191) and scores worse than the constant-width Gaussian around x_r (+0.056 +- 0.005 CRPS). B is centred on x0_hat (mean RMSE 2.145 vs 1.962), so this is not a like-for-like comparison."
+        ],
+        "summary": "The d = 8 failure mechanism repeats at d = 4 and is at least as strong; every check came back CONFIRMED. I ran the d = 8 verification code, adapted for stride 4, on both records with identical code so the strides compare directly. CPU only, about 6 minutes in total; GPU 1 was not touched.\n\n(1) Cube-level slope of log spread on log RMSE: diffusion 0.069 (bootstrap SE 0.011) vs variance head 0.820. At d = 8 the same code gives 0.136 vs 0.721. Spread CoV is 0.046 against an error CoV of 0.308.\n\n(2) Across the 16 sensor phases the error varies 8.7x and the variance-head sigma 8.1x, but the diffusion sd only 1.16x (d = 8: 14x / 12x / 1.14x). At the measured phase (0, 0) the diffusion sd is 4.7x the error (cov50 0.970, cov90 1.000); the variance head there gets 0.572 / 0.904.\n\n(3) Sample deviations are close to white noise. Spatial lag-1 is 0.14 against 0.67 for the true residual, and adjacent-band correlation 0.25 against 0.93. Coherence with the true residual is about 0, and a single sample behaves like x_r plus iid noise. Mean-of-32 RMSE is 1.9876 against 1.9870 predicted for x_r plus independent noise.\n\n(4) By variance-head sigma quintile, the diffusion's cov50 falls from 0.865 to 0.368 and cov90 from 0.985 to 0.727, while the variance head stays flat. Excess kurtosis of the standardised error is 47.5 (variance head 3.6).\n\n(5) Low-noise denoiser probe: a spectral Wiener filter fitted on 200 training cubes beats the network at every t <= 299 (t = 99: 0.291 vs 0.202), with the crossover at t = 399, the same as d = 8. At t = 99 the error is about 0.3 in every spectral direction, including directions with almost no signal. At the measured pixels and in calm regions the network is worse than predicting zero, and the condition barely changes its output at low t.\n\nOn all 200 cubes the diffusion's CRPS equals that of a single constant-width Gaussian N(x_r, (0.5 sigma_r)^2): difference -0.0017 +- 0.0029, diffusion better on 50.5 % of cubes. The collapsed-spread band anomaly also recurs, in different bands.\n\nThe spec predicted a smaller gap at d = 4. That is true only in absolute terms: the relative CRPS gap is 11.9 % vs 12.4 %, and the diffusion beats the variance head on 0 of 200 cubes. The texture gap is smaller (hf +1.41 vs +2.88), partly because the d = 4 true residual has more high-frequency energy.\n\nScripts and outputs are in /home/staff/c/chaoyi_he/.claude/jobs/97dc7552/tmp/verify_d4/mechanism-d4/:\n- record_slope.py, relgap.py\n- vh_forward_d4.py (vh_sigma_d4.npz)\n- stored_analysis.py (stored_d4/d8.json and .log)\n- ref200_d4.py (ref200_d4.json)\n- probe_d4.py (probe_d4.json and .log)\n- train_logs.py"
+      }
+    ],
+    "synthesis": {
+      "confirmed": [
+        "Verdict reproduces exactly. recompute-d4 rebuilt all six clauses in its own numpy code (CR1 cluster SE over 113 images), and the largest difference from verdict__d4_contrast__report.json is 0.0. C1 FAIL +0.0876 ± 0.0017 (cluster 0.0021). C2 FAIL, cov90 0.918, cov50 0.666. P1 PASS -0.4389 ± 0.0384 (cluster 0.0468). P2 FAIL +0.2701 ± 0.0244 (cluster 0.0268). S1 FAIL +0.0255 ± 0.0009 (cluster 0.0009). S2 FAIL +0.0035 ± 0.0020. calibration, perceptual and wins are all False. The same code also reproduces verdict__d8_main.json exactly. Record: K = 32 (ruling R10 withdrew the spec's K = 16 at d = 4), coverage_exact true, centre regress_l1_sel_d4_b64@17, diffusion residual_reg_d4_b64@100, varhead varhead_d4_b64@12, B residual_d4_b64@100. The 200 files are identical and in the same order in d4_contrast, d8_main and d8_fix_k64, so every d4 - d8 comparison is paired (checked in synthesis/synth.py).",
+        "The diffusion loses C1 on every cube. Its CRPS is higher than the variance head's on 200/200 cubes (7 cubes went the other way at d = 8), and its AUSE is higher on 200/200 at both strides. C1 fails in every class: P022 +0.061, P023 +0.093, P024 +0.082.",
+        "The reported (no-threshold) block reproduces exactly. AUSE diffusion - varhead +0.2490 (cluster 0.0047). Spread ratio: diffusion 0.932, varhead 1.044. Versus the 3-member ensemble: CRPS -0.0789 (cluster 0.0045), AUSE +0.1085 (cluster 0.0052); the ensemble is degenerate (cov90 0.241). Half-centre row: CRPS +0.0116 (cluster 0.0020), cov90 0.916. One trivial rounding slip in the printed report: varhead AUSE is 0.17846 in the record, so it should print as 0.178, not 0.179.",
+        "B (linear-centred, residual_d4_b64@100, centred on x0_hat) has a worse CRPS than the regressor-centred diffusion (diffusion - B -0.0578, cluster 0.0038; B lower on only 16/200 cubes) but ranks errors better (AUSE diffusion - B +0.0983, cluster 0.0043; B lower on 197/200). B's cube-level spread slope is 0.19, against 0.07 for the diffusion and 0.82 for the variance head. B's CRPS is worse than the constant Gaussian N(x_r, (0.5 sigma_r)^2) by +0.056 ± 0.005, but B has a different centre (mean RMSE 2.145 vs 1.962), so this is not a like-for-like comparison.",
+        "The absolute CRPS gap halves: d8 +0.1720 (cluster 0.0068), d4 +0.0876 (cluster 0.0021); paired d4 - d8 -0.0844 ± 0.0065, bootstrap 95% CI [-0.097, -0.071]. Both CRPS values roughly halve with the error scale: diffusion 1.9325 → 0.8900, varhead 1.7604 → 0.8024, regressor RMSE 4.232 → 1.962.",
+        "The relative (scale-free) CRPS gap does not shrink. I re-checked this because the two verifiers framed it differently (synthesis/synth.py, delta-method cluster SE and a joint 5000-draw cluster bootstrap). Ratio of means (diffusion/varhead - 1): 9.77% ± 0.64 → 10.91% ± 0.36, d4 - d8 +1.14 ± 0.45 pp, CI [+0.27, +2.01]. Mean of per-cube ratios: 12.40% ± 0.78 → 11.90% ± 0.43, d4 - d8 -0.50 ± 0.53 pp, CI [-1.56, +0.51]. Gap / regressor RMSE: per cube 0.0493 → 0.0485 (-0.0008 ± 0.0021); ratio of means 0.0406 → 0.0446 (+0.0040 ± 0.0016). Under every normalisation the change is either zero or a small increase at d = 4, never a decrease. The two verifiers do not actually disagree: they quoted different weightings.",
+        "Share of the variance head's localisation gain that the diffusion captures, measured against the best constant Gaussian N(x_r, (0.5 sigma_r)^2): 7.9% ± 5.2 at d8 and 1.9% ± 3.2 at d4 (d4 - d8 -6.0 ± 2.9 pp, CI [-11.7, -0.4]). Diffusion minus that constant Gaussian: d8 -0.0147 (cluster 0.0101), d4 -0.0017 (cluster 0.0029), with the diffusion better on 50.5% of d = 4 cubes. The variance head beats the constant Gaussian by 0.089 ± 0.004 at d4 (0.187 at d8), about 11% of its own CRPS at both strides.",
+        "The AUSE gap grows at d = 4. AUSE is already scale-free, because each sparsification curve is divided by the full RMSE. Gap: +0.1954 (cluster 0.0028) → +0.2490 (0.0047), d4 - d8 +0.0536 ± 0.0054, CI [+0.043, +0.065]. Relative: +109% → +140%. Ranking skill, defined as 1 - AUSE/AUSE_random: diffusion 52.5% → 44.6% (d4 - d8 -7.8 ± 0.6 pp, CI [-9.0, -6.7]); variance head 77.3% → 76.9% (-0.4 ± 0.6, unchanged).",
+        "Coverage. Diffusion cov50/cov90: d8 0.674/0.908, d4 0.666/0.918 (paired -0.008 ± 0.004 / +0.010 ± 0.002). The 50% interval is over-covered at both strides, outside the C2 band. The variance head moves from 0.624/0.930 to 0.537/0.897, inside both C2 bands at d = 4. The diffusion's cov50 excess over the variance head grows from 0.051 to 0.129.",
+        "Texture, two measures that improve. Single-sample gradient W1 penalty over the regressor: +46.8% ± 6.4 → +24.1% ± 4.7 (d4 - d8 -22.6 ± 3.5 pp, CI [-29.9, -16.2]); absolute +0.00254 → +0.00053. Single-sample log HF ratio: +2.882 (17.9x the truth's energy) → +1.407 (4.1x), paired -1.476 ± 0.004. The sample is still worse than the regressor on W1 in 132/200 cubes (142/200 at d8), and on SAM (3.30° vs 1.63°).",
+        "Texture, the pre-registered P1 statistic moves the other way. P1 = |hf_single| - |hf_regressor|: -0.312 (cluster 0.065) → -0.439 (0.047), d4 - d8 -0.127 ± 0.035, CI [-0.194, -0.059]. Relative to |hf_regressor|: -9.8% → -23.8%. The artefact pattern persists: the sample over-sharpens and the regressor blurs on 200/200 cubes.",
+        "S1's literal fail is the 1/K term. Literal +0.0255 (cluster 0.0009); a perfectly centred sampler with this spread is expected to show +0.0244. Debiased S1 is +0.0011 ± 0.0007 (cluster), which passes the |mean| <= 2 SE rule at 1.5 SE. For comparison, d8 debiased is -0.0059 ± 0.0042 (K = 32) and -0.0041 ± 0.0038 (K = 64).",
+        "A calibrated sampler cannot pass P2 at d = 4. Baseline/regressor RMSE ratio of means is 1.198 (d8 1.082), and only 18/200 cubes exceed √2 (2/200 at d8). A calibrated single draw would give P2 = +0.424 (cluster 0.029), a fail. The observed +0.270 is consistent with sqrt(RMSE_r^2 + v̄): predicted 2.610 against the observed single-sample RMSE of 2.621.",
+        "Mechanism, mean of K. A single sample behaves like x_r plus independent noise: the mean-of-32 RMSE is 1.9876, against 1.9870 predicted for x_r plus independent noise (per-cube Pearson 0.9999)."
+      ],
+      "dose_response": "The spec predicted that both the CRPS gap and the texture gap would be smaller at d = 4. That holds only in absolute units, and for texture only on some measures, so as a test of whether the defect gets milder the prediction fails. In absolute terms the CRPS gap halves: +0.1720 (cluster SE 0.0068) at d8 against +0.0876 (0.0021) at d4, paired d4 - d8 -0.0844 ± 0.0065, bootstrap 95% CI [-0.097, -0.071]. But this is the error scale halving: the regressor RMSE goes 4.23 → 1.96, and both CRPS values roughly halve. In scale-free terms the gap is unchanged or slightly larger. By ratio of means it is 9.77% ± 0.64 at d8 and 10.91% ± 0.36 at d4 (d4 - d8 +1.14 ± 0.45 pp, CI [+0.27, +2.01]). By the mean of per-cube ratios it is 12.40% ± 0.78 against 11.90% ± 0.43 (-0.50 ± 0.53 pp, CI [-1.56, +0.51]). Gap / RMSE_r is 0.0493 against 0.0485 per cube. No normalisation shows a decrease. The diffusion beats the variance head on 0/200 cubes at d4 (7/200 at d8). It captures 1.9% ± 3.2 of the variance head's localisation gain over a constant-width Gaussian around x_r (7.9% ± 5.2 at d8). The already scale-free AUSE gets worse: the gap goes +0.195 → +0.249 (d4 - d8 +0.054 ± 0.005), and the diffusion's ranking skill falls from 52.5% to 44.6% of the random-to-oracle range while the variance head stays at about 77%. On texture: the W1 penalty of a single sample falls from +47% ± 6 to +24% ± 5 (-22.6 ± 3.5 pp), and over-sharpening falls from 17.9x to 4.1x the truth's Laplacian energy. Part of that is because the d = 4 true residual is itself rougher (32% of its spatial energy at radius >= 12.5, against 11% at d8), not because the samples are more realistic. The pre-registered P1 statistic moves the other way (-0.312 → -0.439, d4 - d8 -0.127 ± 0.035), which fits P1 being an artefact. Overall, the calibration defect scales with the error and stays at about 10-12% of the CRPS. The error ranking is worse at d4. Only the absolute size of the gap and the visual over-sharpening shrink.",
+      "mechanism_repeats": "Yes, and at d = 4 it is if anything stronger. Every d = 8 signature reproduces with identical code at both strides.\n\n- **Cube-level spread:** the slope of log spread on log RMSE is 0.069 ± 0.011, against 0.136 ± 0.015 at d8 (difference CI [-0.095, -0.040]). The variance head's slope is 0.82 (0.72 at d8). The diffusion's spread CoV is 0.046 against an error CoV of about 0.31.\n- **Sensor phases:** across the 16 phases (8 stored cubes) the diffusion sd varies 1.16x while the error varies 8.7x and the variance-head sigma 8.1x (d8: 1.14x against 14x). At the measured phase (0, 0) the sd is 4.7x the error (cov50 0.970, cov90 1.000).\n- **White, high-frequency spread:** spatial lag-1 of the sample deviations is 0.14, against 0.67-0.73 for the true residual (d8 0.24-0.25 against 0.87-0.91). Adjacent-band correlation is 0.19-0.25 against 0.93-0.94. 76% of the deviation energy sits at radius >= 12.5, against 32% for the true residual and 88% for white noise. Coherence with the true residual is about 0.\n- **Coverage by element:** strongly heteroscedastic. By variance-head sigma quintile, cov50 runs 0.865 → 0.368 and cov90 0.985 → 0.727. Excess kurtosis of the standardised error is 47.5 (20.5 at d8).\n- **Constant Gaussian:** CRPS is indistinguishable from N(x_r, (0.5 sigma_r)^2) on all 200 cubes: -0.0017 ± 0.0029 (cluster).\n- **Low-noise denoiser:** a training-fitted spectral Wiener filter beats the network at every t <= 299 (t = 99: 0.291 vs 0.202 r-units), with the crossover at t = 399 at both strides. At t = 99 the network's error is about 0.3 in every spectral direction, including directions with almost no signal. In calm regions and at measured pixels it is worse than predicting zero. Validation loss plateaued (0.1111 → 0.1107 over epochs 80-100).\n- **Condition use:** the condition affects the output only at high t (relative change 0.02 at t = 99, 0.47 at t = 999).\n- **Collapsed-spread bands:** they recur in different bands (1-3 and 8-9 under-cover; 60-62 collapsed but still covered).\n\nI reconciled the whiteness numbers, which differed between verifiers, in synthesis/white.py. Both verifiers' values reproduce; the differences come from the definition (horizontal pooled vs per-map, horizontal plus vertical, mean-removed), not from an error.",
+      "uncertain": [
+        "Most element-level evidence (sensor phases, coverage strata, whiteness, band anomaly, denoiser probe, condition swap) rests on the 8 stored cubes: 1 from P022, 6 from P023, 1 from P024. Those stored samples are the y-swap batch draws, not the gate draws, so sample metrics match the record only to Monte Carlo noise. The probe uses one noise draw per t. Cube-level slope, constant-Gaussian CRPS and every dose-response number use all 200 cubes.",
+        "The under-fit low-noise denoiser is the likely cause at d = 4, but that is not established causally. No d = 4 hybrid sampler was run; at d8, swapping in the Wiener filter below t = 399 removed about 60% of the gap. No retraining (longer training, different loss weighting over t, more capacity) has been tried. A plateaued validation loss does not separate an objective problem from a capacity problem.",
+        "A 'dose-response' with two strides is only two points, and the strides differ in more than d: different regressors and epochs, sigma_r 0.041 vs 0.089, a rougher true residual at d4 (32% vs 11% high-frequency energy), and different training-loss levels. Nothing here attributes a change specifically to the stride.",
+        "Whether the relative CRPS gap is 'unchanged' or 'slightly larger' at d4 depends on how cubes are weighted: ratio of means gives +1.14 ± 0.45 pp, the per-cube mean gives -0.50 ± 0.53 pp. Neither says smaller.",
+        "The spec never defined 'texture gap'. Its verdict depends on the measure: W1 and over-sharpening shrink, the P1 statistic grows.",
+        "The d8 constant-Gaussian optimum (c = 0.5) sits at the edge of the tested grid, so the d8 localisation share (7.9%) may be an upper bound. The d4 optimum lies inside the grid, between c = 0.5 and 0.6.",
+        "Debiased S1 passes only narrowly at d4 (+0.0011 ± 0.0007, 1.5 SE). On the stored cubes the RMS of mean-of-K minus x_r is 0.323% against 0.304% expected from pure 1/K noise, which hints at a small real drift (n = 8).",
+        "S2 is underpowered by design at both strides (d4 +0.0035 ± 0.0020), so it says nothing about whether the condition is used.",
+        "The cause of the collapsed-spread band anomaly (bands 1-3 and 8-9 at d4, different bands at d8) is unknown. The condition-swap trend (M7) uses a normalisation that may differ from the d8 lens, so only the trend compares across strides.",
+        "Why B, the linear-centred diffusion, ranks errors better (AUSE lower on 197/200, slope 0.19) is not explained. Its CRPS comparison is confounded by its worse centre."
+      ],
+      "adds_to_conclusion": [
+        "The d = 8 calibration failure is not specific to stride 8: at d = 4 the diffusion again loses C1, on 200 of 200 cubes, with the same scale-free gap of about 11% of the CRPS and a worse error ranking (AUSE skill 45% vs 77%).",
+        "The failure mechanism carries over to the second stride, so it belongs to the recipe: a homoscedastic, white spread equivalent to a constant-width Gaussian around x_r, plausibly caused by an under-fit low-noise denoiser. At d = 4 it is, if anything, stronger.",
+        "The spec's prediction of a smaller gap at d = 4 holds only in absolute units, which simply track the halved error scale, and on the W1 and over-sharpening texture measures. The pre-registered P1 statistic moves the opposite way, which supports reading P1's pass as an artefact.",
+        "The design flaws in the spec repeat at d = 4. P2 cannot be passed by a calibrated sampler (baseline/regressor ratio 1.198 < √2). S1's literal fail is the 1/K term (debiased +0.0011 ± 0.0007 passes). So 'diffusion wins (a)' was unreachable at either stride, whatever the sampler.",
+        "The variance head becomes nearly calibrated at d = 4: cov50 0.537 and cov90 0.897 are inside both C2 bands, and its ranking skill holds at 77%. This strengthens the case for the variance head as Phase 2a's uncertainty model.",
+        "The B comparison separates centre from spread. Centring on x_r lowers the diffusion's CRPS relative to the linear-centred B (-0.058) through the better centre, while B's spread ranks errors better (AUSE lower on 197/200). The regressor-centred residual has therefore lost the little error localisation the diffusion had."
+      ],
+      "summary": "The d = 4 contrast checks out, and its scale-free numbers do not support the spec's prediction of a milder defect at d = 4.\n\n**The verdict file is right.** One verifier recomputed it in independent numpy code and matched every number exactly: C1, C2, P2, S1 and S2 fail; P1 passes, but as an artefact.\n\n**Dose-response, absolute gap.** The absolute CRPS gap halves, from +0.172 to +0.088 (paired -0.084 ± 0.006). That is the error scale halving, not a milder defect.\n\n**Dose-response, scale-free.** I re-checked the relative gap myself because the two verifiers framed it differently. The scale-free gap does not shrink:\n- by ratio of means it goes 9.8% → 10.9% (+1.1 ± 0.45 pp);\n- by the mean of per-cube ratios it goes 12.4% → 11.9% (-0.5 ± 0.5 pp);\n- the diffusion beats the variance head on 0 of 200 cubes;\n- the diffusion's error ranking gets worse: AUSE gap +0.195 → +0.249, ranking skill 52% → 45%, while the variance head stays at 77%.\n\n**Texture depends on the measure.** It improves on W1 (penalty +47% → +24%) and on over-sharpening (17.9x → 4.1x the truth's energy), partly because the true d = 4 residual is itself rougher. The pre-registered P1 statistic moves the other way (-0.31 → -0.44).\n\n**The d = 8 mechanism repeats and is stronger.** At d = 4:\n- the cube-level spread slope is 0.07 (0.14 at d = 8);\n- across sensor phases the spread varies 1.16x while the error varies 8.7x;\n- the spread is white and high-frequency;\n- the CRPS equals that of a constant Gaussian N(x_r, (0.5 σ_R)²) (-0.0017 ± 0.0029);\n- a training-fitted linear filter beats the denoiser at every t ≤ 299.\n\n**Spec flaws repeat.** S1's literal fail is the 1/K term (debiased +0.0011 ± 0.0007, a pass). P2 is unattainable for a calibrated sampler (baseline/regressor ratio 1.198 < √2).\n\n**Variance head and B.** At d = 4 the variance head lands inside both C2 coverage bands. B has a worse CRPS than the diffusion but ranks errors better (lower AUSE on 197 of 200 cubes).\n\n**What remains open.** Most element-level evidence comes from 8 stored cubes. The denoiser cause has not been tested by intervention. The comparison has only two strides, confounded with different regressors.\n\nFiles are in /home/staff/c/chaoyi_he/.claude/jobs/97dc7552/tmp/verify_d4/synthesis/:\n- synth.py → synth.json: relative-gap normalisations, localisation share, AUSE skill, S1 and P2 re-derivations, with cluster SEs and a 5000-draw paired bootstrap.\n- white.py → white.json: whiteness under both verifiers' definitions plus high-frequency energy fractions at d = 4 and d = 8."
+    }
+  },
+  "workflowProgress": [
+    {
+      "type": "workflow_phase",
+      "index": 1,
+      "title": "Verify"
+    },
+    {
+      "type": "workflow_phase",
+      "index": 2,
+      "title": "Synthesize"
+    },
+    {
+      "type": "workflow_agent",
+      "index": 1,
+      "label": "recompute-d4",
+      "phaseIndex": 1,
+      "phaseTitle": "Verify",
+      "agentId": "a7f5b2983e1d4814a",
+      "model": "claude-opus-5-5",
+      "state": "done",
+      "startedAt": 1792831558618,
+      "queuedAt": 1792831558598,
+      "attempt": 1,
+      "lastToolName": "StructuredOutput",
+      "lastToolSummary": "My independent recomputation of the d = 4 contrast matches …",
+      "promptPreview": "PROJECT CONTEXT. Repo (git worktree, read-only for you): /data/chaoyi_he/HSI/Diffu/.claude/worktrees/phase1-plan\nPython: /home/grads/c/chaoyi_he/Desktop/conda/envs/hsi/bin/python — ALWAYS with CUDA_VISIBLE_DEVICES= (CPU only; GPU 1 is running a long job you must not disturb). Keep CPU use moderate (torch.set_num_threads(8)).\nScratch dir: /home/staff/c/chaoyi_he/.claude/jobs/97dc7552/tmp/verify_d4/…",
+      "promptFramed": true,
+      "lastProgressAt": 1792832036711,
+      "tokens": 147807,
+      "toolCalls": 28,
+      "durationMs": 478092,
+      "resultPreview": "{\"claims\":[{\"id\":\"R1\",\"statement\":\"An independent recomputation of all six clauses at d = 4 (from the d4_contrast per-cube arrays, with my own CR1 cluster SE over the 113 source images P0xx/<img>) gives exactly the numbers in verdict__d4_contrast__report.json.\",\"verdict\":\"CONFIRMED\",\"evidence\":\"Largest absolute difference across every mean, SE and cluster SE: 0.0 (bit-for-bit). Every boolean match…"
+    },
+    {
+      "type": "workflow_agent",
+      "index": 2,
+      "label": "mechanism-d4",
+      "phaseIndex": 1,
+      "phaseTitle": "Verify",
+      "agentId": "abf2e8506d1616e3d",
+      "model": "claude-opus-5-5",
+      "state": "done",
+      "startedAt": 1792831558619,
+      "queuedAt": 1792831558598,
+      "attempt": 1,
+      "lastToolName": "StructuredOutput",
+      "lastToolSummary": "The d = 8 failure mechanism repeats at d = 4 and is at leas…",
+      "promptPreview": "PROJECT CONTEXT. Repo (git worktree, read-only for you): /data/chaoyi_he/HSI/Diffu/.claude/worktrees/phase1-plan\nPython: /home/grads/c/chaoyi_he/Desktop/conda/envs/hsi/bin/python — ALWAYS with CUDA_VISIBLE_DEVICES= (CPU only; GPU 1 is running a long job you must not disturb). Keep CPU use moderate (torch.set_num_threads(8)).\nScratch dir: /home/staff/c/chaoyi_he/.claude/jobs/97dc7552/tmp/verify_d4/…",
+      "promptFramed": true,
+      "lastProgressAt": 1792832174708,
+      "tokens": 205398,
+      "toolCalls": 49,
+      "durationMs": 615286,
+      "resultPreview": "{\"claims\":[{\"id\":\"M1-cube-slope\",\"statement\":\"(1) Cube level: the d = 4 diffusion's spread is nearly the same size in every cube, as at d = 8, while the variance head scales with the error.\",\"verdict\":\"CONFIRMED\",\"evidence\":\"Record, 200 cubes, same estimator as the d = 8 record_analysis (spread_c = sqrt(spread_ratio_c) x RMSE(mean)_c). d = 4: the slope of log spread on log RMSE is 0.069 for the di…"
+    },
+    {
+      "type": "workflow_agent",
+      "index": 3,
+      "label": "synthesis",
+      "phaseIndex": 2,
+      "phaseTitle": "Synthesize",
+      "agentId": "aeb8ccc96577658c7",
+      "model": "claude-opus-5-5",
+      "state": "done",
+      "startedAt": 1792832177011,
+      "queuedAt": 1792832176990,
+      "attempt": 1,
+      "lastToolName": "StructuredOutput",
+      "lastToolSummary": "The spec predicted that both the CRPS gap and the texture g…",
+      "promptPreview": "PROJECT CONTEXT. Repo (git worktree, read-only for you): /data/chaoyi_he/HSI/Diffu/.claude/worktrees/phase1-plan\nPython: /home/grads/c/chaoyi_he/Desktop/conda/envs/hsi/bin/python — ALWAYS with CUDA_VISIBLE_DEVICES= (CPU only; GPU 1 is running a long job you must not disturb). Keep CPU use moderate (torch.set_num_threads(8)).\nScratch dir: /home/staff/c/chaoyi_he/.claude/jobs/97dc7552/tmp/verify_d4/…",
+      "promptFramed": true,
+      "lastProgressAt": 1792832481348,
+      "tokens": 107413,
+      "toolCalls": 22,
+      "durationMs": 304336,
+      "resultPreview": "{\"confirmed\":[\"Verdict reproduces exactly. recompute-d4 rebuilt all six clauses in its own numpy code (CR1 cluster SE over 113 images), and the largest difference from verdict__d4_contrast__report.json is 0.0. C1 FAIL +0.0876 ± 0.0017 (cluster 0.0021). C2 FAIL, cov90 0.918, cov50 0.666. P1 PASS -0.4389 ± 0.0384 (cluster 0.0468). P2 FAIL +0.2701 ± 0.0244 (cluster 0.0268). S1 FAIL +0.0255 ± 0.0009 (…"
+    }
+  ],
+  "totalTokens": 460618,
+  "totalToolCalls": 99
+}
