@@ -12,7 +12,7 @@ ranks a noisier sd. Differences are other - verdict record, with iid and cluster
 Whiteness: on the 8 stored cubes of each record, the spatial lag-1 autocorrelation of the sample deviation s_k - mean
 (first 4 draws; mean over its own K draws) against that of the true residual x - x_r. A white deviation has lag-1 near 0.
 Also on the shared cubes: the pooled spread ratio with the mean-of-K's 1/K term removed (sum v / sum(err^2 - v/K)), the
-cross-cube correlation of log v with log err^2, and S1 split into the 1/K term and the sampler's own centre error
+cross-cube correlation of log v with log err^2 (corr_log) and with log(err^2 - v/K) (corr_log_kc, comparable across K), and S1 split into the 1/K term and the sampler's own centre error
 (per cube sqrt(err^2 - v/K) against the regressor's RMSE).
 Reads the records read-only; writes ddpm_compare__<OTHER_NAME>.json next to this file.
 
@@ -95,6 +95,7 @@ def main():
         e2, v = pc['mean_rmse_pct'] ** 2, pc['pred_var_pct2']
         centre = np.sqrt(e2 - v / K)
         res['spread'][tag] = dict(K=K, pooled_kc=float(v.sum() / (e2 - v / K).sum()), corr_log=float(np.corrcoef(np.log(v), np.log(e2))[0, 1]),
+                                  corr_log_kc=float(np.corrcoef(np.log(v), np.log(e2 - v / K))[0, 1]),
                                   s1_literal=float((pc['mean_rmse_pct'] - reg).mean()), centre_rmse=float(centre.mean()),
                                   centre_minus_regressor=float((centre - reg).mean()), regressor_rmse=float(reg.mean()))
     vv = per_cube(other, 'varhead')

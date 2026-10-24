@@ -98,7 +98,7 @@ calibration FAIL; perceptual FAIL; diffusion wins (a): False
 
 C1 moved by +0.0013 (K-invariant, as predicted); S1 halved from +0.0517 to +0.0246, which is the 1/K Monte Carlo term predicted (+0.023), not drift; the mean of 64 samples has RMSE 4.2565 (vs 4.2836 at K = 32 and the regressor's 4.2319) and log HF −1.10 (vs −0.49 at K = 32: the white noise averages away as 1/K); AUSE 0.346 (vs 0.375). P1 and P2 are identical to K = 32 because the single sample is draw 0 with the same seed. Under the spec, the fix round's K = 64 arm leaves part (a) failed at d = 8.
 
-**DDPM-1000 arm result (report only; 2026-10-24 01:15–07:59, GPU 1, 6.7 GPU-h; record `uq/d8/eval/d8_fix_ddpm.json`, report `uq/d8/verdict__d8_fix_ddpm__report.json`) — the prediction held on all three counts:**
+**DDPM-1000 arm result (report only, since K = 8 < min_k_for(0.9) = 19; 2026-10-24 01:15–07:59, GPU 1, 6.7 GPU-h; record `uq/d8/eval/d8_fix_ddpm.json`, report `uq/d8/verdict__d8_fix_ddpm__report.json`) — the prediction held on all three counts:**
 
 ```
 C1: FAIL  +0.2266 ± 0.0139 (cluster 0.0140)
@@ -107,7 +107,7 @@ P1: FAIL  +0.0462 ± 0.0928 (cluster 0.0892)
 P2: FAIL  +1.5725 ± 0.0831 (cluster 0.0808)
 S1: FAIL  +0.2915 ± 0.0219 (cluster 0.0223)
 S2: FAIL  +0.0349 ± 0.0356
-calibration FAIL; perceptual FAIL; diffusion wins (a): False   (REPORT ONLY: K = 8 < min_k_for(0.9) = 19, no gate)
+calibration FAIL; perceptual FAIL; diffusion wins (a): False   (REPORT ONLY, no gate)
 ```
 
 Paired against `d8_main` (DDIM-10, K = 32) on the 50 shared cubes, using only quantities that do not depend on K (`docs/analysis/phase2a_page/ddpm_compare.py`, output `ddpm_compare__d8_fix_ddpm.json`; cluster SE over 45 source images):
@@ -118,19 +118,19 @@ Paired against `d8_main` (DDIM-10, K = 32) on the 50 shared cubes, using only qu
 | CRPS gap to the variance head (1.7452 on these cubes) | +0.1726 | +0.2266 | — |
 | predicted variance, mean over elements (%²) | 14.28 | 21.43 | +7.14 ± 0.44 (+50 %) |
 | pooled spread ratio, mean-of-K's 1/K term removed | 0.73 | 1.10 | — (variance head 1.35) |
-| cross-cube correlation, log variance vs log squared error | 0.58 | 0.57 | — (variance head 0.66) |
-| draw-0 RMSE (%) | 5.749 | 6.266 | +0.516 ± 0.033 |
+| cross-cube correlation, log variance vs log squared error, mean-of-K's 1/K term removed | 0.57 | 0.53 | — (variance head 0.66) |
+| draw-0 RMSE (%) | 5.749 | 6.265 | +0.516 ± 0.033 |
 | draw-0 log HF-energy ratio | +2.827 | +3.189 | +0.362 ± 0.001 |
-| lag-1 autocorrelation of sample deviations, 8 stored cubes (true residual 0.87) | 0.25 | 0.29 | — |
+| lag-1 autocorrelation of sample deviations, first 4 draws on the 8 stored cubes (true residual 0.87) | 0.25 | 0.29 | — |
 | RMS sample sd on the 8 stored cubes (%) | 3.94 | 4.98 | — |
 
 - **Prediction 1 held:** DDPM-1000's CRPS is worse than DDIM-10's on the same cubes, by 8.6 cluster SE.
-- **Prediction 2 held:** its spread is wider; its overall size is now about right (pooled 1.10), but it follows the error no better than DDIM-10's (correlation 0.57 against 0.58), so a wider spread costs CRPS.
+- **Prediction 2 held:** its spread is wider; pooled over the cubes its size is now about right (1.10, 1/K term removed), but it follows the error no better than DDIM-10's (correlation 0.53 against 0.57, both with the 1/K term removed), so the extra width does not buy a better CRPS.
 - **Prediction 3 held:** the deviations are still close to white (lag-1 0.29, against 0.87 for the true residual), and single draws are rougher; P1's artefactual pass at DDIM-10 disappears (|+3.19| > |−3.14| for the regressor).
 - **S1's +0.29 is the 1/K term at K = 8.** With v/K removed per cube, the sampler's own centre has RMSE 4.284 % against the regressor's 4.303 % (DDIM-10 on the same cubes: 4.292 %).
 - Coverage and AUSE are biased at K = 8 and are not compared.
 - **SE-8 ruling (final review):** the y-swap step was kept for this arm, knowingly; it took about 3.6 of the 6.7 GPU-hours.
-- **Provenance:** the record's `git_head` (ef060ad) is read when the record is written (07:59). The process loaded its code at launch (01:15:38), when HEAD was e53df79. The commits in between change only refusal paths that `uq_eval` never calls (`XRCachedData.__init__`, the Phase 1 entry points of `eval_warmstart.py`, `select_epoch`); the six `eval_warmstart` helpers `uq_eval` imports and the three frozen evaluation files are unchanged, so a re-run at ef060ad gives the same record.
+- **Provenance:** the record's `git_head` (ef060ad) is read when the record is written (07:59). The process loaded its code at launch (01:15:38), when HEAD was e53df79. The commits in between change only code `uq_eval` never runs (refusal paths in `XRCachedData.__init__` and in the Phase 1 entry points of `eval_warmstart.py`, `select_epoch`'s non-finite filter, help and CLI text of `main_2d_residual_fsdp.py` and `yswap_one_step.py`, the pilot scripts and tests), plus a harmless import and a constant at `eval_warmstart.py`'s module level; `uq_eval.py`, `uq/metrics.py`, `uq_verdict.py`, `model/` and the six `eval_warmstart` helpers `uq_eval` imports are unchanged, so a re-run at ef060ad gives the same numbers (only `git_head`, `created` and `seconds` would differ).
 
 Under the spec, the fix round is complete and part (a) remains failed at d = 8.
 
