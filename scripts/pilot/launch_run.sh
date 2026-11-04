@@ -1,6 +1,6 @@
 #!/bin/bash
 # Launch one pilot run in the background on one GPU.
-# Usage: [RUN_NAME=<dir name>] launch_run.sh residual|standard|standard_xhat|regress|residual_reg|varhead GPU [extra args]   (regress needs --prediction_type direct --loss_type l1|l2)
+# Usage: [RUN_NAME=<dir name>] launch_run.sh residual|standard|standard_xhat|regress|residual_reg|varhead|uncond|cond_fam|regress_fam|varhead_fam GPU [extra args]   (the four sensor modes need --sensor_config <path> and run at --ds 1, appended last; regress[_fam] need --prediction_type direct --loss_type l1|l2)
 # Refuses (exit 1; nothing started, the launch not counted) when a non-empty RUN_NAME is not <MODE>_[A-Za-z0-9_]+ (no
 # '/' or '..'; an exported RUN_NAME cannot redirect another mode's launch) or belongs to a longer mode name that starts
 # with <MODE>_ (residual_reg_* for residual, standard_xhat_* for standard), when a regress launch has no --loss_type l1|l2
@@ -20,12 +20,12 @@ NAME_RE="^${MODE}_[A-Za-z0-9_]+\$"
 if [[ -n "${RUN_NAME:-}" && ! "$RUN_NAME" =~ $NAME_RE ]]; then
   echo "RUN_NAME='$RUN_NAME' is not ${MODE}_[A-Za-z0-9_]+; not launching"; exit 1
 fi
-for M in residual standard standard_xhat regress residual_reg varhead; do      # model/residual_wrapper.py MODES
+for M in residual standard standard_xhat regress residual_reg varhead uncond cond_fam regress_fam varhead_fam; do      # model/residual_wrapper.py MODES
   if [[ "$M" != "$MODE" && "$M" == "${MODE}_"* && "${RUN_NAME:-}" == "${M}_"* ]]; then   # e.g. residual_reg_* passes ^residual_
     echo "RUN_NAME='$RUN_NAME' belongs to mode $M, not $MODE; not launching"; exit 1
   fi
 done
-LOSS=""; SEED=""; HALF=""; PREV=""
+LOSS=""; SEED=""; HALF=""; SCFG=""; DSV=""; PREV=""
 for A in "$@"; do                                         # the last --loss_type / --seed / --train_half wins, as in argparse
   [[ "$PREV" == --loss_type ]] && LOSS=$A
   [[ "$A" == --loss_type=* ]] && LOSS=${A#--loss_type=}
@@ -33,11 +33,26 @@ for A in "$@"; do                                         # the last --loss_type
   [[ "$A" == --seed=* ]] && SEED=${A#--seed=}
   [[ "$PREV" == --train_half ]] && HALF=$A
   [[ "$A" == --train_half=* ]] && HALF=${A#--train_half=}
+  [[ "$PREV" == --sensor_config ]] && SCFG=$A
+  [[ "$A" == --sensor_config=* ]] && SCFG=${A#--sensor_config=}
+  [[ "$PREV" == --ds || "$PREV" == --sensor_down_sample_rate ]] && DSV=$A
+  [[ "$A" == --ds=* ]] && DSV=${A#--ds=}
+  [[ "$A" == --sensor_down_sample_rate=* ]] && DSV=${A#--sensor_down_sample_rate=}
   PREV=$A
 done
-if [[ "$MODE" == regress ]]; then
+DSARG=()
+case "$MODE" in uncond|cond_fam|regress_fam|varhead_fam)   # sensor modes: the trainer needs --sensor_config and --ds 1
+  if [[ -z "$SCFG" ]]; then
+    echo "$MODE needs --sensor_config <path> in the extra args; not launching"; exit 1
+  fi
+  if [[ -n "$DSV" && "$DSV" != 1 ]]; then               # the last --ds wins, as in argparse
+    echo "$MODE runs at --ds 1 but the extra args pass --ds '$DSV'; not launching"; exit 1
+  fi
+  DSARG=(--ds 1);;                                      # appended after "$@": overrides the fixed --ds 4 prefix
+esac
+if [[ "$MODE" == regress || "$MODE" == regress_fam ]]; then
   if [[ "$LOSS" != l1 && "$LOSS" != l2 ]]; then
-    echo "regress needs --loss_type l1|l2 in the extra args (got '${LOSS}'; RUN_NAME='${RUN_NAME:-}'); not launching"; exit 1
+    echo "$MODE needs --loss_type l1|l2 in the extra args (got '${LOSS}'; RUN_NAME='${RUN_NAME:-}'); not launching"; exit 1
   fi
   for L in l1 l2; do
     if [[ "${RUN_NAME:-}" == *_${L}_* && "$LOSS" != "$L" ]]; then
@@ -66,8 +81,8 @@ if [[ "$MODE" == regress ]]; then
     echo "--train_half $HALF but RUN_NAME='${RUN_NAME:-}' names no _half<N>_ (half regressors carry it); not launching"; exit 1
   fi
 fi
-if [[ "$MODE" == varhead && "$LOSS" != nll ]]; then       # the varhead's loss is the Gaussian NLL; the trainer's default is l1
-  echo "varhead needs --loss_type nll in the extra args (got '${LOSS}'); not launching"; exit 1
+if [[ ( "$MODE" == varhead || "$MODE" == varhead_fam ) && "$LOSS" != nll ]]; then       # the varhead's loss is the Gaussian NLL; the trainer's default is l1
+  echo "$MODE needs --loss_type nll in the extra args (got '${LOSS}'); not launching"; exit 1
 fi
 RUN=$ROOT/runs/${RUN_NAME:-${MODE}_d4_b64}     # RUN_NAME overrides the run directory (e.g. regress_l2_d4_b64)
 FREE=$(nvidia-smi --query-gpu=memory.free --format=csv,noheader,nounits --id="$GPU")
@@ -89,7 +104,7 @@ if compgen -G "$RUN/checkpoint_epoch_*.pth" > /dev/null; then
 fi
 export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1
 nohup $PY main_2d_residual_fsdp.py --mode "$MODE" --ds 4 --base_channels 64 --batch_size 8 --num_workers 8 --device "cuda:$GPU" \
-    --num_epochs 100 --max_hours 24 --save_every 10 --keep_epochs 25 50 100 --val_every 5 --save_dir "$RUN" $RESUME "$@" \
+    --num_epochs 100 --max_hours 24 --save_every 10 --keep_epochs 25 50 100 --val_every 5 --save_dir "$RUN" $RESUME "$@" ${DSARG[@]+"${DSARG[@]}"} \
     >> "$RUN/run.log" 2>&1 9>&- &
 echo $! > "$RUN/pid"
 echo "launched $MODE on GPU $GPU (pid $(cat "$RUN/pid"), resume='${RESUME}') -> $RUN/run.log"
