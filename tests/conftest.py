@@ -49,3 +49,36 @@ def synthetic_prior(small_R):
     mu = X.mean(0)
     C = np.cov(X.T) + 1e-6 * np.eye(31)
     return dict(mu=mu, C=C, X=X)
+
+
+@pytest.fixture(scope='session')
+def fake_sensor_root(tmp_path_factory):
+    """Tiny HFD-like root: 12 cubes in 3 classes plus synthetic Device1 / Device2 / PH5 response files
+    with the real files' keys, shapes and orientation (Device 2 is stored transposed, [states, wavelengths])."""
+    import scipy.io as sio
+    root = tmp_path_factory.mktemp('fake_sensor_root')
+    rng = np.random.default_rng(2)
+    basis = rng.standard_normal((31, 6))
+    layout = {'P022': ['a_1', 'a_2', 'b_1', 'b_2'], 'P023': ['c_1', 'c_2', 'c_3', 'd_1'],
+              'P024': ['e_1', 'e_2', 'e_3', 'e_4']}
+    for cls, names in layout.items():
+        d = root / 'MatFlower60' / 'Train' / cls
+        d.mkdir(parents=True)
+        for nm in names:
+            coef = rng.standard_normal((16, 16, 6))
+            x = coef @ basis.T
+            x = (x - x.min()) / (x.max() - x.min())
+            sio.savemat(str(d / f'{nm}.mat'), {'truth': x.astype(np.float32)})
+
+    def gaussians(n_wl, n_states, lo, hi, wl_lo, wl_hi):
+        wl = np.linspace(wl_lo, wl_hi, n_wl)
+        centers = np.linspace(lo, hi, n_states)
+        return np.exp(-((wl[:, None] - centers[None, :]) ** 2) / (2 * 25.0 ** 2)), wl
+
+    R1, wl1 = gaussians(401, 71, 400, 800, 400, 1000)
+    sio.savemat(str(root / 'R_Device1.mat'), {'R': R1, 'wavelength': wl1[:, None], 'voltage': np.linspace(-1, 1, 71)[None, :]})
+    R2, wl2 = gaussians(400, 42, 400, 800, 400, 1000)
+    sio.savemat(str(root / 'R_Device2.mat'), {'R': R2.T.copy(), 'wavelength': wl2[None, :], 'voltage': np.linspace(-1, 1, 42)[None, :]})
+    R3, _ = gaussians(116, 101, 400, 1500, 400, 1550)
+    sio.savemat(str(root / 'PH5_interp_results.mat'), {'PH5_interp': 1e-7 * R3})
+    return str(root)
