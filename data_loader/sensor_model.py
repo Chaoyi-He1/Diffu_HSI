@@ -31,6 +31,8 @@ def legacy_axis(device, n_wavelengths):
 
 def raw_matrix(device, data_root):
     """[n_wavelengths, n_states] float64; the Device 2 file stores it transposed."""
+    if device not in FILES:
+        raise ValueError(f'unknown device {device!r}; choose one of {DEVICES}')
     fname, key = FILES[device]
     R = np.array(sio.loadmat(os.path.join(data_root, fname))[key], dtype=np.float64)
     if device == 'device2':

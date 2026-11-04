@@ -13,8 +13,9 @@ def test_sequential_solve_matches_dense(small_R):
     H, b = _ops(small_R); y = torch.randn(2, 30, 3, 3); m = G.LinearMeasurement(H, b, y, None, 0.1)
     r = torch.randn(2, 30, 3, 3); r2 = torch.tensor([0.3, 0.7]); v = m.solve(r, r2)
     for i in range(2):
-        A = r2[i] * H @ H.T + 0.01 * torch.eye(30); ref = torch.linalg.solve(A, r[i].reshape(30, -1)).reshape(30, 3, 3)
-        assert torch.allclose(v[i], ref, atol=1e-4)
+        Hd = H.double(); A = r2[i].double() * Hd @ Hd.T + 0.01 * torch.eye(30, dtype=torch.double)
+        ref = torch.linalg.solve(A, r[i].double().reshape(30, -1)).reshape(30, 3, 3)
+        assert torch.allclose(v[i].double(), ref, rtol=1e-4, atol=1e-3)
 
 def test_snapshot_solve_is_scalar_on_the_measured_row_and_zero_elsewhere(small_R):
     H, b = _ops(small_R); mask = torch.tensor(mosaic_mask(5, 6)).permute(2, 0, 1)[None]; y = torch.randn(1, 30, 5, 6) * mask

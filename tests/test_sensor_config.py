@@ -42,3 +42,12 @@ def test_make_config_refuses_empty_file_list(tmp_path, monkeypatch):
     monkeypatch.setattr(HD, 'HFD_data', _Empty)
     with pytest.raises(ValueError, match='data_root'):
         MC.main(['--out', str(tmp_path / 'o.json'), '--data_root', str(tmp_path), '--prior', 'none.npz'])
+
+
+def test_make_config_runs_as_a_script_without_pythonpath(tmp_path):
+    import os, subprocess, sys
+    script = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'scripts', 'sensor', 'make_config.py')
+    out = tmp_path / 'exists.json'; out.write_text('{}')
+    env = {k: v for k, v in os.environ.items() if k != 'PYTHONPATH'}
+    r = subprocess.run([sys.executable, script, '--out', str(out)], env=env, cwd=str(tmp_path), capture_output=True, text=True)
+    assert r.returncode != 0 and 'FileExistsError' in r.stderr and 'ModuleNotFoundError' not in r.stderr

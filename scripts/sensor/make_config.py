@@ -3,9 +3,14 @@ Run after Task 5's data_loader/hfd_sensor_sim.py exists. Refuses to overwrite --
 import argparse
 import json
 import os
+import sys
 import time
 
 import numpy as np
+
+REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+if REPO not in sys.path:
+    sys.path.insert(0, REPO)
 
 from data_loader import sensor_config as SC
 from data_loader.warmstart_paths import DATA_ROOT, PRIOR, file_sha256

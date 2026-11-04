@@ -195,3 +195,23 @@ def test_legacy_residual_mode_still_trains(tmp_path):
     assert len(log) == 1 and math.isfinite(log[0]['loss']) and log[0]['steps'] == 4
     m = torch.load(os.path.join(a.save_dir, 'checkpoint_epoch_1.pth'), map_location='cpu', weights_only=False)['meta']
     assert m['mode'] == 'residual' and m['sigma_d'] == 0.05 and 'sensor_config_sha' not in m
+
+
+def test_resume_refused_when_sensor_device_differs(tmp_path):
+    a = sensor_args(tmp_path, 'cond_fam', '--sensor_device', 'device1')
+    ds = StubSensorSet()
+    ck = dict(meta=tr.checkpoint_meta(a, ds.sigma_d, 3e-7, 'psha', extra=ds.checkpoint_extra()))
+    assert tr.check_resume_meta(ck, a, 0.02, 'psha', warn=False, sensor_sha='cfgsha')
+    ck['meta']['sensor_device'] = 'device2'
+    with pytest.raises(ValueError, match='sensor_device'):
+        tr.check_resume_meta(ck, a, 0.02, 'psha', warn=False, sensor_sha='cfgsha')
+
+
+def test_dry_run_handles_dict_batches(tmp_path, monkeypatch):
+    a = sensor_args(tmp_path, 'cond_fam', '--dry_run_steps', '2')
+    monkeypatch.setattr(tr, 'make_datasets', lambda args: (StubSensorSet(n=32), StubSensorSet()))
+    rec = tr.dry_run(a)
+    assert rec['steps'] == 2 and math.isfinite(rec['loss'])
+    b = args_for(tmp_path, 'residual', '--dry_run_steps', '2', '--batch_size', '2')
+    monkeypatch.setattr(tr, 'make_datasets', lambda args: (StubTupleSet(n=32), StubTupleSet()))
+    assert math.isfinite(tr.dry_run(b)['loss'])

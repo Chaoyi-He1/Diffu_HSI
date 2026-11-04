@@ -315,7 +315,7 @@ def check_resume_meta(ck, args, sigma_d, prior_sha256, path='<checkpoint>', warn
     must not break silently: A' and B have identical parameter shapes, so strict loading would not notice a mode
     switch). Compares RESUME_META_KEYS and meta['args'] loss_type, seed and train_half exactly, sigma_d (|diff| < 1e-9),
     prior_sha256, when cache_sha is given (the XR modes) xr_cache_sha256, when sensor_sha is given (the sensor modes)
-    sensor_config_sha and, for a half regressor whose checkpoint
+    sensor_config_sha and sensor_device and, for a half regressor whose checkpoint
     names its split, split_sha256 against the current --split_json; raises ValueError naming every mismatch,
     and also when the checkpoint has no meta. A scheduler T_max different from --num_epochs only warns (the cosine
     schedule keeps the checkpoint's T_max; the Task 3 smoke test deliberately resumes 2 -> 3 epochs). Returns True."""
@@ -337,6 +337,8 @@ def check_resume_meta(ck, args, sigma_d, prior_sha256, path='<checkpoint>', warn
     if sensor_sha is not None and meta.get('sensor_config_sha') != sensor_sha:
         bad.append(f'sensor_config_sha: checkpoint {meta.get("sensor_config_sha", "<missing>")!r} vs config {sensor_sha!r} '
                    f'(another sensor config)')
+    if sensor_sha is not None and meta.get('sensor_device') != getattr(args, 'sensor_device', None):
+        bad.append(f'sensor_device: checkpoint {meta.get("sensor_device", "<missing>")!r} vs args {getattr(args, "sensor_device", None)!r}')
     split_sha = half_split_sha256(args)
     if split_sha is not None and 'split_sha256' in meta and meta['split_sha256'] != split_sha:
         bad.append(f'split_sha256: checkpoint {meta["split_sha256"]!r} vs split file {split_sha!r} '
@@ -605,12 +607,13 @@ def dry_run(args):
     warm = max(3, args.num_workers * 4)                               # 4 = prefetch_factor
     it = iter(loader); comp, wall, data = [], [], []
     for step in range(args.dry_run_steps + warm):
-        tf = time.time(); x, y_d, xh = next(it); td = time.time() - tf
-        x, y_d, xh = x.to(device), y_d.to(device), xh.to(device)
+        tf = time.time(); batch = next(it); td = time.time() - tf
+        x, cond, scale = batch_to_cond(args.mode, batch, parts.train_ds.sigma_d, device)
+        target = target_for(args.mode, x, cond.get('x0_hat'), scale)
         if device.type == 'cuda': torch.cuda.synchronize(device)
         t0 = time.time()
         with torch.autocast('cuda', dtype=torch.bfloat16, enabled=use_bf16):
-            loss, _ = parts.trainer.get_loss(parts.model, target_for(args.mode, x, xh, parts.train_ds.sigma_d), {'sensor': y_d, 'x0_hat': xh}, loss_in_fp32=True)
+            loss, _ = parts.trainer.get_loss(parts.model, target, cond, loss_in_fp32=True)
         parts.optimizer.zero_grad(set_to_none=True); loss.backward(); clip_grads(parts.model, args.grad_clip, dist_ctx); parts.optimizer.step()
         if device.type == 'cuda': torch.cuda.synchronize(device)
         if step >= warm:

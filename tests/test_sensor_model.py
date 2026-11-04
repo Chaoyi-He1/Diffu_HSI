@@ -27,3 +27,8 @@ def test_device1_equals_legacy_loader(data_root):
     from data_loader.HFD_dataset import HFD_data
     ds = HFD_data(data_path=data_root, train_mode='image', eval_ratio=0.1, split='test', data_format='image', type='Flower', R_n=1, sensor_down_sample_rate=1)
     np.testing.assert_allclose(SM.load_sensor('device1', data_root)['R'], ds.sensor_R_matrix, atol=1e-12)
+
+
+def test_unknown_device_raises_value_error(fake_sensor_root):
+    with pytest.raises(ValueError, match='device3'):
+        SM.load_sensor('device3', fake_sensor_root)
