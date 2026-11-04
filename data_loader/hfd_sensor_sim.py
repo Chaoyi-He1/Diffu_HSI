@@ -1,6 +1,7 @@
 """HFD dataset that simulates the poor electrochromic sensor (Phase 3): per item it draws a measurement setting
 (sequential / snapshot, SNR), measures the cube, and returns the noise-aware MMSE centre and posterior-std maps as
 the conditioning. The cubes, split and file list are those of HFD_data; its y and R are never used."""
+import hashlib
 import os
 import zlib
 
@@ -30,7 +31,7 @@ def load_cube01(path):
 
 class HFDSensorSim(torch.utils.data.Dataset):
     def __init__(self, data_root, split, config, device='device1', setting=None, prior_path=PRIOR,
-                 eval_ratio=0.1, type='Flower'):
+                 eval_ratio=0.1, type='Flower', R_override=None):
         need = ('seed', 's_floor01', 'snr_floor_db', 'P_y', 'family')
         missing = [k for k in need if k not in config]
         if not missing:
@@ -46,7 +47,9 @@ class HFDSensorSim(torch.utils.data.Dataset):
         self.img_list = base.img_list
         self.wavelens = base.wavelens
         self.sensor = load_sensor(device, data_root)
-        self.R = self.sensor['R']
+        self.R = self.sensor['R'] if R_override is None else R_override
+        self.R_sha256 = self.sensor['sha256'] if R_override is None else \
+            hashlib.sha256(np.ascontiguousarray(R_override, dtype=np.float64).tobytes()).hexdigest()
         p = load_prior(prior_path)
         self.prior = {k: p[k] for k in ('mu', 'C', 's') if k in p}
         self.A = expand_matrix(self.wavelens, 64)
@@ -98,7 +101,7 @@ class HFDSensorSim(torch.utils.data.Dataset):
         c = self.config
         return dict(sensor_config_sha=self.config_sha, s_floor01=c['s_floor01'], P_y=c['P_y'],
                     snr_floor_db=c['snr_floor_db'], family=c['family'], device_train=c.get('device_train'),
-                    sensor_device=self.sensor['device'], R_sha256=self.sensor['sha256'], seed_scheme=SEED_SCHEME)
+                    sensor_device=self.sensor['device'], R_sha256=self.R_sha256, seed_scheme=SEED_SCHEME)
 
 
 def sensor_collate_fn(batch):

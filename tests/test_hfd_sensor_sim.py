@@ -69,3 +69,16 @@ def test_x64_matches_the_legacy_loader(data_root):
     x_leg, y_leg = leg[3]; it = new[3]
     np.testing.assert_allclose(it['x'], x_leg, atol=1e-5)
     np.testing.assert_allclose(it['y'] - (y_leg + leg.sensor_R_matrix.sum(0)) / 2, 0, atol=6 * it['sigma'])   # physical y = (loader y + R^T 1) / 2 up to noise
+
+
+def test_R_override_changes_y_and_sha(fake_sensor_root, ds):
+    import hashlib
+    R2 = 0.5 * ds.R
+    o = DS.HFDSensorSim(ds.data_root, 'train', _cfg(), device='device1', prior_path=ds.prior_path,
+                        setting=dict(mode='sequential', snr_db=60.0), R_override=R2)
+    base = DS.HFDSensorSim(ds.data_root, 'train', _cfg(), device='device1', prior_path=ds.prior_path,
+                           setting=dict(mode='sequential', snr_db=60.0))
+    assert np.array_equal(o.R, R2) and o.sensor['sha256'] == base.sensor['sha256']
+    assert o.checkpoint_extra()['R_sha256'] == hashlib.sha256(np.ascontiguousarray(R2, dtype=np.float64).tobytes()).hexdigest()
+    assert o.checkpoint_extra()['R_sha256'] != base.checkpoint_extra()['R_sha256']
+    assert not np.allclose(o[0]['y'], base[0]['y'])
