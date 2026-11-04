@@ -156,3 +156,22 @@ Predictions, recorded before any d = 16 number is looked at:
 - P3 the selection epoch is ≤ 11 (the monitoring minimum moved from 17 at d = 4 to 11 at d = 8), and the epoch-100 control is worse than the baseline, as at d = 8.
 - P4 the y-swap `zero` variant (sensor input zeroed) beats the baseline by a larger margin than at d = 8 (4.45 vs 4.58): the y-independent clean-up of the lift's edge-held artefacts is a larger share of the gain.
 - P5 validity holds ((a) and (b) pass): with 16 measured spectra the regressor still uses y.
+
+## B.8 result — d = 16 (2026-11-03 22:45, CPU; run `regress_l1_sel_d16_b64`, records `eval/regress/d16/regress_l1_sel_d16_b64__checkpoint_epoch_{11,100}__direct.json`, prior `linear_prior_R1_d16.npz` (sha e3875753…), verdicts by `scripts/verdict_any_stride.py`)
+
+Run: launched 2026-11-03 15:08 on GPU 1 (pid 1349922, prereg commit 41462ca); DONE = 100 after 7.26 h (240 s/epoch, 0 skipped non-finite steps, 100 checkpoints = 66 GB kept, not yet pruned). Pre-registered selection = **epoch 11** (monitoring loss 0.55081; epoch 1 = 0.56187; epoch 100 = 0.67038, i.e. +21.7 % above the minimum against +13 % at d = 8 and ≈ +9 % at d = 4: the overfitting gets worse with d).
+
+Gate cubes at d = 16: baseline x̂₀ = **7.6905 ± 0.2177 %** (the 15 % target is therefore 6.5369 %); 1000-file validation baseline 7.532 ± 0.093 % (`eval/baseline_d16.json`).
+
+| checkpoint | gate RMSE (200 cubes) | paired vs baseline | validity (t = 999, 32 cubes) | verdict |
+|---|---|---|---|---|
+| epoch 11 (selected) | **7.3659 ± 0.1966 %** | −0.3246 ± 0.0475 (clustered 0.0521) = **−4.2 %** | swap_full − true +0.636 ± 0.124, swap_full − baseline +0.387 ± 0.135 → valid; spec 0.9 ratio 0.920 | PASS (beats the baseline by 2 SE); **target not met**: m − 0.85 · b = +0.829 ± 0.041 |
+| epoch 100 (control) | 8.6484 ± 0.2352 % | +0.9578 ± 0.1153 = **12.5 % worse** | valid; ratio 0.868 | FAIL: worse than the linear baseline |
+
+Per class, epoch 11 keeps 0.930 / 0.967 / 0.940 of the baseline on P022 / P023 / P024 (paired −0.45 ± 0.12, −0.24 ± 0.05, −0.75 ± 0.19); PSNR 23.26 dB vs 22.94; SAM 4.68° vs 4.72°; 0.26 s per cube on CPU. y-swap variants on the 32 cubes (baseline there 7.5365): true 7.287 (−0.250 ± 0.105), swap_sensor_only 7.662 (+0.125 ± 0.118), swap_full 7.923 (+0.387 ± 0.135), zero 7.486 (−0.051 ± 0.085).
+
+Predictions P1–P5 (recorded before launch): **P1 met** (baseline 7.69 inside 7.5–8.7); **P2 met** (PASS by 2 SE, relative gain 4.2 % ≤ 5 %, absolute 0.32 inside 0.2–0.4); **P3 met** (selection at epoch 11 ≤ 11; epoch 100 worse than the baseline); **P4 NOT met** — the `zero` variant beats the baseline by only −0.05 ± 0.09 (not significant) against −0.13 at d = 8, so the y-independent clean-up share of the gain did not grow; **P5 met** (valid by both one-step clauses).
+
+Reading. The sequence of the selected regressor's gain over the linear baseline is now 16.5 % → 7.6 % → 4.2 % at d = 4 → 8 → 16 (absolute 0.39 → 0.35 → 0.32 pct), i.e. the relative gain roughly halves with each doubling of the stride while the absolute gain is nearly constant; the conditional-mean regressor recovers a fixed small amount of the spatial fill-in error however wide the posterior gets. With 16 measured spectra per cube and 41 % of the pixels in the lift's edge-held region, the baseline itself is the dominant term and no point estimate moves it much. The regressor still uses y (validity holds; `swap_sensor_only` costs +0.37 over `true`), against P4 the gain is not mostly x̂₀ clean-up. For the user's question of 2026-10-31 ("d = 16 有可能吗"): feasible, confirmed, and it changes nothing — the stride axis is exhausted for point estimates, and the Phase 2a failure mechanism (white homoscedastic spread from an under-fit low-t denoiser) is independent of d, so the Phase 2a stack was not run at d = 16 (as pre-registered). The paper's axis is now the sensor's degradations (noise, device, snapshot mode) — spec `docs/superpowers/specs/2026-11-03-sensor-degradation-diffusion-design.md`.
+
+Disk: the d = 16 run holds 100 checkpoints (66 GB; /data has ≈ 310 GB free). Prune to the selected epoch 11 + 25 / 50 / 100 on the user's say-so, as for the other selection runs.
