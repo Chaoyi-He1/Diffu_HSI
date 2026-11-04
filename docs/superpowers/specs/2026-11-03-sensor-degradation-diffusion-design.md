@@ -1,0 +1,133 @@
+# Diffusion Reconstruction From a Poor EC Sensor Under Noise, Across Sensors and in Snapshot Mode — Design Spec (Phase 3)
+
+Status: DRAFT 2026-11-03, written from the brainstorming conversation of 2026-11-03; awaiting the user's approval. Open questions for the user are in §12 and must be answered before approval.
+
+## 1. Intent and the why
+
+The user is writing a paper whose claim is: **a diffusion model is the most suitable model for recovering the original spectral information from a poor-performing electrochromic (EC) sensor.** The sensor is "poor" in its spectral response: 30 voltage states with broad, overlapping response curves. Measured on the HFD band grid, the loader's `R_Device1` has condition number ≈ 2 × 10⁹ with 19 of its 30 singular values below 1 % of the largest; on the device's true wavelength axis the matrix is numerically rank-deficient (17–19 of 30 singular values below 1 %). The sensor therefore delivers roughly 11–13 informative channels for 31 bands.
+
+Everything measured in this repository up to now (Phase 0 – Phase 2a and the B-track, `docs/superpowers/plans/2026-10-*`) used **noise-free** sensor images. Noise-free, the linear MMSE inverse already recovers the spectrum to 0.26 % RMSE at full resolution, because flower spectra live in a low-dimensional subspace that the ≈ 12 informative channels span; the sensor's poorness never showed. The spatial stride d that was then used to make the problem ill-posed is an artificial knob (user, 2026-11-03: "我人为造的低分辨率"); it turned the task into spatial super-resolution, where a one-call regressor beats every diffusion variant on RMSE, as the perception–distortion trade-off predicts. Those results stand, but they do not test the paper's claim.
+
+The claim is tested where the sensor's poorness bites: **under measurement noise**, where the ill-conditioned inverse amplifies noise and a spectral prior has work to do; **across sensors**, where a model that only learned the spectra (not one sensor) should transfer without retraining; and in the sensor's **snapshot (mosaic) mode**, where each pixel measures one voltage state and spatial sparsity is physical rather than simulated. The paper's figures come from these three experiments, all produced by the same models.
+
+## 2. Agreed decisions (from the 2026-11-03 conversation; do not re-open)
+
+1. Goal: a paper; the claim above. Figures the paper needs: (i) error vs SNR with linear MMSE, regressor and diffusion lines; (ii) calibrated uncertainty at low SNR; (iii) zero-shot transfer from one EC device to another; (iv) snapshot-mode reconstruction.
+2. The real sensor exists only as measured response matrices (`R_Device1.mat`, `R_Device2.mat`, `PH5_interp_results.mat`); there are no real captures. Noise is simulated and the experiments sweep the SNR rather than fix it.
+3. The EC sensor can operate in both **sequential mode** (switch through the voltage states, every pixel measures all 30 channels) and **snapshot mode** (different voltage states on different pixels, one channel per pixel, like a Bayer / multispectral filter array). Both are in scope. The artificial stride d is **out of this spec** (a possible later extension, §9).
+4. **Three diffusion formulations compete; the SNR curve decides the paper's main line** (user: "接受" 2026-11-03). (B) an unconditional spectral–spatial prior with measurement guidance; (C) a conditional network that sees the forward model through a sufficient statistic and is trained over the whole degradation family; the previously trained per-setting conditional networks are the third formulation and are not retrained — they are represented by the regressor and variance-head baselines trained over the same family, which is what a per-setting conditional network would have to compete with anyway. The user explicitly keeps the view that conditional networks are not wrong; the spec therefore makes no claim about which line wins.
+5. Baselines: the noise-aware linear MMSE (closed form, with its Gaussian posterior as the classical probabilistic baseline), a one-call regressor and a heteroscedastic variance head, both trained over the same degradation family as (C).
+6. Execution as before: pre-registered predictions and thresholds, subagent-driven implementation with tests, results note + GDN-style results page; the user's other project may claim GPU 0 at any time, never share a GPU with it.
+
+My calls (stated here so they can be rejected; none was agreed in chat):
+- Dataset: HFD (MatFlower60, the existing file list, 10 k cap, in-order split, the 200 gate cubes of `tests/data/val_subset_200.json` and its 50-cube subset). The existing `HFD_data` loader is **not modified**; a new dataset class implements the paper's forward models (§4) and reuses `HFD_data` only for files, cube normalisation and the band map.
+- Reconstruction target stays the 64-band interpolated cube x₆₄ = A x₃₁ (all existing models, metrics and the 64-band prior are built on it); the forward model is applied to the native 31 bands, so y = Rᵀ x₃₁ exactly, and the guidance operator on x₆₄ is H = Rᵀ A⁺ (A has full column rank, A⁺ A = I).
+- Noise: additive white Gaussian, equal variance on all (normalised) channels; SNR defined on the physical measurement scale (§4.3). Shot noise and calibration error of R are out of scope (§9, §10).
+- Model size: `base_channels` 64 for every run in this spec (the pilot scale used since Phase 1a; ≈ 8 h per 100-epoch run on one RTX A4500). Scaling the chosen line to base 256 is a later phase.
+- Guidance algorithm for (B): ΠGDM (Song et al., ICLR 2023) for the linear-Gaussian measurement, with DPS (Chung et al., 2022) as the fallback if ΠGDM misbehaves on the toy test of §8.
+
+## 3. Goals, non-goals, anti-goals
+
+Goals: G1 the error-vs-SNR figure at full resolution (sequential mode, Device 1) with MMSE, regressor, (B) and (C); G2 calibrated uncertainty at low SNR (CRPS, coverage, AUSE) against the MMSE posterior and the variance head; G3 zero-shot transfer Device 1 → Device 2 for (B) and (C) without retraining; G4 snapshot-mode reconstruction for (B) zero-shot and (C) in-family, against a demosaic-then-MMSE baseline; G5 a pre-registered rule that names the paper's main diffusion line from G1–G4.
+
+Non-goals: beating the regressor on RMSE at every SNR (the paper's claim is suitability: comparable accuracy, calibrated uncertainty, no retraining); perceptual metrics as gates (gradient-W1 and SAM are reported); the artificial stride d; HASCID; base-256 models.
+
+Anti-goals (would make the result worthless even if the numbers look good): a diffusion line that wins only because the baseline was crippled (every baseline is noise-aware and trained on the same family); a sensor model that does not match the measured response (§12 Q1–Q2 fix the axis and normalisation before anything is trained); a success criterion that no calibrated sampler can pass (the Phase 2a mistake: every threshold here is checked against the MMSE Gaussian posterior, which is a calibrated sampler by construction, before being used).
+
+## 4. Sensor model and forward models
+
+### 4.1 Response matrices
+- Device 1: `R_Device1.mat`, `R` is [401 wavelengths × 71 voltage states], `wavelength` 400–800 nm, `voltage` −1.0…2.5 V. Device 2: `R_Device2.mat`, `R` is stored **transposed** [42 states × 400 wavelengths], `wavelength` 400–800 nm; it must be transposed before use (the existing loader would misread it). PH5: `PH5_interp_results.mat`, [116 wavelengths × 101 voltages], `interp_wavelengths` 550–1700 nm — covers the HFD grid only from 550 nm; status decided by §12 Q3.
+- Channel selection: 30 states, evenly spaced over the device's states (the existing rule, `np.linspace(0, N−1, 30)`), unless §12 Q2 says otherwise.
+- Wavelength axis: **the `wavelength` field of each file** (the existing loader assumes 400–1000 nm for Device 1, which stretches the response by 1.5×; see §12 Q1). The HFD grid is 451–855 nm (31 bands); the 5 bands above 800 nm are outside the device's characterised range and are **held at the 800 nm value** (my call pending Q1).
+- Normalisation: each selected column scaled to [0, 1] by its min and max over the HFD band grid (the existing rule), pending §12 Q2. The resulting R (31 × 30) is the paper's sensor; its sha256 and the two choices above are recorded in every artefact.
+
+### 4.2 Scene scale and the two acquisition modes
+- The cube is the loader's per-cube min–max normalised reflectance x₀₁ ∈ [0, 1]³¹ (the network scale is x = 2x₀₁ − 1 as before). The **physical measurement** is y = Rᵀ x₀₁ (per pixel, 30 channels, non-negative). The loader-scale y used so far is an affine function of this (2y − Rᵀ1) and carries no extra information; all noise and SNR definitions below are on the physical y.
+- Sequential mode: y[i, j, :] = Rᵀ x₀₁[i, j, :] + n[i, j, :] for every pixel.
+- Snapshot (mosaic) mode: a periodic 5 × 6 tile assigns state k to tile position (k // 6, k mod 6); pixel (i, j) measures channel k(i, j) only: y_m[i, j] = R[:, k(i, j)]ᵀ x₀₁[i, j, :] + n[i, j]. The 64 × 64 cube is tiled from its top-left corner; the partial tiles at the right and bottom edges are kept. The mask M (64 × 64 × 30, one-hot per pixel) is part of the measurement and is given to every method.
+
+### 4.3 Noise and SNR
+- n ~ N(0, σ² I), the same σ on every channel and pixel. σ is set from the SNR: σ² = P_y / 10^(SNR/10) with **P_y the mean of y² over all pixels and channels of the 9 000 training cubes in sequential mode**, computed once by the build and stored in the forward-model config with the R sha (the same P_y defines σ for snapshot mode, so a given SNR means the same detector noise in both modes).
+- Training family: SNR drawn per cube from U[20, 50] dB, plus "noise-free" with probability 0.1; mode = sequential or snapshot with probability 0.5 each. Device 1 only (Device 2 is held out for zero-shot transfer).
+- Evaluation SNR grid: {∞, 50, 40, 30, 20} dB. Noise is drawn with a fixed per-cube seed (file index) so every method sees the identical noisy measurement.
+
+## 5. Methods
+
+All learned models use the existing `U2NetHyperspectral` at base 64 through `model/residual_wrapper.py`, the existing trainer `main_2d_residual_fsdp.py` with new modes, and `scripts/pilot/launch_run.sh`.
+
+### 5.1 (L) noise-aware linear MMSE — classical baseline and classical posterior
+Per pixel, with the Gaussian prior (μ, C) of `linear_prior_R1.npz` mapped to the x₀₁ scale: x̂ = μ + C R (Rᵀ C R + σ² I)⁻¹ (y − Rᵀ μ), posterior covariance Σ = C − C R (Rᵀ C R + σ² I)⁻¹ Rᵀ C. Snapshot mode: per pixel the same with the single measured row r_k: scalar inverse. Both are closed form, deterministic, 0 NFE. The **MMSE Gaussian posterior** N(x̂, Σ) lifted to 64 bands (A Σ Aᵀ) is the classical probabilistic baseline for CRPS / coverage / AUSE. The **demosaic-then-MMSE** variant for snapshot mode (bilinear interpolation of each channel's measured pixels to the full grid, then the sequential-mode MMSE with the interpolation error added to σ² per channel, estimated once on training cubes) is the classical point baseline there; the exact per-pixel scalar posterior is reported alongside (it has 29 unmeasured channels per pixel and is expected to be much worse).
+
+### 5.2 Sufficient-statistic conditioning (shared by C, D, V)
+The forward model enters the networks only through two per-pixel maps on the 64-band grid: the MMSE estimate x̂ (64 channels) and the posterior standard deviation s = sqrt(diag(A Σ Aᵀ)) (64 channels). In sequential mode s is the same at every pixel; in snapshot mode it varies with the measured channel. x̂ is an injective affine image of y (K = C R (…)⁻¹ has rank 30), so no measurement information is lost, and the channel semantics are identical for every sensor, noise level and mode — this is what lets a network trained on Device 1 be applied to Device 2 without retraining. No raw-y cross-attention context is used in this spec (the Phase 1a′ spatial split showed the context carries nothing the x̂ channels do not; dropping it removes the position-blind cross-attention and the per-sensor channel semantics).
+
+### 5.3 (C) family-conditioned residual diffusion `cond_fam`
+B's architecture (Phase 1a) around the MMSE centre: input [x_t, x̂, s] (64 + 64 + 64 channels), target (x − x̂) / σ_fam with σ_fam the RMS of x − x̂ over the training family (computed once, stored in the config), v-prediction, L1, 100 epochs, trained on the family of §4.3. Sampling: DDIM-10, K samples; the point estimate is the mean of K; the predictive distribution is the K samples. Also evaluated with DDIM-1 (one call) as its own regressor-like point.
+
+### 5.4 (D) family regressor `regress_fam` and (V) family variance head `varhead_fam`
+Same inputs and centre as (C), `regress` and `varhead` modes (one deterministic call; `varhead` predicts a per-element Gaussian with the NLL loss), trained on the same family. Selection by the lowest monitoring loss (the B.1 rule, `scripts/uq/select_epoch.py`). Optional, budget permitting: one per-SNR regressor at 30 dB sequential (the "setting-specific oracle") to quantify what the family costs the regressor.
+
+### 5.5 (B) unconditional prior `uncond` + measurement guidance
+Mode `uncond`: `U2NetHyperspectral` with no context and no extra input channels (the forward pass must skip the context encoder when the context is None), v-prediction, L1, 100 epochs on the 9 000 training cubes (no sensor involved). Reconstruction: ΠGDM with the exact linear operator H = Rᵀ A⁺ (sequential) or M ⊙ H (snapshot) and the known σ; 100 DDIM steps; K samples; point estimate = mean of K. Noise-free (SNR = ∞) is run at σ = 10⁻³ · sqrt(P_y) (ΠGDM needs σ > 0; recorded as such). DPS is implemented as the fallback and run on the toy test; if ΠGDM fails the toy test (§8) DPS replaces it everywhere and the spec is amended. No retraining for any sensor, SNR or mode.
+
+### 5.6 What each method is given
+| method | x̂, s (needs R, σ, M) | raw y | trained on |
+|---|---|---|---|
+| L (MMSE) | computes them | yes | nothing (prior μ, C) |
+| D, V, C | yes | no | Device 1 family |
+| B (prior + ΠGDM) | no (uses H, M, σ directly) | yes | spectra only |
+
+## 6. Evaluation protocol
+
+### 6.1 Grids and budgets (200 gate cubes unless stated; 50-cube subset = `ddpm1000_subset` of `tests/data/val_subset_200.json`)
+- E1 main: Device 1, sequential, SNR {∞, 50, 40, 30, 20}: L, D, V, C (K = 16), B (K = 16). 200 cubes.
+- E2 transfer: Device 2, sequential, SNR {40, 30, 20}: L, D, V, C, B, all zero-shot (D, V, C were trained on Device 1). 200 cubes for L, D, V, C; 50 cubes for B.
+- E3 snapshot: Device 1, snapshot, SNR {∞, 40, 30, 20}: L (demosaic-then-MMSE and exact scalar posterior), D, V, C (in-family), B (zero-shot, masked operator). 200 cubes for L, D, V, C; 50 cubes for B.
+- E4 (only if GPU time remains after E1–E3): Device 2 snapshot at 30 dB, 50 cubes, all methods.
+B's cost dominates: 100 steps × K = 16 with one Jacobian-vector product per step ≈ 3 network passes per step; at base 64 on 64 × 64 ≈ 1 GPU-h per 200 cubes per setting → E1 ≈ 5 h, E2 + E3 ≈ 2 h. Budget cap for B in this spec: 10 GPU-h; if exceeded K drops to 8 (recorded).
+
+### 6.2 Metrics (all on the [0, 1] display scale, per cube then paired across cubes, as in Phase 2a; `uq/metrics.py` is reused)
+Point: RMSE %, PSNR, SAM; for samplers on the mean of K. Uncertainty: CRPS (fair estimator for samplers, closed form for Gaussians), cov50 / cov90 (Weibull positions, ruling R9), AUSE, spread ratio, log spread–error correlation (SE-4). Texture (reported only): log HF-energy ratio and gradient-W1 of a single sample vs the truth. Statistics: paired differences with iid and source-image-clustered SE (`scripts/paired_stats.py`), 2-SE rules, per-class (P022 / P023 / P024) breakdown.
+
+### 6.3 Pre-registered predictions and thresholds (fixed here; the MMSE posterior must pass every calibration clause it is applied to on a Gaussian toy before the clause is used — §8)
+- T1 (accuracy under noise, E1): at every SNR, the better diffusion line's mean-of-K RMSE is within **5 %** of D's (ratio ≤ 1.05 by 2 clustered SE) — "comparable accuracy". Prediction: C passes at every SNR; B passes at SNR ≤ 30 dB and fails at ∞ and 50 dB (the guided prior is weaker than a learned posterior when the likelihood is sharp).
+- T2 (calibration at low SNR, E1 at 30 and 20 dB): CRPS of the better diffusion line lower than both L's posterior and V by 2 clustered SE; cov90 ∈ [0.85, 0.95]. Prediction: at 20 dB both B and C beat L (the Gaussian prior is wrong, the learned prior is right); V is the strongest baseline and the clause against V is the one most likely to fail.
+- T3 (transfer, E2 at 30 dB): B's RMSE on Device 2 within 10 % of its own Device-1 ratio to L (i.e. (RMSE_B / RMSE_L)_Device2 ≤ 1.10 · (RMSE_B / RMSE_L)_Device1); the same clause for C. Prediction: B passes; C passes if the sufficient-statistic conditioning works as argued in §5.2, and failing it is itself a paper result (the conditional network does not transfer).
+- T4 (snapshot, E3 at 30 dB): B zero-shot beats demosaic-then-MMSE by ≥ 15 % (ratio ≤ 0.85 by 2 clustered SE); C in-family beats it by ≥ 15 %. Prediction: both pass; D passes too.
+- Main-line rule (G5): the line with more of T1–T4 passed is the paper's main diffusion line; a tie is broken by T2 at 20 dB (the claim is about uncertainty under a poor sensor); both lines are reported in full either way.
+- Sanity: every method's RMSE at SNR = ∞ sequential is ≤ the Phase 0 d = 1 baseline on the same R (0.266 % on the gate cubes with the legacy axis; re-measured with the paper's R in Stage 0); y-swap is replaced by the SNR monotonicity check (every method's RMSE is non-increasing in SNR).
+
+## 7. Phases, budgets and gates
+- Phase A build (CPU, tests): forward-model config and dataset class, MMSE with noise (both modes, posterior std maps, demosaic variant), `uncond` / family modes in the wrapper and trainer, ΠGDM + DPS samplers, evaluation harness `scripts/sensor/sd_eval.py` + verdict `sd_verdict.py`, launcher guards. Gate: tests of §8 green, CPU smoke of all four training modes.
+- Stage 0 (GPU, ≈ 1 h): the paper's R on the gate cubes: L at every SNR, both modes, both devices (no training). Records the baseline numbers T1–T4 are relative to; nothing else is looked at.
+- Phase B train (2 GPUs, ≈ 2 days): `uncond` and `cond_fam` first (one per GPU, ≈ 8–9 h each), then `regress_fam` and `varhead_fam` (≈ 8 h and ≈ 4 h). GPU 1 is busy with the d = 16 run until it writes DONE; GPU 0 only when the user's other project is not using it.
+- Phase C evaluate E1 → T1, T2; then E2 → T3; then E3 → T4; E4 if time remains. One verdict call per threshold, as in Phase 2a.
+- Phase D write-up: results note `docs/superpowers/plans/2026-11-03-sensor-degradation-diffusion-RESULTS.md`, GDN-style page with the four paper figures, memory update. Optional: the per-SNR oracle regressor, base-256 scaling of the main line (separate spec).
+
+## 8. Validation, testing and error handling
+- Forward-model tests: y from the dataset class equals Rᵀ x₀₁ (+ the seeded noise) to 1e-6; measured SNR of the generated y equals the nominal SNR within 0.2 dB over 50 cubes; snapshot mask is one-hot per pixel with every channel present in each full tile; adjoint test ⟨H x, y⟩ = ⟨x, Hᵀ y⟩ for both operators.
+- MMSE tests: the closed form equals a brute-force Gaussian conditioning on a random 5-band toy; at σ → 0 it reproduces `linear_estimate.linear_inverse` (noise-free K) to 1e-4; the posterior std map is positive and larger at lower SNR.
+- Guidance toy test (the one that licenses the calibration clauses): a Gaussian "prior" diffusion whose score is known in closed form (an analytic denoiser for N(μ_toy, C_toy)); ΠGDM with the linear operator must reproduce the exact Gaussian posterior mean within 2 % and the posterior variance within 10 % on 1 000 draws; CRPS / cov50 / cov90 / AUSE of the exact posterior must pass T2's clauses on that toy. DPS is run on the same toy and its numbers recorded.
+- Checkpoint meta: every run records the forward-model config sha (R sha, axis rule, normalisation rule, P_y, σ_fam, family distribution); evaluation refuses a checkpoint whose config sha differs from the harness's (the `check_meta` pattern).
+- Error handling as in Phase 2a: non-finite steps skipped and counted; wall-clock stop writes STOPPED; evaluation records never overwritten.
+
+## 9. Out of scope (candidates for later specs)
+The artificial stride d > 1 with perceptual metrics (the user keeps it as a possible extreme-contrast extension); HASCID; shot (Poisson) noise; calibration uncertainty of R (a possible second "poor sensor" axis the user may want: perturb R at test time and compare how L, D, C and B degrade); base-256 models; conditional networks with raw-y cross-attention; a Device-2-trained regressor (the transfer test compares to L on Device 2 instead).
+
+## 10. Risks
+- R1 ΠGDM's Jacobian-vector product through a base-64 U-Net is costly; budget cap and K = 8 fallback in §6.1; DPS fallback in §5.5.
+- R2 The family-trained regressor may lose little to a per-SNR one (then the optional oracle run is unnecessary) or a lot (then D is a weak baseline; the oracle run becomes mandatory before T1 is read). Decision rule: if D's monitoring loss at 30 dB is more than 10 % above a 30 dB-only run's at epoch 25 on the monitoring files, train the oracle.
+- R3 The 5 bands above 800 nm have no measured response: holding the response constant is an assumption; the paper must state it, or those bands are dropped from the metrics (reported both ways in Stage 0).
+- R4 Negative entries of `R_Device1` (−0.91 min) and per-column min–max normalisation mean the paper's "sensor" is a normalised relative response; if the user's device model differs (§12 Q2) the forward-model config changes and Stage 0 is re-run (cheap) before training.
+- R5 Transfer to Device 2 may be trivially easy if Device 2's normalised columns span the same subspace as Device 1's (both are numerically rank ≈ 12); Stage 0 records the principal angles between the two column spaces so the transfer result can be interpreted.
+
+## 11. File manifest (new unless marked)
+- `data_loader/sensor_model.py` — load R from the .mat files on their own axis (Device 1, Device 2, PH5 if in scope), channel selection, hold-above-800 rule, normalisation, config dict + sha; `data_loader/sensor_forward.py` — sequential / snapshot operators, noise, SNR, P_y, H = Rᵀ A⁺, mask; `data_loader/hfd_sensor_sim.py` — the dataset class (reuses `HFD_data` for files / cube normalisation / band map, never modifies it).
+- `data_loader/mmse.py` — noise-aware MMSE, posterior std maps, demosaic-then-MMSE; `model/guidance.py` — ΠGDM and DPS samplers over the existing diffusion schedule; `model/residual_wrapper.py` (modified) — modes `uncond`, `cond_fam`, `regress_fam`, `varhead_fam`; `model/u2net_hyperspectral.py` (modified) — skip the context encoder when context is None; `main_2d_residual_fsdp.py` (modified) — the family dataset, the new modes, config sha in the meta; `scripts/pilot/launch_run.sh` (modified) — guards for the new modes.
+- `scripts/sensor/stage0_baselines.py`, `scripts/sensor/sd_eval.py`, `scripts/sensor/sd_verdict.py`, `scripts/sensor/toy_guidance_test.py`; tests under `tests/test_sensor_*.py`; results under `results/residual_warmstart/sensor/`.
+
+## 12. Open questions for the user (answers go into §4 before approval)
+- Q1 Wavelength axis. `R_Device1.mat` carries `wavelength` = 400–800 nm (401 samples) but the loader assumes 400–1000 nm; every result so far used a 1.5×-stretched response. Use the file's axis for the paper (my recommendation; the paper's sensor then differs from the Phase 0–2a one, which is fine since everything is retrained), and hold the response constant for the 5 HFD bands above 800 nm — or keep the legacy axis / drop those bands?
+- Q2 Response normalisation and state selection. The loader scales each selected column to [0, 1] over the band grid and picks 30 of the 71 (Device 1) / 42 (Device 2) states evenly; `R_Device1` has negative raw entries (−0.91). Is the normalised relative response per state the right sensor model for the paper, and is "30 evenly spaced states" how the device would actually be operated?
+- Q3 Sensors in scope. Device 1 → Device 2 is the clean transfer pair (same 400–800 nm axis). PH5 is characterised at 550–1700 nm and covers HFD only from 550 nm. Include PH5 (with extrapolation below 550 nm, stated as such) or leave it out?
