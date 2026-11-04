@@ -14,6 +14,9 @@ that already used the whole --max_hours budget.
 
 Modes (model/residual_wrapper.py): residual (B), standard (A), standard_xhat (A'). --batch_size is PER GPU.
 Mode regress (R, the one-step residual regressor): --mode regress --prediction_type direct --loss_type l1|l2.
+Phase 3 sensor modes (data_loader/hfd_sensor_sim.py, dict batches, per-epoch measurement noise): --mode uncond | cond_fam |
+  regress_fam | varhead_fam --ds 1 --sensor_config <config json> [--sensor_device device1|device2|ph5]; regress_fam and
+  varhead_fam need --prediction_type direct, varhead_fam --loss_type nll.
 Phase 2a (spec 2026-10-22, regressor-centred uncertainty diffusion; the centre cache from scripts/uq/build_xr_cache.py):
   half regressors: --mode regress ... --train_half 1|2 --split_json <split> (the split from scripts/uq/split_halves.py);
   --mode residual_reg --xr_cache <cache dir>: B around the cached regressor centre x_r, target (x - x_r) / sigma_r;
@@ -51,11 +54,15 @@ from torch.utils.data.distributed import DistributedSampler
 REPO = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, REPO)
 from data_loader.hfd_residual import HFDResidualData, limit_worker_threads, residual_collate_fn  # noqa: E402
+from data_loader.hfd_sensor_sim import HFDSensorSim  # noqa: E402
+from data_loader.sensor_config import load_config  # noqa: E402
+from data_loader.sensor_model import DEVICES  # noqa: E402
 from data_loader.warmstart_paths import DATA_ROOT, PRIOR, RESULTS_ROOT, SPLIT_JSON, SUBSET, file_sha256, git_head  # noqa: E402,F401
 from data_loader.xr_cache import XRCachedData  # noqa: E402
 from model.diffusion_trainer import DiffusionTrainer  # noqa: E402
 from model.regression_trainer import RegressionTrainer  # noqa: E402
-from model.residual_wrapper import MODES, XR_MODES, build_residual_model, target_for  # noqa: E402
+from model.residual_wrapper import (MODES, ONE_CALL_MODES, SENSOR_MODES, XR_MODES, batch_to_cond,  # noqa: E402
+                                    build_residual_model, target_for)
 from model.varhead_trainer import VarheadTrainer  # noqa: E402
 from scripts.uq.split_halves import read_split  # noqa: E402
 
@@ -78,12 +85,16 @@ def get_parser():
     ap.add_argument('--lr', type=float, default=1e-4); ap.add_argument('--lrf', type=float, default=0.033, help='eta_min = lr * lrf')
     ap.add_argument('--weight_decay', type=float, default=0.0); ap.add_argument('--grad_clip', type=float, default=1.0)
     ap.add_argument('--prediction_type', choices=['eps', 'x0', 'v', 'direct'], default='v',
-                    help="diffusion parameterisation; 'direct' is required by, and only allowed with, --mode regress / varhead")
-    ap.add_argument('--loss_type', choices=['l1', 'l2', 'nll'], default='l1', help='l1 | l2; nll for --mode varhead only')
+                    help="diffusion parameterisation; 'direct' is required by, and only allowed with, the one-call modes "
+                         "(regress / varhead / regress_fam / varhead_fam)")
+    ap.add_argument('--loss_type', choices=['l1', 'l2', 'nll'], default='l1', help='l1 | l2; nll for --mode varhead / varhead_fam only')
     ap.add_argument('--train_half', type=int, choices=[0, 1, 2], default=0,
                     help='Phase 2a: train a regressor on half 1 or 2 of the cross-fitting split only (0 = all files)')
     ap.add_argument('--split_json', default=SPLIT_JSON, help='the cross-fitting split (scripts/uq/split_halves.py)')
     ap.add_argument('--xr_cache', default='', help='Phase 2a: regressor-centre cache dir (required by --mode residual_reg / varhead)')
+    ap.add_argument('--sensor_config', default='',
+                    help='Phase 3: sensor forward-model config json (required by, and only allowed with, the sensor modes)')
+    ap.add_argument('--sensor_device', choices=list(DEVICES), default='device1', help='Phase 3: which measured sensor simulates y')
     ap.add_argument('--snr_gamma', type=float, default=5.0, help='min-SNR-gamma loss weighting, <= 0 = off (ignored by --mode regress / varhead)')
     ap.add_argument('--val_every', type=int, default=5, help='loss-only validation on the non-gate validation files every N epochs (0 = never)')
     ap.add_argument('--save_every', type=int, default=10); ap.add_argument('--keep_last', type=int, default=2)
@@ -132,15 +143,30 @@ def all_min(value, device, dist_ctx):
     return t.item()
 
 
-def make_datasets(args):
-    train = HFDResidualData(args.data_root, split='train', sensor_down_sample_rate=args.d, prior_path=args.prior)
-    val = HFDResidualData(args.data_root, split='test', sensor_down_sample_rate=args.d, prior_path=args.prior)
-    gate = {os.path.normpath(os.path.join(args.data_root, f)) for f in json.load(open(SUBSET))['files']}
+def exclude_gate(val, data_root):
+    """Remove the gate cubes from val.img_list in place: monitoring never sees them (fails loudly on a path-form mismatch)."""
+    gate = {os.path.normpath(os.path.join(data_root, f)) for f in json.load(open(SUBSET))['files']}
     n_before = len(val.img_list)
-    val.img_list = [f for f in val.img_list if os.path.normpath(f) not in gate]       # monitoring never sees the gate cubes
+    val.img_list = [f for f in val.img_list if os.path.normpath(f) not in gate]
     assert n_before - len(val.img_list) == len(gate), \
         f'only {n_before - len(val.img_list)} of {len(gate)} gate files were found in the validation split ' \
         f'(path-form mismatch?); refusing to monitor on gate cubes'
+
+
+def make_datasets(args):
+    """Sensor modes: HFDSensorSim train / val on --sensor_config (val keeps epoch 0: its family draws and noise are fixed,
+    so the monitoring loss is comparable across epochs). Legacy modes: HFDResidualData, optionally a half and the XR cache."""
+    if getattr(args, 'mode', None) in SENSOR_MODES:            # getattr: the monitoring scripts' namespace has no mode
+        cfg = load_config(args.sensor_config)
+        train = HFDSensorSim(args.data_root, 'train', cfg, device=args.sensor_device, prior_path=args.prior)
+        val = HFDSensorSim(args.data_root, 'test', cfg, device=args.sensor_device, prior_path=args.prior)
+        exclude_gate(val, args.data_root)
+        if args.limit_files:
+            train.img_list = train.img_list[:args.limit_files]; val.img_list = val.img_list[:max(8, args.limit_files // 8)]
+        return train, val
+    train = HFDResidualData(args.data_root, split='train', sensor_down_sample_rate=args.d, prior_path=args.prior)
+    val = HFDResidualData(args.data_root, split='test', sensor_down_sample_rate=args.d, prior_path=args.prior)
+    exclude_gate(val, args.data_root)
     # getattr: scripts/regress_monitoring_energy.py and scripts/diagnose_spatial_split.py pass only data_root, d, prior, limit_files
     train_half, xr_cache, split_json = getattr(args, 'train_half', 0), getattr(args, 'xr_cache', ''), getattr(args, 'split_json', SPLIT_JSON)
     if train_half:
@@ -163,25 +189,33 @@ def make_datasets(args):
 def make_loader(ds, args, batch_size, shuffle, rank, world, device):
     """Shuffled loaders always use a DistributedSampler (num_replicas=1 on one GPU) so the order of epoch e is a pure
     function of (seed, e) via set_epoch — the basis of exact resume. Every worker runs with one BLAS thread
-    (limit_worker_threads); see the module docstring."""
+    (limit_worker_threads); see the module docstring. The collate is the dataset's own when it has one (the sensor dicts).
+    A dataset with set_epoch (per-epoch noise) gets no persistent workers: workers copy the dataset when they start, so
+    persistent ones would keep the epoch-0 copy and never see ds.set_epoch(e)."""
     sampler = DistributedSampler(ds, num_replicas=world, rank=rank, shuffle=shuffle, seed=args.seed, drop_last=shuffle) \
         if (shuffle or world > 1) else None
-    kw = dict(num_workers=args.num_workers, pin_memory=(device.type == 'cuda'), collate_fn=residual_collate_fn,
+    kw = dict(num_workers=args.num_workers, pin_memory=(device.type == 'cuda'), collate_fn=getattr(ds, 'collate_fn', residual_collate_fn),
               worker_init_fn=limit_worker_threads)
-    if args.num_workers > 0:
-        kw.update(persistent_workers=True, prefetch_factor=4)         # safe: d never changes during a run
+    if args.num_workers > 0:                                          # legacy: persistent is safe, d never changes during a run
+        kw.update(persistent_workers=not hasattr(ds, 'set_epoch'), prefetch_factor=4)
     return DataLoader(ds, batch_size=batch_size, sampler=sampler, shuffle=False, drop_last=shuffle, **kw)
 
 
 def check_mode_args(args):
-    """regress and varhead are the one-call modes (--prediction_type direct); varhead's loss is the Gaussian NLL
-    (--loss_type nll, decision D2); the XR modes read their centre from --xr_cache; --train_half is for half regressors."""
-    if (args.mode in ('regress', 'varhead')) != (args.prediction_type == 'direct'):
-        raise ValueError(f"--mode regress / varhead need --prediction_type direct, and 'direct' needs one of them "
+    """The ONE_CALL_MODES (regress, varhead, regress_fam, varhead_fam) need --prediction_type direct; the variance heads'
+    loss is the Gaussian NLL (--loss_type nll, decision D2); the XR modes read their centre from --xr_cache; --train_half
+    is for half regressors; the sensor modes need --sensor_config (and only they take it) and d = 1."""
+    if (args.mode in ONE_CALL_MODES) != (args.prediction_type == 'direct'):
+        raise ValueError(f"--mode {' / '.join(ONE_CALL_MODES)} need --prediction_type direct, and 'direct' needs one of them "
                          f"(got mode={args.mode!r}, prediction_type={args.prediction_type!r})")
-    if (args.mode == 'varhead') != (args.loss_type == 'nll'):
-        raise ValueError(f"--mode varhead needs --loss_type nll, and 'nll' needs --mode varhead "
+    if (args.mode in ('varhead', 'varhead_fam')) != (args.loss_type == 'nll'):
+        raise ValueError(f"--mode varhead / varhead_fam need --loss_type nll, and 'nll' needs one of them "
                          f"(got mode={args.mode!r}, loss_type={args.loss_type!r})")
+    if (args.mode in SENSOR_MODES) != bool(getattr(args, 'sensor_config', '')):
+        raise ValueError(f'--sensor_config is required by, and only allowed with, --mode {" / ".join(SENSOR_MODES)} '
+                         f'(got mode={args.mode!r}, sensor_config={getattr(args, "sensor_config", "")!r})')
+    if args.mode in SENSOR_MODES and args.d != 1:
+        raise ValueError(f'--mode {args.mode} simulates a full-resolution sensor: it needs --ds 1, got --ds {args.d}')
     if (args.mode in XR_MODES) != bool(args.xr_cache):
         raise ValueError(f'--xr_cache is required by, and only allowed with, --mode {" / ".join(XR_MODES)} '
                          f'(got mode={args.mode!r}, xr_cache={args.xr_cache!r})')
@@ -191,9 +225,9 @@ def check_mode_args(args):
 
 def make_trainer(args, device):
     check_mode_args(args)
-    if args.mode == 'regress':
+    if args.mode in ('regress', 'regress_fam'):
         return RegressionTrainer(device=device, loss_type=args.loss_type, n_timesteps=N_TIMESTEPS)
-    if args.mode == 'varhead':
+    if args.mode in ('varhead', 'varhead_fam'):
         return VarheadTrainer(device=device, n_timesteps=N_TIMESTEPS)
     return DiffusionTrainer(device=device, n_timesteps=N_TIMESTEPS, loss_type=args.loss_type,
                             prediction_type=args.prediction_type, snr_gamma=args.snr_gamma if args.snr_gamma > 0 else None)
@@ -276,11 +310,12 @@ def load_checkpoint(path):
 RESUME_META_KEYS = ('mode', 'd', 'base_channels', 'prediction_type')
 
 
-def check_resume_meta(ck, args, sigma_d, prior_sha256, path='<checkpoint>', warn=True, cache_sha=None):
+def check_resume_meta(ck, args, sigma_d, prior_sha256, path='<checkpoint>', warn=True, cache_sha=None, sensor_sha=None):
     """Refuse to resume a checkpoint whose `meta` differs from the current run (the provenance chain the gate relies on
     must not break silently: A' and B have identical parameter shapes, so strict loading would not notice a mode
     switch). Compares RESUME_META_KEYS and meta['args'] loss_type, seed and train_half exactly, sigma_d (|diff| < 1e-9),
-    prior_sha256, when cache_sha is given (the XR modes) xr_cache_sha256 and, for a half regressor whose checkpoint
+    prior_sha256, when cache_sha is given (the XR modes) xr_cache_sha256, when sensor_sha is given (the sensor modes)
+    sensor_config_sha and, for a half regressor whose checkpoint
     names its split, split_sha256 against the current --split_json; raises ValueError naming every mismatch,
     and also when the checkpoint has no meta. A scheduler T_max different from --num_epochs only warns (the cosine
     schedule keeps the checkpoint's T_max; the Task 3 smoke test deliberately resumes 2 -> 3 epochs). Returns True."""
@@ -299,6 +334,9 @@ def check_resume_meta(ck, args, sigma_d, prior_sha256, path='<checkpoint>', warn
         bad.append(f'prior_sha256: checkpoint {meta.get("prior_sha256", "<missing>")!r} vs prior file {prior_sha256!r}')
     if cache_sha is not None and meta.get('xr_cache_sha256') != cache_sha:
         bad.append(f'xr_cache_sha256: checkpoint {meta.get("xr_cache_sha256", "<missing>")!r} vs cache {cache_sha!r} (the cache was rebuilt)')
+    if sensor_sha is not None and meta.get('sensor_config_sha') != sensor_sha:
+        bad.append(f'sensor_config_sha: checkpoint {meta.get("sensor_config_sha", "<missing>")!r} vs config {sensor_sha!r} '
+                   f'(another sensor config)')
     split_sha = half_split_sha256(args)
     if split_sha is not None and 'split_sha256' in meta and meta['split_sha256'] != split_sha:
         bad.append(f'split_sha256: checkpoint {meta["split_sha256"]!r} vs split file {split_sha!r} '
@@ -403,11 +441,10 @@ def train_one_epoch(model, trainer, loader, optimizer, args, device, dist_ctx, m
     tot, n, skipped, skipped_grad, run_skipped, t_data, t0 = 0.0, 0, 0, 0, 0, 0.0, time.time()
     norms = []
     t_fetch = time.time()
-    for step, (x, y_d, xh) in enumerate(loader):
+    for step, batch in enumerate(loader):
         t_data += time.time() - t_fetch
-        x, y_d, xh = x.to(device, non_blocking=True), y_d.to(device, non_blocking=True), xh.to(device, non_blocking=True)
-        cond = {'sensor': y_d, 'x0_hat': xh}                        # moved per key: get_loss moves only x_0
-        target = target_for(mode, x, xh, sigma_d)
+        x, cond, scale = batch_to_cond(mode, batch, sigma_d, device)  # moved per key: get_loss moves only x_0
+        target = target_for(mode, x, cond.get('x0_hat'), scale)
         with torch.autocast('cuda', dtype=torch.bfloat16, enabled=use_bf16):
             loss, _ = trainer.get_loss(model, target, cond, loss_in_fp32=True)
         if all_min(torch.isfinite(loss).item(), device, dist_ctx) == 0:    # collective: every rank skips together
@@ -453,10 +490,10 @@ def validate(model, trainer, loader, args, device, dist_ctx, mode, sigma_d):
         torch.manual_seed(args.seed + 12345)
         if device.type == 'cuda':
             torch.cuda.manual_seed_all(args.seed + 12345)
-        for x, y_d, xh in loader:
-            x, y_d, xh = x.to(device), y_d.to(device), xh.to(device)
+        for batch in loader:
+            x, cond, scale = batch_to_cond(mode, batch, sigma_d, device)
             with torch.autocast('cuda', dtype=torch.bfloat16, enabled=use_bf16):
-                loss, _ = trainer.get_loss(model, target_for(mode, x, xh, sigma_d), {'sensor': y_d, 'x0_hat': xh}, loss_in_fp32=True)
+                loss, _ = trainer.get_loss(model, target_for(mode, x, cond.get('x0_hat'), scale), cond, loss_in_fp32=True)
             tot += loss.item() * x.shape[0]; n += x.shape[0]
     agg = torch.tensor([tot, float(n)], device=device)
     if dist_ctx.enabled:
@@ -475,7 +512,9 @@ def build_everything(args, dist_ctx, device):
     ck = load_checkpoint(resume_path) if resume_path else None
     if ck is not None:
         cache_sha = train_ds.checkpoint_extra()['xr_cache_sha256'] if args.xr_cache else None
-        check_resume_meta(ck, args, train_ds.sigma_d, file_sha256(args.prior), path=resume_path, warn=dist_ctx.rank == 0, cache_sha=cache_sha)
+        sensor_sha = train_ds.checkpoint_extra()['sensor_config_sha'] if args.mode in SENSOR_MODES else None
+        check_resume_meta(ck, args, train_ds.sigma_d, file_sha256(args.prior), path=resume_path, warn=dist_ctx.rank == 0,
+                          cache_sha=cache_sha, sensor_sha=sensor_sha)
         check_wallclock_budget(ck, args, resume_path)                    # before DONE / STOPPED are touched
         model.load_state_dict(ck['model_state_dict'], strict=True)          # before the wrap, on CPU
     model = wrap_fsdp(model, args, dist_ctx) if dist_ctx.enabled else model.to(device)
@@ -515,6 +554,8 @@ def run_epochs(args, parts, dist_ctx, device):
     for epoch in range(start_epoch, args.num_epochs):
         epoch_seed(args, epoch, dist_ctx.rank)
         train_loader.sampler.set_epoch(epoch)
+        if hasattr(ds_meta, 'set_epoch'):                             # the training dataset (sensor modes): epoch e's noise
+            ds_meta.set_epoch(epoch)                                  # the val dataset is never re-seeded (fixed monitoring)
         rec = train_one_epoch(model, trainer, train_loader, optimizer, args, device, dist_ctx, args.mode, sigma_d, log_prefix=f'[epoch {epoch + 1}] ')
         scheduler.step()
         epoch1 = epoch + 1
