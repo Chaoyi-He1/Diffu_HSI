@@ -25,5 +25,26 @@ Every gating threshold (rmse_excess ≤ 0.02, |var_ratio − 1| ≤ 0.10, cov90 
 
 Report-only cells: with the HFD prior covariance (A C Aᵀ lifted; ΠGDM's isotropic r_t² is then only an approximation) sequential ΠGDM has rmse_excess 0.043 / 0.045 and var_ratio 0.82 / 0.92 (cov90 0.843 / 0.866) at 50 / 100 steps — the isotropic approximation costs ≈ 4 % in RMSE and visibly under-disperses on a correlated prior, less so at 100 steps; snapshot is unaffected (0.007, var 0.92 / 0.96). DPS on the HFD prior in sequential mode is far worse (rmse_excess 0.33 / 0.13, var_ratio 1.65 / 1.19); DPS on the isotropic prior is slightly worse than ΠGDM (0.029 / 0.017). ΠGDM stays the method. Ruling: B runs at 50 steps everywhere as pre-registered; if B's calibration clauses fail in E1, the HFD toy is the first explanation to test, and a report-only 100-step run of the two T2 settings is the natural addendum if GPU time remains after E1–E3.
 
-### Baselines (`scripts/sensor/stage0_baselines.py`)
-_pending_
+### Baselines (2026-11-04 17:35–18:45, `scripts/sensor/stage0_baselines.py --device cuda:1 --num_workers 8`; 41 records under `sensor/stage0/`, `summary.json`)
+
+**Normalisation check (spec §4.1, user Q2): PASS** — sequential max_dev 0.083 (raw/normalised RMSE ratios 0.88 / 0.89 / 0.96 / 1.03 / 1.03 at 60 / 50 / 40 / 30 / 20 dB, both curves monotone), snapshot max_dev 0.003 (ratios ≈ 1.036 at every SNR). The raw-response curve has the same shape as the normalised one within the 10 % rule, so the normalised R stays the paper's sensor and the raw curve goes to the appendix (P_y_raw = 9.624 for the raw variant's σ against P_y = 32.948).
+
+L = the noise-aware MMSE (closed form, no training), RMSE % on the 200 gate cubes; snapshot mode shows the exact per-pixel posterior (one measured channel per pixel → essentially the prior mean) and the demosaic-then-MMSE baseline that T4 is scored against:
+
+| sensor | mode | 60 dB (floor) | 50 dB | 40 dB | 30 dB | 20 dB |
+|---|---|---|---|---|---|---|
+| device1 | sequential | **1.105** | 1.556 | 2.622 | **4.143** | **6.425** |
+| device1 | snapshot, exact | 12.107 | 12.108 | 12.118 | 12.218 | 12.877 |
+| device1 | snapshot, demosaic-then-MMSE | 5.574 | 5.578 | 5.613 | **5.835** | 6.867 |
+| device2 | sequential | 1.430 | 2.095 | 3.185 | **5.122** | 7.682 |
+| device2 | snapshot, demosaic-then-MMSE | 7.890 | 7.882 | 7.819 | 7.726 | 8.248 |
+| ph5 | sequential | 6.070 | 7.304 | 8.963 | 10.413 | 11.666 |
+| ph5 | snapshot, demosaic-then-MMSE | 11.517 | 11.512 | 11.486 | 11.474 | 11.924 |
+
+Readings. (i) **The sensor's poorness is now visible:** at the 60 dB floor the MMSE error is 1.105 %, four times the noise-free legacy figure (0.266 % with the s = 3e-7 regulariser), because 19 of R's 30 singular values are below 1 % of the largest and amplify even 60 dB noise; the error then grows by ≈ 1.5 × per 10 dB. `sanity_reference_rmse_pct` = 1.105 (device1, sequential, 60 dB) is the reference every learned method must not exceed by more than 2 clustered SE. (ii) L's Gaussian posterior is close to calibrated and slightly over-dispersed at every SNR (device1 sequential: cov50 0.559 / 0.549 / 0.541 and cov90 0.926 / 0.922 / 0.922 at 60 / 30 / 20 dB; CRPS 0.590 / 2.260 / 3.560; AUSE 0.330 / 0.363 / 0.409) — a strong classical probabilistic baseline for T2. (iii) Snapshot mode: a single measured channel per pixel carries almost no spectral information on its own (exact posterior ≈ 12 % ≈ the prior's spread); demosaicing the 30 channels across the 5 × 6 tile and running the sequential MMSE on the result gives 5.6–6.9 % (device1), interpolation-limited (flat from 60 to 40 dB); **T4's reference at 30 dB is 5.835 %, so the 15 % target is 4.960 %.** (iv) Device 2 is a harder sensor than Device 1 at every SNR (1.43 → 7.68 %); PH5 under the legacy axis is far worse (6.07 % even at the floor) and its demosaic baseline barely beats the prior — PH5 is report-only, as the user chose. (v) Principal angles (R5): the device1 and device2 column spaces (both 30-dimensional in the 31-band space) share a 29-dimensional subspace by construction — only ONE principal angle is non-zero, 68.1° — so the transfer test is about how the two sensors weight directions (their singular-value structure), not about different subspaces; device1–ph5: ph5's legacy-axis response has rank 16 (its 30 states collapse to 16 independent directions), all 16 angles ≤ 2.8°, i.e. ph5 measures a 16-dimensional subspace of what device1 measures, with far worse conditioning.
+
+Phase B may start: Stage 0 took ≈ 1 h; no number of a learned method has been looked at.
+
+## Phase B — trainings (Task 14)
+
+- `uncond_b64` launched 2026-11-04 18:50 on GPU 0 (pid 2370859; `RUN_NAME=uncond_b64 launch_run.sh uncond 0 --sensor_config $CFG --keep_epochs 25 50 90 100`; v-prediction, L1, 100 epochs, per-epoch noise, monitoring every 5 epochs); `cond_fam_b64` launched 18:50 on GPU 1 (pid 2370874, same flags, mode cond_fam). Both ≈ 1 125 steps per epoch at ≈ 0.27 s per step (≈ 300 s per epoch, ≈ 8.5 h to DONE); first-epoch losses 0.05–0.07 (v-prediction L1) at step 400.
