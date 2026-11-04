@@ -8,4 +8,22 @@ Design decisions taken during the build (plan D1–D6 and the rulings in the led
 
 ## Stage 0 (Task 13)
 
+### Config (2026-11-04 17:29, `scripts/sensor/make_config.py`, CPU)
+`results/residual_warmstart/sensor/config.json`: **P_y = 32.948137** (mean of y² over all pixels and channels of the 9 000 training cubes, device1 sequential, physical scale); training sha **d62dea69278c6d8f3f58b6e1d7dbf04721bec360ad56581caf7b1839bad05126**; s_floor01 0.01, floor 60 dB, family U[20, 50] dB with p_floor 0.1 / p_snapshot 0.5, tile 5 × 6, seed 0; device shas 405b355b… (device1), a60c3c39… (device2), 96def0ad… (ph5); demosaic error table e2 (30 channels, 200 cubes): min 0.0062, median 0.134, max 0.568 (y² units; at 30 dB σ² = P_y / 1000 = 0.033, so the demosaic-then-MMSE baseline is interpolation-limited below ≈ 25 dB).
+
+### Toy guidance test (2026-11-04, GPU 0, `scripts/sensor/toy_guidance.py`, K = 250 × B = 4 = 1 000 draws per cell, 8 × 8, 30 dB, real device-1 R; record `sensor/toy_guidance.json`)
+Gating cells (isotropic N(0, I) prior, ΠGDM):
+
+| mode | steps | rmse_excess | var_ratio | cov50 | cov90 | crps_ratio |
+|---|---|---|---|---|---|---|
+| sequential | 50 | 0.0026 | 0.926 | 0.490 | 0.888 | 1.0009 |
+| sequential | 100 | 0.0027 | 0.962 | 0.498 | 0.895 | 1.0007 |
+| snapshot | 50 | 0.0025 | 0.927 | 0.486 | 0.888 | 1.0008 |
+| snapshot | 100 | 0.0026 | 0.963 | 0.495 | 0.895 | 1.0006 |
+
+Every gating threshold (rmse_excess ≤ 0.02, |var_ratio − 1| ≤ 0.10, cov90 ∈ [0.85, 0.95], cov50 ∈ [0.45, 0.55]) is met at 50 steps in both modes → **`steps_for_B = 50`**, as pre-registered (spec §5.5). The 50-step DDIM discretisation under-disperses by ≈ 7 % in variance (0.93), 4 % at 100 steps; the posterior mean is exact to 0.3 %.
+
+Report-only cells: with the HFD prior covariance (A C Aᵀ lifted; ΠGDM's isotropic r_t² is then only an approximation) sequential ΠGDM has rmse_excess 0.043 / 0.045 and var_ratio 0.82 / 0.92 (cov90 0.843 / 0.866) at 50 / 100 steps — the isotropic approximation costs ≈ 4 % in RMSE and visibly under-disperses on a correlated prior, less so at 100 steps; snapshot is unaffected (0.007, var 0.92 / 0.96). DPS on the HFD prior in sequential mode is far worse (rmse_excess 0.33 / 0.13, var_ratio 1.65 / 1.19); DPS on the isotropic prior is slightly worse than ΠGDM (0.029 / 0.017). ΠGDM stays the method. Ruling: B runs at 50 steps everywhere as pre-registered; if B's calibration clauses fail in E1, the HFD toy is the first explanation to test, and a report-only 100-step run of the two T2 settings is the natural addendum if GPU time remains after E1–E3.
+
+### Baselines (`scripts/sensor/stage0_baselines.py`)
 _pending_
