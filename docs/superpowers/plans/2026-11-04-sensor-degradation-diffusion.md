@@ -426,7 +426,7 @@ def test_x64_matches_the_legacy_loader(data_root):
 ### Task 6: The four new modes in the wrapper and the U-Net's context-free path
 
 **Files:**
-- Modify: `model/residual_wrapper.py`, `model/u2net_hyperspectral.py:424-452` (the `context_encoded` / `create_context_for_resolution` lines of `forward`)
+- Modify: `model/residual_wrapper.py`, `model/u2net_hyperspectral.py:424-452` (the `context_encoded` / `create_context_for_resolution` lines of `forward`); the three legacy assertions that compare the WHOLE mode tuples (`tests/test_wrapper.py:67`, `tests/test_uq_modes.py:14,16`, `tests/test_regress_mode.py:65`) are changed to compare `MODES[:6]` / the legacy prefix of `CENTRED_MODES` so the table can grow (ruling 2026-11-04)
 - Test: `tests/test_sensor_modes.py`
 
 **Interfaces:**
@@ -445,6 +445,10 @@ def test_mode_tables():
 
 def test_u2net_runs_without_context_and_depends_on_t():
     net = U2NetHyperspectral(spectral_channels=8, sensor_channels=5, base_channels=16)
+    with torch.no_grad():                       # FiLM layers are zero-initialised: without a context t reaches the net only through
+        for n, p in net.named_parameters():     # them, so a fresh net is t-blind by construction; perturb them before the check
+            if 'film' in n.lower():
+                p.normal_(0.0, 0.1)
     x = torch.randn(2, 8, 16, 16)
     a = net(x, None, torch.tensor([10, 10])); b = net(x, None, torch.tensor([900, 900]))
     assert a.shape == (2, 8, 16, 16) and not torch.allclose(a, b)
@@ -477,7 +481,7 @@ def test_batch_to_cond_both_batch_kinds():
 
 - [ ] **Step 2: Run to verify failure.** Expected: FAIL (`FAM_MODES` missing; U-Net raises on None context).
 
-- [ ] **Step 3: Implement** the wrapper changes and the two-line U-Net change per Interfaces. Keep `MODES`' first six entries in their current order (the launcher's and the Phase 1/2a tests' lists depend on the names, not the order, but do not rename anything).
+- [ ] **Step 3: Implement** the wrapper changes and the two-line U-Net change per Interfaces. Keep `MODES`' first six entries in their current order and names; the three legacy whole-tuple assertions named under Files are relaxed to the legacy prefix (and `CENTRED_MODES == legacy four + FAM_MODES`), nothing else in those files changes.
 
 - [ ] **Step 4: Run the new tests and the old mode tests.** Run: `... -m pytest tests/test_sensor_modes.py tests/test_wrapper.py tests/test_model_extra_in.py tests/test_uq_modes.py tests/test_regress_mode.py -q`. Expected: all pass.
 
