@@ -1,6 +1,6 @@
 #!/bin/bash
 # CPU end-to-end smoke of Phase 3 on 16 training files (base 16, 1 epoch each): sensor config -> the four trainings
-# (uncond, cond_fam, regress_fam, varhead_fam) -> sd_eval (sequential and snapshot, 30 dB) -> sd_verdict (its MIN_COMMON refusal) ->
+# (uncond, cond_fam, regress_fam, varhead_fam) -> sd_eval (sequential and snapshot, 30 dB) -> sd_verdict --report_only --min_common 2 ->
 # toy_guidance -> Stage 0 on 4 cubes. Needs the HFD dataset and the real prior. Everything is written under its own
 # temp root $T (RESIDUAL_WARMSTART_RESULTS is exported to it, so nothing touches the real results); $T is removed at
 # the end on success and kept, with its path printed, on failure. ~10 min.
@@ -38,11 +38,12 @@ need "$T/sensor/eval/smoke_seq_30.json"; need "$T/sensor/eval/smoke_snap_30.json
 cat > "$T/manifest.json" <<JSON
 {"name": "smoke", "records": {"device1/sequential/30": ["smoke_seq_30"], "device1/snapshot/30": ["smoke_snap_30"]}}
 JSON
-# the verdict pairs the records on their common files and pre-registers MIN_COMMON = 45; the smoke's records share 8, so
-# the expected outcome is that exact refusal (manifest, records and settings all loaded and keyed correctly up to it)
-if ERR=$($PY scripts/sensor/sd_verdict.py --manifest "$T/manifest.json" --report_only 2>&1); then
-  echo 'sd_verdict accepted records with 8 common files'; exit 1; fi
-grep -q 'only 8 files are common to both records (< MIN_COMMON = 45)' <<< "$ERR" || { echo "sd_verdict refused for another reason: $ERR"; exit 1; }
+# --min_common 2: the records share 8 files, below the pre-registered MIN_COMMON = 45 (recorded in the report); this runs
+# every clause (T1-T4, sanity) end to end on the real records
+$PY scripts/sensor/sd_verdict.py --manifest "$T/manifest.json" --report_only --min_common 2
+V=$T/sensor/verdict__smoke__report.json
+need "$V"
+$PY -c "import json,sys; v=json.load(open(sys.argv[1])); assert v['main_line'] is None and v['min_common']==2 and v['report_only'], v" "$V"
 
 $PY scripts/sensor/toy_guidance.py --out "$T/toy.json" --steps 5 --K 8 --B 1 --hw 4 --device cpu
 need "$T/toy.json"

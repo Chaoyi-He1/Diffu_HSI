@@ -227,3 +227,18 @@ def test_report_only_lists_missing_settings_and_writes_report_name(tmp_path, mon
     assert path.exists() and json.loads(path.read_text())['main_line'] is None
     with pytest.raises(FileExistsError):
         sv.main(['--manifest', mp, '--report_only'])
+
+
+def test_min_common_override_is_recorded_and_applied(tmp_path, monkeypatch):
+    f10 = _files(10)
+    a, b = {'x': list(np.arange(10.0))}, {'x': [1.0] * 6}
+    with pytest.raises(ValueError, match='common'):
+        sv.paired_on_common(a, f10, b, f10[:6], 'x', 'x')                    # 6 < MIN_COMMON
+    assert sv.paired_on_common(a, f10, b, f10[:6], 'x', 'x', min_common=5)['n'] == 6
+    recs = _world()
+    for k in ('device2/sequential/30', 'ph5/sequential/30', 'device1/snapshot/30', 'device1/sequential/60'):
+        recs.pop(k)
+    mp, st = _load(tmp_path, monkeypatch, recs, name='mc')
+    assert sv.verdict(st, report_only=True)['min_common'] == sv.MIN_COMMON
+    sv.main(['--manifest', mp, '--report_only', '--min_common', '5'])
+    assert json.loads((tmp_path / 'verdict__mc__report.json').read_text())['min_common'] == 5

@@ -93,11 +93,11 @@ def _get(settings, key, method):
     return settings[key][method]
 
 
-def _common(a, af, b, bf, key_a, key_b):
+def _common(a, af, b, bf, key_a, key_b, min_common=MIN_COMMON):
     pos = {f: i for i, f in enumerate(bf)}
     ia = [i for i, f in enumerate(af) if f in pos]
-    if len(ia) < MIN_COMMON:
-        raise ValueError(f'only {len(ia)} files are common to both records (< MIN_COMMON = {MIN_COMMON})')
+    if len(ia) < min_common:
+        raise ValueError(f'only {len(ia)} files are common to both records (< MIN_COMMON = {min_common})')
     ib = [pos[af[i]] for i in ia]
     x = np.asarray(a[key_a], dtype=np.float64)[ia]
     y = np.asarray(b[key_b], dtype=np.float64)[ib]
@@ -111,17 +111,17 @@ def _stats(d, files):
     return dict(mean=float(d.mean()), se=float(d.std(ddof=1) / math.sqrt(len(d))), se_cluster=float(se_c), n=int(len(d)), clusters=int(G))
 
 
-def paired_on_common(a, af, b, bf, key_a, key_b):
+def paired_on_common(a, af, b, bf, key_a, key_b, min_common=MIN_COMMON):
     """Difference a - b on the files common to both lists, in af's order."""
-    x, y, files = _common(a, af, b, bf, key_a, key_b)
+    x, y, files = _common(a, af, b, bf, key_a, key_b, min_common)
     return dict(_stats(x - y, files), ratio_of_means=float(x.mean() / y.mean()))
 
 
-def ratio_clause(num, den, files, key_num, key_den, limit, direction):
+def ratio_clause(num, den, files, key_num, key_den, limit, direction, min_common=MIN_COMMON):
     """Paired test of num - limit * den with its clustered SE. num / den are per-cube metric dicts; files is the common
     list, or a pair (num_files, den_files). direction 'le': num <= limit * den by 2 clustered SE."""
     nf, df = files if isinstance(files, tuple) else (files, files)
-    x, y, common = _common(num, nf, den, df, key_num, key_den)
+    x, y, common = _common(num, nf, den, df, key_num, key_den, min_common)
     s = _stats(x - limit * y, common)
     if direction == 'le':
         passed = s['mean'] + 2 * s['se_cluster'] <= 0
@@ -133,17 +133,17 @@ def ratio_clause(num, den, files, key_num, key_den, limit, direction):
                 mean=s['mean'], se_cluster=s['se_cluster'], n=s['n'])
 
 
-def _clause(settings, key, m_num, m_den, limit):
+def _clause(settings, key, m_num, m_den, limit, min_common=MIN_COMMON):
     pn, fn, _ = _get(settings, key, m_num)
     pd, fd, _ = _get(settings, key, m_den)
-    return ratio_clause(pn, pd, (fn, fd), RMSE_KEY[m_num], RMSE_KEY[m_den], limit, 'le')
+    return ratio_clause(pn, pd, (fn, fd), RMSE_KEY[m_num], RMSE_KEY[m_den], limit, 'le', min_common)
 
 
-def t1(settings, line, missing=None):
+def t1(settings, line, missing=None, min_common=MIN_COMMON):
     out = {}
     for s in E1_SNRS:
         try:
-            out[s] = _clause(settings, setting_key('device1', 'sequential', s), line, 'D', T1_RATIO)
+            out[s] = _clause(settings, setting_key('device1', 'sequential', s), line, 'D', T1_RATIO, min_common)
         except Missing as e:
             if missing is None:
                 raise
@@ -151,7 +151,7 @@ def t1(settings, line, missing=None):
     return out
 
 
-def t2(settings, line, report_only=False, missing=None):
+def t2(settings, line, report_only=False, missing=None, min_common=MIN_COMMON):
     out = {}
     for s in T2_SNRS:
         key = setting_key('device1', 'sequential', s)
@@ -170,7 +170,7 @@ def t2(settings, line, report_only=False, missing=None):
                              f'(use --report_only for a descriptive verdict)')
         clauses = {}
         for name, (p, f) in (('crps_vs_L', (pL, fL)), ('crps_vs_V', (pV, fV))):
-            c = paired_on_common(pl, fl, p, f, 'crps', 'crps')
+            c = paired_on_common(pl, fl, p, f, 'crps', 'crps', min_common)
             clauses[name] = dict(c, passed=bool(c['mean'] + 2 * c['se_cluster'] < 0))
         cov90 = float(np.mean(pl['cov90']))
         cov_ok = bool(T2_COV90[0] <= cov90 <= T2_COV90[1])
@@ -179,34 +179,34 @@ def t2(settings, line, report_only=False, missing=None):
     return out
 
 
-def _rmse_ratio(settings, key, line):
+def _rmse_ratio(settings, key, line, min_common=MIN_COMMON):
     pl, fl, _ = _get(settings, key, line)
     pL, fL, _ = _get(settings, key, 'L')
-    return paired_on_common(pl, fl, pL, fL, RMSE_KEY[line], RMSE_KEY['L'])['ratio_of_means']
+    return paired_on_common(pl, fl, pL, fL, RMSE_KEY[line], RMSE_KEY['L'], min_common)['ratio_of_means']
 
 
-def t3(settings, line):
-    r1 = _rmse_ratio(settings, setting_key('device1', 'sequential', T3_SNR), line)
-    r2 = _rmse_ratio(settings, setting_key('device2', 'sequential', T3_SNR), line)
+def t3(settings, line, min_common=MIN_COMMON):
+    r1 = _rmse_ratio(settings, setting_key('device1', 'sequential', T3_SNR), line, min_common)
+    r2 = _rmse_ratio(settings, setting_key('device2', 'sequential', T3_SNR), line, min_common)
     out = dict(ratio_dev1=r1, ratio_dev2=r2, passed=bool(r2 <= T3_RATIO * r1))
     try:
-        out['ph5'] = _rmse_ratio(settings, setting_key('ph5', 'sequential', T3_SNR), line)
+        out['ph5'] = _rmse_ratio(settings, setting_key('ph5', 'sequential', T3_SNR), line, min_common)
     except Missing:
         pass
     return out
 
 
-def t4(settings, line):
+def t4(settings, line, min_common=MIN_COMMON):
     key = setting_key('device1', 'snapshot', T4_SNR)
-    out = _clause(settings, key, line, 'L_demosaic', T4_RATIO)
+    out = _clause(settings, key, line, 'L_demosaic', T4_RATIO, min_common)
     try:
-        out['D'] = _clause(settings, key, 'D', 'L_demosaic', T4_RATIO)
+        out['D'] = _clause(settings, key, 'D', 'L_demosaic', T4_RATIO, min_common)
     except Missing:
         pass
     return out
 
 
-def sanity(settings):
+def sanity(settings, min_common=MIN_COMMON):
     keys = {s: setting_key('device1', 'sequential', s) for s in E1_SNRS}
     monotone = {}
     for m in SANITY_METHODS:
@@ -221,7 +221,7 @@ def sanity(settings):
         for m in LEARNED:
             if m in settings[k60]:
                 p, f, _ = settings[k60][m]
-                c = paired_on_common(p, f, pL, fL, RMSE_KEY[m], 'mean_rmse_pct')
+                c = paired_on_common(p, f, pL, fL, RMSE_KEY[m], 'mean_rmse_pct', min_common)
                 floor_pass[m] = bool(c['mean'] <= 2 * c['se_cluster'])
     return dict(monotone=monotone, floor_reference_rmse_pct=ref, floor_pass=floor_pass)
 
@@ -247,22 +247,22 @@ def main_line(res):
     return min(tied, key=lambda l: res['T2'][l][T2_SNRS[1]]['crps_vs_V']['mean'])
 
 
-def verdict(settings, report_only=False):
+def verdict(settings, report_only=False, min_common=MIN_COMMON):
     res = dict(T1={}, T2={}, T3={}, T4={})
     missing = []
     for line in LINES:
-        res['T1'][line] = t1(settings, line, missing if report_only else None)
-        res['T2'][line] = t2(settings, line, report_only, missing if report_only else None)
+        res['T1'][line] = t1(settings, line, missing if report_only else None, min_common)
+        res['T2'][line] = t2(settings, line, report_only, missing if report_only else None, min_common)
         for name, fn in (('T3', t3), ('T4', t4)):
             try:
-                res[name][line] = fn(settings, line)
+                res[name][line] = fn(settings, line, min_common)
             except Missing as e:
                 if not report_only:
                     raise
                 missing.append(f'{name} {line}: {e}')
                 res[name][line] = None
     try:
-        san = sanity(settings)
+        san = sanity(settings, min_common)
     except Missing as e:
         if not report_only:
             raise
@@ -276,7 +276,7 @@ def verdict(settings, report_only=False):
     if not report_only:
         ml = main_line(res)
     return dict(T1=res['T1'], T2=res['T2'], T3=res['T3'], T4=res['T4'], sanity=san, counts=counts, main_line=ml,
-                report_only=bool(report_only), missing=sorted(set(missing)))
+                report_only=bool(report_only), min_common=int(min_common), missing=sorted(set(missing)))
 
 
 def verdict_path(name, report_only):
@@ -305,6 +305,7 @@ def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument('--manifest', required=True)
     ap.add_argument('--report_only', action='store_true')
+    ap.add_argument('--min_common', type=int, default=MIN_COMMON, help='files two records must share to be paired (debug / smoke only)')
     args = ap.parse_args(argv)
     with open(args.manifest) as f:
         name = json.load(f)['name']
@@ -312,7 +313,7 @@ def main(argv=None):
     if os.path.exists(out):
         raise FileExistsError(f'{out} exists; the verdict is taken once')
     settings = load_manifest(args.manifest)
-    v = verdict(settings, args.report_only)
+    v = verdict(settings, args.report_only, args.min_common)
     _print(v)
     v.update(name=name, manifest=os.path.abspath(args.manifest), created=time.strftime('%Y-%m-%dT%H:%M:%S'),
              thresholds=dict(T1_RATIO=T1_RATIO, T2_COV90=T2_COV90, T2_SNRS=T2_SNRS, T3_RATIO=T3_RATIO, T3_SNR=T3_SNR, T4_RATIO=T4_RATIO,
