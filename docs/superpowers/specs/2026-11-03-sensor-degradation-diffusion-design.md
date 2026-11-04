@@ -1,6 +1,6 @@
 # Diffusion Reconstruction From a Poor EC Sensor Under Noise, Across Sensors and in Snapshot Mode — Design Spec (Phase 3)
 
-Status: 2026-11-03, written from the brainstorming conversation of 2026-11-03; §12's questions were answered by the user the same day and are folded into §4; awaiting the user's approval.
+Status: **APPROVED by the user 2026-11-04 ("规格可以")**. Written 2026-11-03 from the brainstorming conversation; §12's questions were answered by the user on 2026-11-03 and are folded into §4; the builder-check decisions are in §8b.
 
 ## 1. Intent and the why
 
