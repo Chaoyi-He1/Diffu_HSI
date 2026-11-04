@@ -251,10 +251,10 @@ def test_sigma_to_prior_regulariser_reproduces_linear_inverse(small_R, synthetic
     from scripts.fit_linear_prior import make_gain
     K = make_gain(C, small_R, s)
     x_tr = np.clip(synthetic_prior['X'][:50], -0.9, 0.9); y_tr = x_tr @ small_R
-    ref = linear_inverse(y_tr, mu, K, small_R)                                 # trainer scale, clipped (inactive here)
+    ref = linear_inverse(y_tr, mu, K, small_R)                                 # trainer scale, clipped to [-1, 1]
     mu01, C01 = MM.prior01(dict(mu=mu, C=C)); y01 = (y_tr + small_R.sum(0)) / 2
     xhat01, _ = MM.posterior_sequential(y01, small_R, mu01, C01, (s / 2) ** 2)      # C01 = C / 4, so nu = s^2 / 4 reproduces K(s)
-    np.testing.assert_allclose(2 * xhat01 - 1, ref, atol=1e-4)
+    np.testing.assert_allclose(np.clip(2 * xhat01 - 1, -1, 1), ref, atol=1e-4)   # linear_inverse clips its output; a few synthetic pixels exceed 1
 
 def test_posterior_std_grows_as_snr_falls_and_is_finite_at_the_floor(small_R, synthetic_prior):
     mu01, C01 = MM.prior01(dict(mu=synthetic_prior['mu'], C=synthetic_prior['C'])); P_y = 50.0
