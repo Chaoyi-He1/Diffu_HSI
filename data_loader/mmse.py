@@ -42,6 +42,25 @@ def posterior_snapshot(y_k, k, R, mu01, C01, noise_var):
     return xhat, Sigma
 
 
+def posterior_snapshot_lowrank(y_k, k, R, mu01, C01, noise_var):
+    """Low-rank form of posterior_snapshot. Returns xhat [N, L], Cr [N, L], den [N] with
+    Sigma_n = C - Cr Cr^T / den (never materialised)."""
+    R = np.asarray(R, np.float64); C = np.asarray(C01, np.float64)
+    r = R[:, np.asarray(k).astype(int)].T
+    Cr = r @ C
+    den = (Cr * r).sum(1) + noise_var
+    resid = np.asarray(y_k, np.float64) - r @ mu01
+    return mu01 + (Cr / den[:, None]) * resid[:, None], Cr, den
+
+
+def lift_mean_std_lowrank(xhat31, C, Cr, den, A):
+    """Mean / std on the 64-band grid for Sigma_n = C - Cr Cr^T / den: var = diag(A C A^T) - (A Cr)^2 / den."""
+    ACr = Cr @ A.T                                                 # [N, M]
+    base = np.einsum('ij,jk,ik->i', A, np.asarray(C, np.float64), A)
+    var = base[None, :] - ACr ** 2 / den[:, None]
+    return xhat31 @ A.T, np.sqrt(np.maximum(var, 0.0))
+
+
 def lift_mean_std(xhat31, Sigma, A):
     """xhat31 [N, L]; Sigma [L, L] or [N, L, L]; A [M, L]. Returns xhat64, std64 [N, M]."""
     Sigma = np.asarray(Sigma)
@@ -69,7 +88,8 @@ def mmse_maps(y, mask, R, prior, sigma, A):
     else:
         m = np.asarray(mask).reshape(-1, S)
         k = m.argmax(1)
-        xh, Sig = posterior_snapshot(y.reshape(-1, S)[np.arange(len(k)), k], k, R, mu01, C01, nv)
+        xh, Cr, den = posterior_snapshot_lowrank(y.reshape(-1, S)[np.arange(len(k)), k], k, R, mu01, C01, nv)
+        return _to_trainer(*lift_mean_std_lowrank(xh, C01, Cr, den, A), shape)
     x64, s64 = lift_mean_std(xh, Sig, A)
     return _to_trainer(x64, s64, shape)
 

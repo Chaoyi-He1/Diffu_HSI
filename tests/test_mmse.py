@@ -61,3 +61,12 @@ def test_demosaic_then_mmse_runs(small_R, synthetic_prior):
     m = mosaic_mask(10, 12); y = np.random.default_rng(0).random((10, 12, 30)) * m
     xh, s = MM.demosaic_then_mmse(y, m, small_R, prior, 0.1, A, np.full(30, 0.01))
     assert xh.shape == (10, 12, 64) and np.isfinite(xh).all() and s.min() > 0
+
+def test_lowrank_snapshot_lift_matches_dense(small_R, synthetic_prior):
+    mu01, C01 = MM.prior01(dict(mu=synthetic_prior['mu'], C=synthetic_prior['C'])); A = expand_matrix(np.linspace(451, 855, 31), 64)
+    m = mosaic_mask(10, 12).reshape(-1, 30); k = m.argmax(1); y_k = np.random.default_rng(0).random(len(k))
+    xd, Sig = MM.posterior_snapshot(y_k, k, small_R, mu01, C01, 0.1)
+    xl, Cr, den = MM.posterior_snapshot_lowrank(y_k, k, small_R, mu01, C01, 0.1)
+    np.testing.assert_allclose(xl, xd, atol=1e-9)
+    md, sd = MM.lift_mean_std(xd, Sig, A); ml, sl = MM.lift_mean_std_lowrank(xl, C01, Cr, den, A)
+    np.testing.assert_allclose(ml, md, atol=1e-9); np.testing.assert_allclose(sl, sd, atol=1e-9)
