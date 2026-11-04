@@ -426,7 +426,7 @@ class U2NetHyperspectral(nn.Module):
             x_t: Noisy hyperspectral image tensor of shape [B, L, H, W]
                 (or [B, L + extra_in_channels, H, W] when extra_in_channels > 0)
             t: Time embedding tensor of shape [B]
-            context: Sensor response tensor of shape [B, S, H, W]
+            context: Sensor response tensor of shape [B, S, H, W], or None (no cross-attention context)
                 
         Returns:
             Output tensor of shape [B, L, H, W] - predicted noise or clean image
@@ -437,10 +437,13 @@ class U2NetHyperspectral(nn.Module):
         t_emb = self.time_embedding(t)                            # [B] → [B, Base_C*8]
         
         # Context encoding - process sensor response
-        context_encoded = self.context_encoder(context)           # [B, S, H, W] → [B, Base_C*8, H, W]
+        # context=None (the sensor modes): no cross-attention context, every block runs self-attention only
+        context_encoded = self.context_encoder(context) if context is not None else None   # [B, S, H, W] → [B, Base_C*8, H, W]
         
         # Helper function to create context at different resolutions
         def create_context_for_resolution(h, w):
+            if context_encoded is None:
+                return None
             # Downsample context to target resolution
             context_down = F.interpolate(context_encoded, size=(h, w), 
                                        mode='bilinear', align_corners=True)
