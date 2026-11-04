@@ -26,3 +26,19 @@ def test_make_config_refuses_overwrite(tmp_path, monkeypatch):
     p = tmp_path / 'c.json'; p.write_text('{}')
     with pytest.raises(FileExistsError):
         MC.main(['--out', str(p), '--data_root', str(tmp_path), '--prior', 'none.npz'])
+
+def test_make_config_refuses_limit_files_at_default_path(tmp_path, monkeypatch):
+    from scripts.sensor import make_config as MC
+    default = str(tmp_path / 'default.json')
+    monkeypatch.setattr(MC, 'CONFIG_PATH', default)
+    with pytest.raises(ValueError, match='--limit_files'):
+        MC.main(['--out', default, '--limit_files', '4', '--data_root', str(tmp_path), '--prior', 'none.npz'])
+
+def test_make_config_refuses_empty_file_list(tmp_path, monkeypatch):
+    from scripts.sensor import make_config as MC
+    import data_loader.HFD_dataset as HD
+    class _Empty:
+        def __init__(self, *a, **k): self.img_list = []
+    monkeypatch.setattr(HD, 'HFD_data', _Empty)
+    with pytest.raises(ValueError, match='data_root'):
+        MC.main(['--out', str(tmp_path / 'o.json'), '--data_root', str(tmp_path), '--prior', 'none.npz'])

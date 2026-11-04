@@ -10,28 +10,34 @@ import numpy as np
 from data_loader import sensor_config as SC
 from data_loader.warmstart_paths import DATA_ROOT, PRIOR, file_sha256
 
+CONFIG_PATH = SC.CONFIG_PATH
+
 
 def main(argv=None):
     ap = argparse.ArgumentParser()
-    ap.add_argument('--out', default=SC.CONFIG_PATH)
+    ap.add_argument('--out', default=CONFIG_PATH)
     ap.add_argument('--data_root', default=DATA_ROOT)
     ap.add_argument('--prior', default=PRIOR)
     ap.add_argument('--n_e2_files', type=int, default=200)
     ap.add_argument('--limit_files', type=int, default=0, help='debug: P_y over the first N training cubes')
     ap.add_argument('--seed', type=int, default=0)
     a = ap.parse_args(argv)
+    if a.limit_files and os.path.abspath(a.out) == os.path.abspath(CONFIG_PATH):
+        raise ValueError('--limit_files is a debug option; write to another --out')
     if os.path.exists(a.out):
         raise FileExistsError(f'{a.out} exists; refusing to overwrite')
 
     from data_loader.HFD_dataset import HFD_data
-    from data_loader.hfd_sensor_sim import load_cube01   # lazy: Task 5 module
     from data_loader.mmse import demosaic
     from data_loader.sensor_model import DEVICES, load_sensor
     from data_loader.sensor_forward import measure
 
     files = HFD_data(a.data_root, train_mode='image', split='train', data_format='image', R_n=1).img_list
+    if not files:
+        raise ValueError(f'no training .mat files found under --data_root {a.data_root}')
     if a.limit_files:
         files = files[:a.limit_files]
+    from data_loader.hfd_sensor_sim import load_cube01   # lazy: Task 5 module
     R = load_sensor('device1', a.data_root)['R']
     rng = np.random.default_rng(a.seed)
 
@@ -47,6 +53,8 @@ def main(argv=None):
             err = (demosaic(ym, mask) - y) ** 2
             e2_sum += err.reshape(-1, err.shape[-1]).sum(0) / (err.shape[0] * err.shape[1])
             n_e2 += 1
+    if n_e2 == 0:
+        raise ValueError('--n_e2_files must be at least 1')
     P_y = sq_sum / n_px
 
     devices = {}
@@ -55,8 +63,8 @@ def main(argv=None):
         devices[d] = dict(sha256=s['sha256'], file=s['file'], n_states_total=int(s['n_states_total']),
                           selected_states=[int(v) for v in s['selected_states']])
     cfg = SC.default_training_fields(file_sha256(a.prior))
-    cfg.update(P_y=float(P_y), seed=a.seed, devices=devices, e2_demosaic=(e2_sum / max(n_e2, 1)).tolist(),
-               n_files_P_y=len(files), created=time.strftime('%Y-%m-%dT%H:%M:%S'), prior_path=a.prior)
+    cfg.update(P_y=float(P_y), seed=a.seed, devices=devices, e2_demosaic=(e2_sum / n_e2).tolist(),
+               n_files_P_y=len(files), debug_limit_files=a.limit_files, created=time.strftime('%Y-%m-%dT%H:%M:%S'), prior_path=a.prior)
     SC.check_config(cfg)
 
     os.makedirs(os.path.dirname(os.path.abspath(a.out)), exist_ok=True)
