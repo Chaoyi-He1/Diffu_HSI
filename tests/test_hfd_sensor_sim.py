@@ -28,10 +28,24 @@ def test_set_epoch_changes_training_noise_but_not_the_cube(ds):
     np.testing.assert_array_equal(a['x'], b['x']); assert not np.array_equal(a['y'], b['y'])
 
 def test_family_frequencies(ds):
-    draws = [ds.draw_setting(i) for i in range(2000)]
+    draws = []
+    for e in range(167):                                                         # 167 epochs x 12 files: the rngs are keyed by file
+        ds.set_epoch(e); draws += [ds.draw_setting(i) for i in range(len(ds))]
     assert abs(np.mean([m == 'snapshot' for m, _ in draws]) - 0.5) < 0.04
     assert abs(np.mean([s == 60.0 for _, s in draws]) - 0.1) < 0.03
     others = [s for _, s in draws if s != 60.0]; assert min(others) >= 20.0 and max(others) <= 50.0
+
+def test_noise_depends_on_the_file_not_its_position(ds):
+    rev = DS.HFDSensorSim(ds.data_root, 'train', _cfg(), device='device1', prior_path=ds.prior_path)
+    rev.img_list = list(reversed(ds.img_list))
+    n = len(ds)
+    for i in (0, 1, n - 1):
+        j = n - 1 - i
+        assert rev.img_list[j] == ds.img_list[i] and rev.file_key(j) == ds.file_key(i)
+        assert rev.draw_setting(j) == ds.draw_setting(i)
+        a, b = ds[i], rev[j]
+        assert a['y'].tobytes() == b['y'].tobytes() and a['sigma'] == b['sigma'] and a['snapshot'] == b['snapshot']
+    assert ds.checkpoint_extra()['seed_scheme'] == 'crc32(relpath)'
 
 def test_snapshot_item_mask_and_zero_off_mask(fake_sensor_root, ds):
     d2 = DS.HFDSensorSim(fake_sensor_root, 'train', _cfg(), setting=dict(mode='snapshot', snr_db=30.0), prior_path=ds.prior_path)

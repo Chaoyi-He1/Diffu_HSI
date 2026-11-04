@@ -166,7 +166,7 @@ def run_eval(models, ds, loader, args, cfg, provenance, device):
     means = {m: {k: float(np.mean(v)) for k, v in d.items()} for m, d in acc.items()}
     return dict(name=args.name,
                 setting=dict(sensor_device=args.sensor_device, mode=args.mode, snr_db=float(args.snr_db), sigma=sigma,
-                             R_sha256=ds.sensor['sha256']),
+                             R_sha256=ds.sensor['sha256'], seed_scheme=ds.checkpoint_extra()['seed_scheme']),
                 subset=args.subset, K=K, pigdm_steps=int(args.pigdm_steps), guidance=args.guidance, n=len(ds),
                 files=[os.path.relpath(f, args.data_root) for f in ds.img_list], classes=[class_of(f) for f in ds.img_list],
                 per_cube=acc, means=means, coverage_exact=bool(K >= min_k_for(0.9)),

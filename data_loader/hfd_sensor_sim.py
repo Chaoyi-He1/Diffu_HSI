@@ -1,6 +1,9 @@
 """HFD dataset that simulates the poor electrochromic sensor (Phase 3): per item it draws a measurement setting
 (sequential / snapshot, SNR), measures the cube, and returns the noise-aware MMSE centre and posterior-std maps as
 the conditioning. The cubes, split and file list are those of HFD_data; its y and R are never used."""
+import os
+import zlib
+
 import numpy as np
 import scipy.io as sio
 import torch
@@ -16,6 +19,7 @@ from data_loader.warmstart_paths import PRIOR
 MODES_FWD = ('sequential', 'snapshot')
 MAP_KEYS = ('x', 'y', 'x0_hat', 's_post', 's_raw', 'mask')
 SCALAR_KEYS = ('sigma', 'snr_db', 'snapshot')
+SEED_SCHEME = 'crc32(relpath)'     # the setting and noise rngs are keyed by the cube's file, not its img_list position
 
 
 def load_cube01(path):
@@ -60,11 +64,16 @@ class HFDSensorSim(torch.utils.data.Dataset):
     def set_epoch(self, e):
         self.epoch = int(e)
 
+    def file_key(self, idx):
+        """crc32 of the cube's path relative to data_root: the per-file key of the setting and noise rngs, so a cube
+        gets the same measurement whatever its position in img_list (subsets pair by file)."""
+        return zlib.crc32(os.path.relpath(self.img_list[idx], self.data_root).encode('utf-8'))
+
     def draw_setting(self, idx):
         if self.setting is not None:
             return self.setting['mode'], float(self.setting['snr_db'])
         c, f = self.config, self.config['family']
-        rng = np.random.default_rng([c['seed'], self.epoch, idx])
+        rng = np.random.default_rng([c['seed'], self.epoch, self.file_key(idx)])
         mode = 'snapshot' if rng.random() < f['p_snapshot'] else 'sequential'
         if rng.random() < f['p_floor']:
             snr = float(c['snr_floor_db'])
@@ -76,7 +85,7 @@ class HFDSensorSim(torch.utils.data.Dataset):
         x01 = load_cube01(self.img_list[idx])
         mode, snr = self.draw_setting(idx)
         sigma = sigma_from_snr(snr, self.P_y)
-        rng = np.random.default_rng([self.config['seed'] + 1, self.epoch, idx])
+        rng = np.random.default_rng([self.config['seed'] + 1, self.epoch, self.file_key(idx)])
         y, mask = measure(x01, self.R, mode, sigma, rng)
         snapshot = mode == 'snapshot'
         x0_hat, s64 = mmse_maps(y, mask if snapshot else None, self.R, self.prior, sigma, self.A)
@@ -89,7 +98,7 @@ class HFDSensorSim(torch.utils.data.Dataset):
         c = self.config
         return dict(sensor_config_sha=self.config_sha, s_floor01=c['s_floor01'], P_y=c['P_y'],
                     snr_floor_db=c['snr_floor_db'], family=c['family'], device_train=c.get('device_train'),
-                    sensor_device=self.sensor['device'], R_sha256=self.sensor['sha256'])
+                    sensor_device=self.sensor['device'], R_sha256=self.sensor['sha256'], seed_scheme=SEED_SCHEME)
 
 
 def sensor_collate_fn(batch):

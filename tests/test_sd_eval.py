@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 import torch
 
-from data_loader.hfd_sensor_sim import sensor_collate_fn
+from data_loader.hfd_sensor_sim import HFDSensorSim, sensor_collate_fn
 from data_loader.linear_estimate import expand_matrix
 from data_loader.mmse import mmse_maps
 from data_loader.sensor_config import default_training_fields, training_sha
@@ -42,6 +42,9 @@ class StubSensorDS(torch.utils.data.Dataset):
 
     def __len__(self):
         return len(self.img_list)
+
+    def checkpoint_extra(self):
+        return dict(seed_scheme='crc32(relpath)')
 
     def __getitem__(self, i):
         x01 = self.cubes[i]
@@ -111,7 +114,7 @@ def test_record_holds_every_requested_method_with_paired_files(small_R, syntheti
     assert rec['classes'] == ['P022', 'P023', 'P024', 'P022', 'P023']
     s = rec['setting']
     assert s['sensor_device'] == 'device1' and s['mode'] == 'sequential' and s['snr_db'] == 30.0 and s['R_sha256'] == 'r'
-    assert abs(s['sigma'] - sigma_from_snr(30.0, 1.0)) < 1e-6
+    assert abs(s['sigma'] - sigma_from_snr(30.0, 1.0)) < 1e-6 and s['seed_scheme'] == 'crc32(relpath)'
     assert set(rec) == {'name', 'setting', 'subset', 'K', 'pigdm_steps', 'guidance', 'n', 'files', 'classes', 'per_cube',
                         'means', 'coverage_exact', 'provenance'}
     assert set(rec['provenance']) == {'sensor_config_sha', 'config_path', 'checkpoints', 'git_head', 'created', 'seconds',
@@ -181,3 +184,21 @@ def test_coverage_exact_flag(small_R, synthetic_prior):
     ds = StubSensorDS(small_R, synthetic_prior, n=2)
     assert run(ds, fake_args(methods=['L'], K=32), {})['coverage_exact'] is True
     assert run(ds, fake_args(methods=['L'], K=8), {})['coverage_exact'] is False
+
+
+def test_records_on_different_subsets_pair_by_file(fake_sensor_root, synthetic_prior, tmp_path):
+    np.savez(tmp_path / 'prior.npz', mu=synthetic_prior['mu'], C=synthetic_prior['C'], s=3e-7)
+
+    def sim(files):
+        ds = HFDSensorSim(fake_sensor_root, 'train', CFG, device='device1', setting=dict(mode='snapshot', snr_db=30.0),
+                          prior_path=str(tmp_path / 'prior.npz'))
+        ds.img_list = [ds.img_list[i] for i in files]
+        return ds
+
+    big, small = sim([0, 3, 5, 7]), sim([7, 3])                    # the shared files sit at different positions
+    args = fake_args(mode='snapshot', methods=['L'], data_root=fake_sensor_root)
+    with np.errstate(divide='ignore', invalid='ignore'):
+        rb, rs = run(big, args, {}), run(small, args, {})
+    assert rb['setting']['seed_scheme'] == rs['setting']['seed_scheme'] == 'crc32(relpath)'
+    for f in rs['files']:
+        assert rb['per_cube']['L']['mean_rmse_pct'][rb['files'].index(f)] == rs['per_cube']['L']['mean_rmse_pct'][rs['files'].index(f)]
