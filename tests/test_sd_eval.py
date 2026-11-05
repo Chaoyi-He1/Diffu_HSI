@@ -67,6 +67,12 @@ class Const(torch.nn.Module):
         return torch.full_like(x_t, self.c)
 
 
+class Shrink(torch.nn.Module):
+    """x0-prediction stub that depends on x_t (a constant x0 would give guidance no gradient path)."""
+    def forward(self, x_t, cond, t):
+        return 0.5 * x_t
+
+
 class Noisy(torch.nn.Module):
     """A v-prediction net that depends on x_t, so DDIM draws differ across seeds."""
     def forward(self, x_t, cond, t):
@@ -87,9 +93,9 @@ def run(ds, args, models):
     return SE.run_eval(models, ds, loader, args, CFG, {}, torch.device('cpu'))
 
 
-def save_ckpt(path, mode, sha=None):
+def save_ckpt(path, mode, sha=None, prediction_type='v'):
     torch.save(dict(model_state_dict=build_residual_model(mode, 16).state_dict(),
-                    meta=dict(mode=mode, base_channels=16, sensor_config_sha=sha or training_sha(CFG), prediction_type='v')),
+                    meta=dict(mode=mode, base_channels=16, sensor_config_sha=sha or training_sha(CFG), prediction_type=prediction_type)),
                path)
     return str(path)
 
@@ -118,7 +124,7 @@ def test_record_holds_every_requested_method_with_paired_files(small_R, syntheti
     assert set(rec) == {'name', 'setting', 'subset', 'K', 'pigdm_steps', 'guidance', 'n', 'files', 'classes', 'per_cube',
                         'means', 'coverage_exact', 'provenance'}
     assert set(rec['provenance']) == {'sensor_config_sha', 'config_path', 'checkpoints', 'git_head', 'created', 'seconds',
-                                      'seeds', 'device', 'batch_size', 'limit_files'}
+                                      'seeds', 'device', 'batch_size', 'limit_files', 'b_prediction_type'}
     assert rec['provenance']['sensor_config_sha'] == training_sha(CFG) and rec['provenance']['seeds'] == [0, 1, 2]
     json.dumps(rec)
 
@@ -161,6 +167,25 @@ def test_B_accepts_an_uncond_tt_checkpoint(tmp_path):
     p2 = save_ckpt(tmp_path / 'cf.pth', 'cond_fam')
     with pytest.raises(ValueError, match='cf.pth.*uncond'):                 # other modes are still refused for B
         SE.check_models(fake_args(methods=['B'], uncond=p2), CFG, torch.device('cpu'))
+
+
+def test_B_accepts_x0_prediction_prior_and_records_it(tmp_path, small_R, synthetic_prior):
+    p = save_ckpt(tmp_path / 'ux0.pth', 'uncond', prediction_type='x0')
+    args = fake_args(mode='snapshot', methods=['B'], K=2, pigdm_steps=2, uncond=p)
+    models, prov = SE.check_models(args, CFG, torch.device('cpu'))
+    assert set(models) == {'B'} and prov['uncond']['prediction_type'] == 'x0'
+    ds = StubSensorDS(small_R, synthetic_prior, mode='snapshot', n=3)
+    loader = torch.utils.data.DataLoader(ds, batch_size=2, shuffle=False, collate_fn=ds.collate_fn)
+    with np.errstate(divide='ignore', invalid='ignore'):
+        rec = SE.run_eval(dict(B=Shrink()), ds, loader, args, CFG, prov, torch.device('cpu'))
+    assert rec['provenance']['b_prediction_type'] == 'x0'
+    assert len(rec['per_cube']['B']['crps']) == 3
+
+
+def test_B_refuses_eps_prediction_prior(tmp_path):
+    p = save_ckpt(tmp_path / 'ueps.pth', 'uncond', prediction_type='eps')
+    with pytest.raises(ValueError, match='ueps.pth'):
+        SE.check_models(fake_args(methods=['B'], uncond=p), CFG, torch.device('cpu'))
 
 
 def test_refuses_overwrite(tmp_path, monkeypatch):

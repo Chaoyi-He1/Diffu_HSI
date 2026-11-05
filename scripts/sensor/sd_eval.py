@@ -41,7 +41,7 @@ EVAL_DIR = os.path.join(SENSOR_DIR, 'eval')
 CKPT_FLAG = {'D': 'regress', 'V': 'varhead', 'C': 'cond', 'C1': 'cond', 'B': 'uncond'}
 FLAG_MODE = {'regress': 'regress_fam', 'varhead': 'varhead_fam', 'cond': 'cond_fam', 'uncond': 'uncond'}
 FLAG_ALLOWED_MODES = {**{f: (m,) for f, m in FLAG_MODE.items()}, 'uncond': ('uncond', 'uncond_tt')}   # B: either prior
-SAMPLED_FLAGS = ('cond', 'uncond')              # sampled with v-prediction on N_TIMESTEPS steps
+SAMPLED_FLAGS = ('cond', 'uncond')              # sampled on N_TIMESTEPS steps
 N_TIMESTEPS = 1000
 C_CLAMP = (-8.0, 8.0)                           # the standardised residual's x0 estimate in C's sampler
 
@@ -69,7 +69,7 @@ def ckpt_epoch(path):
 def check_models(args, cfg, device):
     """Load the checkpoint of every requested method (C and C1 share --cond) and refuse (ValueError, naming the file)
     one whose meta mode is not the method's or whose sensor_config_sha is not training_sha(cfg); the sampled models
-    (cond, uncond) must be v-prediction. Returns (models keyed D / V / C / B, provenance keyed by the flag)."""
+    (cond must be v-prediction, uncond v or x0). Returns (models keyed D / V / C / B, provenance keyed by the flag)."""
     sha = training_sha(cfg)
     models, prov = {}, {}
     for flag in dict.fromkeys(CKPT_FLAG[m] for m in resolve_methods(args) if m in CKPT_FLAG):
@@ -85,8 +85,10 @@ def check_models(args, cfg, device):
             bad.append(f"mode: checkpoint {meta.get('mode', '<missing>')!r} vs required {want}")
         if meta.get('sensor_config_sha') != sha:
             bad.append(f"sensor_config_sha: checkpoint {meta.get('sensor_config_sha', '<missing>')!r} vs config {sha!r}")
-        if flag in SAMPLED_FLAGS and meta.get('prediction_type', 'v') != 'v':
-            bad.append(f"prediction_type: checkpoint {meta.get('prediction_type')!r} vs required 'v'")
+        allowed_pt = {'cond': ('v',), 'uncond': ('v', 'x0')}.get(flag)   # B's prior may be v- or x0-prediction
+        if allowed_pt and meta.get('prediction_type', 'v') not in allowed_pt:
+            want = ' or '.join(repr(a) for a in allowed_pt)
+            bad.append(f"prediction_type: checkpoint {meta.get('prediction_type')!r} vs required {want}")
         if bad:
             raise ValueError(f'--{flag} checkpoint {path} does not fit this evaluation: ' + '; '.join(bad))
         model = build_residual_model(meta['mode'], int(meta['base_channels']))
@@ -97,6 +99,8 @@ def check_models(args, cfg, device):
                 models[m] = model
         prov[flag] = dict(path=os.path.abspath(path), epoch=ckpt_epoch(path), sha256=file_sha256(path),
                           mode=meta.get('mode'), git_head=meta.get('git_head'))
+        if flag == 'uncond':
+            prov[flag]['prediction_type'] = meta.get('prediction_type', 'v')
     return models, prov
 
 
@@ -124,7 +128,10 @@ def run_eval(models, ds, loader, args, cfg, provenance, device):
     methods = resolve_methods(args)
     K, snapshot = int(args.K), args.mode == 'snapshot'
     trainer = DiffusionTrainer(device=device, n_timesteps=N_TIMESTEPS, loss_type='l1', prediction_type='v', snr_gamma=None)
+    b_pt = (provenance.get('uncond') or {}).get('prediction_type', 'v')
     if 'B' in methods:
+        trainer_B = DiffusionTrainer(device=device, n_timesteps=N_TIMESTEPS, loss_type='l1', prediction_type=b_pt,
+                                     snr_gamma=None)               # B's prior may be x0-prediction; C keeps the 'v' trainer
         Hn, bn = guidance_operator(ds.R, ds.A)
         H_op, b_op = torch.from_numpy(np.asarray(Hn)), torch.from_numpy(np.asarray(bn))
     acc, sigma, t0 = {}, None, time.time()
@@ -162,7 +169,7 @@ def run_eval(models, ds, loader, args, cfg, provenance, device):
             y = batch['y'].float().to(device)
             mask = batch['mask'].float().to(device) if snapshot else None
             meas = LinearMeasurement(H_op, b_op, y, mask, sigma)
-            _extend(acc, 'B', sample_metrics(draw_guided(models['B'], trainer, meas, shape, K, int(args.pigdm_steps),
+            _extend(acc, 'B', sample_metrics(draw_guided(models['B'], trainer_B, meas, shape, K, int(args.pigdm_steps),
                                                          args.guidance), x))
         print(f'batch {bi + 1}/{len(loader)} ({time.time() - t0:.0f} s)', flush=True)
     means = {m: {k: float(np.mean(v)) for k, v in d.items()} for m, d in acc.items()}
@@ -173,7 +180,7 @@ def run_eval(models, ds, loader, args, cfg, provenance, device):
                 files=[os.path.relpath(f, args.data_root) for f in ds.img_list], classes=[class_of(f) for f in ds.img_list],
                 per_cube=acc, means=means, coverage_exact=bool(K >= min_k_for(0.9)),
                 provenance=dict(sensor_config_sha=training_sha(cfg), config_path=os.path.abspath(args.sensor_config),
-                                checkpoints=provenance, git_head=git_head(), created=time.strftime('%Y-%m-%dT%H:%M:%S'),
+                                checkpoints=provenance, b_prediction_type=b_pt if 'B' in methods else None, git_head=git_head(), created=time.strftime('%Y-%m-%dT%H:%M:%S'),
                                 seconds=time.time() - t0, seeds=list(range(K)), device=str(device),
                                 batch_size=int(args.batch_size), limit_files=int(args.limit_files)))
 
