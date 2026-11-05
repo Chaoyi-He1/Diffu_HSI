@@ -77,6 +77,7 @@ class StubTupleSet(torch.utils.data.Dataset):
 
 
 MODE_FLAGS = {'uncond': ('--prediction_type', 'v', '--loss_type', 'l1'),
+              'uncond_tt': ('--prediction_type', 'v', '--loss_type', 'l1'),
               'cond_fam': ('--prediction_type', 'v', '--loss_type', 'l1'),
               'regress_fam': ('--prediction_type', 'direct', '--loss_type', 'l1'),
               'varhead_fam': ('--prediction_type', 'direct', '--loss_type', 'nll')}
@@ -125,7 +126,7 @@ def test_make_loader_uses_the_dataset_collate_and_no_persistent_workers_with_set
     assert legacy.collate_fn is residual_collate_fn and legacy.persistent_workers is True
 
 
-@pytest.mark.parametrize('mode,pt,loss', [('uncond', 'v', 'l1'), ('cond_fam', 'v', 'l1'), ('regress_fam', 'direct', 'l1'),
+@pytest.mark.parametrize('mode,pt,loss', [('uncond', 'v', 'l1'), ('uncond_tt', 'v', 'l1'), ('cond_fam', 'v', 'l1'), ('regress_fam', 'direct', 'l1'),
                                           ('varhead_fam', 'direct', 'nll')])
 def test_two_epochs_train_on_cpu_and_log_finite_losses(tmp_path, mode, pt, loss):
     a = sensor_args(tmp_path, mode)

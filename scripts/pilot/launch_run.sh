@@ -1,9 +1,9 @@
 #!/bin/bash
 # Launch one pilot run in the background on one GPU.
-# Usage: [RUN_NAME=<dir name>] launch_run.sh residual|standard|standard_xhat|regress|residual_reg|varhead|uncond|cond_fam|regress_fam|varhead_fam GPU [extra args]   (the four sensor modes need --sensor_config <path> and run at --ds 1, appended last; regress[_fam] need --prediction_type direct --loss_type l1|l2)
+# Usage: [RUN_NAME=<dir name>] launch_run.sh residual|standard|standard_xhat|regress|residual_reg|varhead|uncond|cond_fam|regress_fam|varhead_fam|uncond_tt GPU [extra args]   (the five sensor modes need --sensor_config <path> and run at --ds 1, appended last; regress[_fam] need --prediction_type direct --loss_type l1|l2)
 # Refuses (exit 1; nothing started, the launch not counted) when a non-empty RUN_NAME is not <MODE>_[A-Za-z0-9_]+ (no
 # '/' or '..'; an exported RUN_NAME cannot redirect another mode's launch) or belongs to a longer mode name that starts
-# with <MODE>_ (residual_reg_* for residual, standard_xhat_* for standard), when a regress launch has no --loss_type l1|l2
+# with <MODE>_ (residual_reg_* for residual, standard_xhat_* for standard, uncond_tt_* for uncond), when a regress launch has no --loss_type l1|l2
 # (the trainer's default is l1) or one that contradicts an _l1_ / _l2_ in RUN_NAME, when a regress RUN_NAME names a seed
 # (_s<N>_, or _s<N> at its end) that --seed does not pass, or a regress --seed other than the trainer's default 42 is
 # given under a RUN_NAME that names none (the last --seed N / --seed=N wins, as in argparse), when a regress RUN_NAME
@@ -20,7 +20,7 @@ NAME_RE="^${MODE}_[A-Za-z0-9_]+\$"
 if [[ -n "${RUN_NAME:-}" && ! "$RUN_NAME" =~ $NAME_RE ]]; then
   echo "RUN_NAME='$RUN_NAME' is not ${MODE}_[A-Za-z0-9_]+; not launching"; exit 1
 fi
-for M in residual standard standard_xhat regress residual_reg varhead uncond cond_fam regress_fam varhead_fam; do      # model/residual_wrapper.py MODES
+for M in residual standard standard_xhat regress residual_reg varhead uncond cond_fam regress_fam varhead_fam uncond_tt; do      # model/residual_wrapper.py MODES
   if [[ "$M" != "$MODE" && "$M" == "${MODE}_"* && "${RUN_NAME:-}" == "${M}_"* ]]; then   # e.g. residual_reg_* passes ^residual_
     echo "RUN_NAME='$RUN_NAME' belongs to mode $M, not $MODE; not launching"; exit 1
   fi
@@ -41,7 +41,7 @@ for A in "$@"; do                                         # the last --loss_type
   PREV=$A
 done
 DSARG=()
-case "$MODE" in uncond|cond_fam|regress_fam|varhead_fam)   # sensor modes: the trainer needs --sensor_config and --ds 1
+case "$MODE" in uncond|uncond_tt|cond_fam|regress_fam|varhead_fam)   # sensor modes: the trainer needs --sensor_config and --ds 1
   if [[ -z "$SCFG" ]]; then
     echo "$MODE needs --sensor_config <path> in the extra args; not launching"; exit 1
   fi

@@ -154,6 +154,15 @@ def test_refuses_wrong_mode_checkpoint(tmp_path):
         SE.check_models(fake_args(methods=['C'], cond=p), CFG, torch.device('cpu'))
 
 
+def test_B_accepts_an_uncond_tt_checkpoint(tmp_path):
+    p = save_ckpt(tmp_path / 'utt.pth', 'uncond_tt')
+    models, prov = SE.check_models(fake_args(methods=['B'], uncond=p), CFG, torch.device('cpu'))
+    assert set(models) == {'B'} and prov['uncond']['mode'] == 'uncond_tt' and models['B'].net.time_tokens_when_no_context
+    p2 = save_ckpt(tmp_path / 'cf.pth', 'cond_fam')
+    with pytest.raises(ValueError, match='cf.pth.*uncond'):                 # other modes are still refused for B
+        SE.check_models(fake_args(methods=['B'], uncond=p2), CFG, torch.device('cpu'))
+
+
 def test_refuses_overwrite(tmp_path, monkeypatch):
     p = str(tmp_path / 'eval' / 'x.json')
     SE.write_record(p, dict(a=1))

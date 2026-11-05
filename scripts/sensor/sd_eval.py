@@ -40,6 +40,7 @@ METHODS = ('L', 'L_demosaic', 'D', 'V', 'C', 'C1', 'B')
 EVAL_DIR = os.path.join(SENSOR_DIR, 'eval')
 CKPT_FLAG = {'D': 'regress', 'V': 'varhead', 'C': 'cond', 'C1': 'cond', 'B': 'uncond'}
 FLAG_MODE = {'regress': 'regress_fam', 'varhead': 'varhead_fam', 'cond': 'cond_fam', 'uncond': 'uncond'}
+FLAG_ALLOWED_MODES = {**{f: (m,) for f, m in FLAG_MODE.items()}, 'uncond': ('uncond', 'uncond_tt')}   # B: either prior
 SAMPLED_FLAGS = ('cond', 'uncond')              # sampled with v-prediction on N_TIMESTEPS steps
 N_TIMESTEPS = 1000
 C_CLAMP = (-8.0, 8.0)                           # the standardised residual's x0 estimate in C's sampler
@@ -79,8 +80,9 @@ def check_models(args, cfg, device):
         ck = torch.load(path, map_location='cpu', weights_only=False)
         meta = (ck.get('meta') if isinstance(ck, dict) else None) or {}
         bad = []
-        if meta.get('mode') != FLAG_MODE[flag]:
-            bad.append(f"mode: checkpoint {meta.get('mode', '<missing>')!r} vs required {FLAG_MODE[flag]!r}")
+        if meta.get('mode') not in FLAG_ALLOWED_MODES[flag]:
+            want = ' or '.join(repr(m) for m in FLAG_ALLOWED_MODES[flag])
+            bad.append(f"mode: checkpoint {meta.get('mode', '<missing>')!r} vs required {want}")
         if meta.get('sensor_config_sha') != sha:
             bad.append(f"sensor_config_sha: checkpoint {meta.get('sensor_config_sha', '<missing>')!r} vs config {sha!r}")
         if flag in SAMPLED_FLAGS and meta.get('prediction_type', 'v') != 'v':

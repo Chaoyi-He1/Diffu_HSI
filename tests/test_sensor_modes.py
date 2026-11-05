@@ -40,3 +40,29 @@ def test_batch_to_cond_both_batch_kinds():
     b = dict(x=torch.zeros(1, 4, 2, 2), y=torch.zeros(1, 3, 2, 2), x0_hat=torch.zeros(1, 4, 2, 2), s_post=torch.full((1, 4, 2, 2), 0.1), s_raw=torch.zeros(1, 4, 2, 2), mask=torch.ones(1, 3, 2, 2), sigma=torch.zeros(1), snr_db=torch.zeros(1), snapshot=torch.zeros(1))
     x, cond, scale = RW.batch_to_cond('cond_fam', b, 0.02, torch.device('cpu')); assert cond['sensor'] is None and torch.equal(scale, b['s_post'])
     x, cond, scale = RW.batch_to_cond('uncond', b, 0.02, torch.device('cpu')); assert cond == {'sensor': None} and scale is None
+
+def test_uncond_tt_uses_time_tokens():
+    # fresh (zero-initialised) FiLM: t can reach the net only through the cross-attention time tokens
+    x = torch.randn(2, 8, 16, 16)
+    torch.manual_seed(0); tt = U2NetHyperspectral(spectral_channels=8, sensor_channels=5, base_channels=16, time_tokens_when_no_context=True)
+    torch.manual_seed(0); plain = U2NetHyperspectral(spectral_channels=8, sensor_channels=5, base_channels=16)
+    assert tt.time_tokens_when_no_context and not plain.time_tokens_when_no_context
+    assert tt.state_dict().keys() == plain.state_dict().keys()
+    assert all(torch.equal(v, plain.state_dict()[k]) for k, v in tt.state_dict().items())     # the flag adds no parameters
+    t10, t900 = torch.tensor([10, 10]), torch.tensor([900, 900])
+    with torch.no_grad():
+        assert not torch.allclose(tt(x, None, t10), tt(x, None, t900))
+        assert torch.equal(plain(x, None, t10), plain(x, None, t900))
+    m = RW.build_residual_model('uncond_tt', 16, 8, 5)
+    u = RW.build_residual_model('uncond', 16, 8, 5)
+    assert m.net.input_proj.in_channels == 8 and not m.use_x0_hat and not m.use_s_post and not m.use_context
+    assert m.net.time_tokens_when_no_context and not u.net.time_tokens_when_no_context
+    assert m.state_dict().keys() == u.state_dict().keys()
+    m.load_state_dict(u.state_dict(), strict=True)
+    assert m(x, {'sensor': None}, t10).shape == (2, 8, 16, 16)
+    assert 'uncond_tt' in RW.MODES and RW.MODES[-1] == 'uncond_tt' and 'uncond_tt' in RW.SENSOR_MODES
+    assert 'uncond_tt' not in RW.CENTRED_MODES and 'uncond_tt' not in RW.ONE_CALL_MODES
+    assert torch.equal(RW.target_for('uncond_tt', x, None, None), x)
+    b = dict(x=torch.zeros(1, 4, 2, 2), y=torch.zeros(1, 3, 2, 2), x0_hat=torch.zeros(1, 4, 2, 2), s_post=torch.full((1, 4, 2, 2), 0.1))
+    xb, cond, scale = RW.batch_to_cond('uncond_tt', b, 0.02, torch.device('cpu'))
+    assert cond == {'sensor': None} and scale is None and torch.equal(xb, b['x'])

@@ -306,6 +306,7 @@ class U2NetHyperspectral(nn.Module):
         spatial_kernel=3,
         channel_num_filters=4,
         extra_in_channels=0,
+        time_tokens_when_no_context=False,
     ):
         """
         Args:
@@ -316,8 +317,13 @@ class U2NetHyperspectral(nn.Module):
             extra_in_channels (int): Extra channels concatenated to x_t at the input (e.g. a
                 warm-start estimate x0_hat). The output keeps spectral_channels. Default 0 keeps
                 the original architecture and checkpoint compatibility.
+            time_tokens_when_no_context (bool): When forward() gets context=None, use the time embedding broadcast
+                to every position as the cross-attention context tokens (t then reaches every block through
+                cross-attention, as in the legacy context path, not only through the zero-initialised FiLM layers).
+                Adds no parameters. Default False: context=None means self-attention only (no context tokens).
         """
         super(U2NetHyperspectral, self).__init__()
+        self.time_tokens_when_no_context = bool(time_tokens_when_no_context)
         
         self.spectral_channels = spectral_channels
         self.sensor_channels = sensor_channels
@@ -443,6 +449,8 @@ class U2NetHyperspectral(nn.Module):
         # Helper function to create context at different resolutions
         def create_context_for_resolution(h, w):
             if context_encoded is None:
+                if self.time_tokens_when_no_context:      # time tokens only: [B, h*w, Base_C*8]
+                    return t_emb[:, None, :].expand(-1, h * w, -1)
                 return None
             # Downsample context to target resolution
             context_down = F.interpolate(context_encoded, size=(h, w), 

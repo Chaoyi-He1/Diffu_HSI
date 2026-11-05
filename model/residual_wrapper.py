@@ -38,7 +38,7 @@ class ResidualWrapper(nn.Module):
 
 
 MODES = ('residual', 'standard', 'standard_xhat', 'regress', 'residual_reg', 'varhead',
-         'uncond', 'cond_fam', 'regress_fam', 'varhead_fam')
+         'uncond', 'cond_fam', 'regress_fam', 'varhead_fam', 'uncond_tt')
 # residual      (B):  input [x_t, x0_hat], target (x - x0_hat) / sigma_d
 # standard      (A):  input  x_t,          target  x
 # standard_xhat (A'): input [x_t, x0_hat], target  x   -- B's inputs with A's target: controls for the spatially
@@ -54,9 +54,11 @@ MODES = ('residual', 'standard', 'standard_xhat', 'regress', 'residual_reg', 'va
 #                     s the posterior-std map (the sufficient-statistic conditioning), sampled like B
 # regress_fam   (RF, Phase 3): input [0, x̂, s] at t = REGRESS_T, no context, target (x - x̂) / s in ONE deterministic call
 # varhead_fam   (VF, Phase 3): input [x̂, x̂, s] at t = REGRESS_T, no context, output log sigma^2 of (x - x̂) / s, Gaussian NLL
+# uncond_tt     (UT, Phase 3 B pilot): uncond with time tokens: no sensor context, but the time embedding is the
+#                     cross-attention context of every block (as in the legacy models), not FiLM alone; target x
 XR_MODES = ('residual_reg', 'varhead')                                  # the x0_hat slot holds x_r, ds.sigma_d is sigma_r
 FAM_MODES = ('cond_fam', 'regress_fam', 'varhead_fam')                  # the x0_hat slot holds x̂, the s_post slot s
-SENSOR_MODES = ('uncond',) + FAM_MODES                                  # no cross-attention context; dict batches
+SENSOR_MODES = ('uncond', 'uncond_tt') + FAM_MODES                     # no sensor context (uncond_tt: time tokens); dict batches
 CENTRED_MODES = ('residual', 'regress', 'residual_reg', 'varhead') + FAM_MODES   # target (x - centre) / sigma
 ONE_CALL_MODES = ('regress', 'varhead', 'regress_fam', 'varhead_fam')   # one deterministic call at t = REGRESS_T
 
@@ -74,7 +76,8 @@ def build_residual_model(mode, base_channels, spectral_channels=64, sensor_chann
     use_context = mode not in SENSOR_MODES
     extra = spectral_channels * (int(use_x0_hat) + int(use_s_post))
     net = U2NetHyperspectral(spectral_channels=spectral_channels, sensor_channels=sensor_channels,
-                             base_channels=base_channels, extra_in_channels=extra)
+                             base_channels=base_channels, extra_in_channels=extra,
+                             time_tokens_when_no_context=(mode == 'uncond_tt'))
     return ResidualWrapper(net, use_x0_hat=use_x0_hat, use_s_post=use_s_post, use_context=use_context)
 
 
@@ -88,13 +91,13 @@ def target_for(mode, x, x0_hat, scale):
 
 def batch_to_cond(mode, batch, sigma_d, device):
     """One loader batch -> (x, cond, scale) on `device`: a legacy tuple (x, y_d, xh) for the six legacy modes (scale is
-    the scalar sigma_d), a dict batch (data_loader.hfd_sensor_sim) for SENSOR_MODES (scale is s_post, None for uncond)."""
+    the scalar sigma_d), a dict batch (data_loader.hfd_sensor_sim) for SENSOR_MODES (scale is s_post, None for uncond / uncond_tt)."""
     def mv(v):
         return v.to(device, non_blocking=True)
     if isinstance(batch, dict):
         if mode not in SENSOR_MODES:
             raise ValueError(f'dict (sensor) batches need a mode in {SENSOR_MODES}, got {mode!r}')
-        if mode == 'uncond':
+        if mode in ('uncond', 'uncond_tt'):
             return mv(batch['x']), {'sensor': None}, None
         s_post = mv(batch['s_post'])
         return mv(batch['x']), {'sensor': None, 'x0_hat': mv(batch['x0_hat']), 's_post': s_post}, s_post
