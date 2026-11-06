@@ -118,5 +118,59 @@ Records `e3_device1_snapshot_<snr>_{main,C}.json` (200 gate cubes).
 ## B's retrained prior (x₀-prediction) — `uncond_x0_b64`
 Launched 2026-11-05 14:35 on GPU 1; DONE = 100 at 22:40 (8.07 h, 288 s/epoch, 0 skipped); monitoring loss (x₀-L1, min-SNR γ = 5) 0.0827 → 0.0397, plateau over epochs 85–100 → the pre-registered epoch-100 checkpoint. Probe on the 16 cubes at 60 dB: **x̂₀ error 2.3 / 2.3 / 2.5 / 2.6 / 2.8 / 3.2 / 3.8 / 4.6 / 7.9 / 15.3 % at t = 25 / 50 / 100 / 150 / 200 / 299 / 400 / 500 / 700 / 900** (epoch 50: 2.6 … 15.9) — monotone and below the mean-cube predictor (17.2 %) at every t; unguided DDIM-50 samples 25.0 % RMSE to the truth (≈ a random plausible cube) with 0.0 % of elements saturated. B's records are taken with this prior (ΠGDM, 50 steps, K = 32, 50-cube subset); the v-prediction prior's two records are archived under `sensor/eval/vpred_prior/`.
 
-## Verdict so far (report-only, B records in progress)
-Line C passes 1 of the pre-registered clauses (T2 at 30 dB), fails T1 at every SNR, T2 at 20 dB on coverage only, T3 and T4. Line B: pending. Sanity: every method monotone in SNR; D, V, C, C1 at or below the MMSE floor reference on device1 at 60 dB.
+## B with the x₀-prediction prior — E1, E2, E3 (records `*_B.json`, 50-cube subset, K = 32, ΠGDM 50 steps; every other line re-averaged on the SAME 50 cubes)
+
+E1, device1 sequential:
+
+| SNR | L: RMSE / CRPS | D: RMSE | V: CRPS / cov90 | C: mean-of-32 / CRPS / cov90 | B: mean-of-32 / single | B: CRPS / cov50 / cov90 / AUSE |
+|---|---|---|---|---|---|---|
+| 60 | 1.074 / 0.576 | 1.055 | 0.570 / 0.896 | 1.079 / 0.571 / 0.925 | **2.391** / 3.236 | **1.371** / 0.238 / 0.487 / 0.428 |
+| 50 | 1.526 / 0.825 | 1.354 | 0.817 / 0.891 | 1.402 / 0.750 / 0.927 | **2.279** / 2.775 | **1.358** / 0.216 / 0.451 / 0.447 |
+| 40 | 2.604 / 1.394 | 1.815 | 1.373 / 0.893 | 1.928 / 1.050 / 0.945 | **2.257** / 2.632 | **1.428** / 0.152 / 0.360 / 0.450 |
+| 30 | 4.109 / 2.242 | 2.435 | 2.173 / 0.903 | 3.211 / 1.743 / 0.944 | **2.348** / 2.474 | **1.538** / 0.116 / 0.288 / 0.415 |
+| 20 | 6.314 / 3.495 | 3.080 | 3.420 / 0.894 | 4.778 / 2.618 / 0.957 | **2.878** / 2.994 | **1.819** / 0.145 / 0.365 / 0.361 |
+
+E2, zero-shot transfer to device2 (every learned line trained on device1; B needs no training for any device):
+
+| setting | L: RMSE / CRPS | D: RMSE | C: mean-of-32 / CRPS | B: mean-of-32 / single | B: CRPS / cov50 / cov90 |
+|---|---|---|---|---|---|
+| device2 40 | 3.141 / 1.729 | 3.013 | 3.121 / 1.703 | **2.328** / 2.540 | 1.486 / 0.124 / 0.319 |
+| device2 30 | 5.000 / 2.720 | 3.992 | 4.749 / 2.575 | **2.532** / 2.643 | 1.628 / 0.114 / 0.283 |
+| device2 20 | 7.386 / 4.131 | 6.530 | 8.170 / 4.605 | **2.904** / 3.092 | 1.762 / 0.164 / 0.408 |
+
+E3, device1 snapshot (L = demosaic-then-MMSE):
+
+| SNR | L_demosaic: RMSE / CRPS | D: RMSE | C: mean-of-32 / CRPS | B: mean-of-32 / single | B: CRPS / cov50 / cov90 |
+|---|---|---|---|---|---|
+| 60 | 5.562 / 2.838 | 2.670 | 6.405 / 3.776 | 5.918 / 6.557 | 3.569 / 0.244 / 0.570 |
+| 40 | 5.600 / 2.870 | 2.683 | 6.443 / 3.793 | 5.959 / 6.573 | 3.590 / 0.246 / 0.575 |
+| 30 | 5.812 / 3.031 | 2.881 | 6.722 / 3.926 | 6.109 / 6.851 | 3.667 / 0.252 / 0.578 |
+| 20 | 6.788 / 3.681 | 3.938 | 7.599 / 4.374 | 6.446 / 7.342 | 3.793 / 0.276 / 0.629 |
+
+Readings. (i) **B's error is almost independent of the SNR** (2.39 → 2.88 % from 60 to 20 dB on device1) because the prior, not the measurement, sets its floor: at the sharp-likelihood end it is 2.2 × worse than the MMSE and the regressor, from 40 dB down it overtakes the MMSE, and **at 30 and 20 dB it is the best point estimate of all** (0.96 and 0.93 × the regressor; 0.57 and 0.46 × the MMSE). (ii) **B transfers zero-shot**: on device2 at 30 dB it reaches 2.53 % where the MMSE has 5.00, the regressor 3.99 and C 4.83; its RMSE ratio to L is 0.506 on device2 against 0.571 on device1 (limit 1.10 × → T3 PASS), while C's ratio worsens from 0.783 to 0.944 (T3 FAIL). (iii) **B is badly under-dispersed**: cov50 0.11–0.28 and cov90 0.28–0.63 against 0.50 / 0.90 nominal; its CRPS is nevertheless the lowest of every method at 30 and 20 dB (1.54 / 1.82 against V's 2.17 / 3.42 and C's 1.74 / 2.62), because CRPS rewards the accurate mean more than it punishes the narrow spread — the cov90 clause of T2 fails by a wide margin. (iv) In snapshot mode B sits at the demosaic-then-MMSE level (ratio 1.05–1.06 at 60–30 dB, 0.95 at 20 dB), far behind the regressor's 2.7–3.9 %: a measurement operator that keeps one channel per pixel gives the guidance little to work with and the prior alone cannot demosaic. (v) Single B samples are close to their mean (3.2 → 3.0 % against means 2.4 → 2.9), consistent with the over-confidence, and smooth (log HF −1.0 to −1.5).
+
+## The pre-registered verdict (`sd_verdict.py --manifest manifest__e123.json`, 2026-11-06 09:00; `sensor/verdict__e123.json`), printed verbatim
+
+```
+T1 B 60 dB: FAIL  ratio 2.2666 (2se 2.4597, limit 1.05)
+T1 B 50 dB: FAIL  ratio 1.6828 (2se 1.8179, limit 1.05)
+T1 B 40 dB: FAIL  ratio 1.2436 (2se 1.3347, limit 1.05)
+T1 B 30 dB: PASS  ratio 0.9644 (2se 1.0221, limit 1.05)
+T1 B 20 dB: PASS  ratio 0.9345 (2se 0.9863, limit 1.05)
+T2 B 30 dB: FAIL  crps-L -0.7031  crps-V -0.6345  cov90 0.288
+T2 B 20 dB: FAIL  crps-L -1.6762  crps-V -1.6006  cov90 0.365
+T3 B: PASS  dev2 0.5063 vs 1.1 x dev1 0.5714
+T4 B: FAIL  ratio 1.0512 (2se 1.1900, limit 0.85)
+T1 C 60 dB: FAIL  ratio 1.0523 (2se 1.0816, limit 1.05)
+T1 C 50 dB: FAIL  ratio 1.0522 (2se 1.0812, limit 1.05)
+T1 C 40 dB: FAIL  ratio 1.0619 (2se 1.1020, limit 1.05)
+T1 C 30 dB: FAIL  ratio 1.2886 (2se 1.3798, limit 1.05)
+T1 C 20 dB: FAIL  ratio 1.4961 (2se 1.5977, limit 1.05)
+T2 C 30 dB: PASS  crps-L -0.5025  crps-V -0.4369  cov90 0.942
+T2 C 20 dB: FAIL  crps-L -0.9113  crps-V -0.8447  cov90 0.956
+T3 C: FAIL  dev2 0.9438 vs 1.1 x dev1 0.7832
+T4 C: FAIL  ratio 1.1724 (2se 1.2111, limit 0.85)
+passes {'B': 1, 'C': 1} | main line: B
+```
+
+**Outcome against the spec's predictions (§6.3).** T1: neither line is within 5 % of the regressor at every SNR (predicted: C at every SNR, B at ≤ 30 dB — B does pass at 30 and 20 dB, C nowhere). T2: C passes at 30 dB and misses at 20 dB on cov90 alone (predicted: both beat L at 20 dB — true for CRPS; V was predicted the hardest baseline — C beats it anyway); B's CRPS beats both baselines at both SNRs but its coverage is far from nominal (predicted calibration for B did not materialise: the x₀-prediction prior with ΠGDM is over-confident). T3: B passes, C fails (predicted: B passes; C's failure "is itself a paper result"). T4: both fail (predicted: both pass) — the regressor is the only method that demosaics. **Main line by the pre-registered rule: B** (one pass each → the tie-break is the lower paired CRPS against V at 20 dB: B −1.60 vs C −0.84). The rule was written to favour the better uncertainty model and B wins it through the accuracy of its mean, not through calibration; both lines are reported in full, as the spec requires, and the paper should present them as complementary: B for zero-shot accuracy at low SNR and across sensors, C for calibrated marginals on the sensor it was trained with, the regressor for accuracy at high SNR and in snapshot mode. Sanity: every method monotone in SNR; D, V, C, C1 at or below the MMSE floor at 60 dB; B above it (2.39 vs 1.105 — the prior's floor).
