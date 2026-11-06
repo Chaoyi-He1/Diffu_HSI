@@ -43,6 +43,7 @@ EXPERIMENTS = [
     ('E2', 'device2', 'sequential', [40, 30, 20], 'e2_device2_sequential_{snr}'),
     ('E2', 'ph5', 'sequential', [40, 30, 20], 'e2_ph5_sequential_{snr}'),
     ('E3', 'device1', 'snapshot', [60, 40, 30, 20], 'e3_device1_snapshot_{snr}'),
+    ('E4', 'device2', 'snapshot', [30], 'e4_device2_snapshot_{snr}'),   # report-only (spec §6.1)
 ]
 B_DROPPED = {'ph5'}
 RMSE_KEY = {'L': 'mean_rmse_pct', 'L_demosaic': 'mean_rmse_pct', 'V': 'mean_rmse_pct', 'C': 'mean_rmse_pct',
@@ -69,6 +70,10 @@ B_PRIOR_PROBE = {
     'mean_cube': 17.15,
     'saturation_pct': {'vpred': 29.7, 'x0': 0.0},
 }
+
+# Phase 0's noise-free MMSE reference (legacy axis, s = 3e-7 regulariser, no noise): quoted once on the page as the
+# number the 60 dB noise floor replaces (spec §4.3 / §6.3; not directly comparable).
+LEGACY_NOISE_FREE_RMSE_PCT = 0.266
 
 RUN_TABLE = [  # run, role, pre-registered selection, failed?
     ('uncond_x0_b64', 'B prior (x₀-prediction)', 100, False),
@@ -247,7 +252,9 @@ def toy_block():
         if os.path.exists(p):
             t = load(p)
             rows = [{k: (rd(v) if isinstance(v, float) else v) for k, v in r.items() if k != 'seconds'} for r in t['results']]
-            return dict(path=os.path.relpath(p, REPO) if p.startswith(REPO) else p, rows=rows, gate=t['gate'],
+            rel = os.path.relpath(p, REPO) if p.startswith(REPO + os.sep) else os.path.join(
+                'results', 'residual_warmstart', os.path.relpath(p, RESULTS_ROOT))
+            return dict(path=rel, rows=rows, gate=t['gate'],
                         steps_for_B=t['steps_for_B'], verdict=t['verdict'])
     return None
 
@@ -414,6 +421,43 @@ def facts_block(S, stage0, verdict, sensor):
     f['e3_V_cov50_30'] = e3[30]['V']['cov50']
     f['e3_Lexact_min'] = min(m['L']['mean_rmse_pct'] for m in e3.values())
     f['e3_Lexact_max'] = max(m['L']['mean_rmse_pct'] for m in e3.values())
+    # noise floor and the legacy noise-free reference
+    f['legacy_noise_free'] = LEGACY_NOISE_FREE_RMSE_PCT
+    f['floor_over_legacy'] = rd(f['L_floor'] / LEGACY_NOISE_FREE_RMSE_PCT, 4)
+    # best point estimate per E1 SNR on B's common cubes (B and the others on the same files)
+    best = {}
+    for snr in (60, 50, 40, 30, 20):
+        s = S[f'device1_sequential_{snr}']
+        if s['B']['status'] != 'final':
+            continue
+        sub = s['B']['on_subset']
+        cand = {'L': sub['L']['mean_rmse_pct'], 'D': sub['D']['rmse_pct'], 'C': sub['C']['mean_rmse_pct'],
+                'C1': sub['C1']['rmse_pct'], 'B': s['B']['means']['mean_rmse_pct']}
+        best[str(snr)] = min(cand, key=cand.get)
+    f['e1_best_common'] = best
+    f['B_e1_rmse'] = {str(snr): S[f'device1_sequential_{snr}']['B']['means']['mean_rmse_pct']
+                      for snr in (60, 50, 40, 30, 20) if S[f'device1_sequential_{snr}']['B']['status'] == 'final'}
+    # B on device2: best point estimate on the common cubes at every SNR?
+    d2 = []
+    for snr in (40, 30, 20):
+        s = S[f'device2_sequential_{snr}']
+        if s['B']['status'] == 'final':
+            sub = s['B']['on_subset']
+            others = min(sub['L']['mean_rmse_pct'], sub['D']['rmse_pct'], sub['C']['mean_rmse_pct'], sub['C1']['rmse_pct'])
+            d2.append(s['B']['means']['mean_rmse_pct'] < others)
+    f['B_best_dev2_all'] = bool(d2) and all(d2)
+    f['B_dev2_n'] = len(d2)
+    # E4 (device2 snapshot 30 dB, report-only)
+    e4 = S.get('device2_snapshot_30')
+    if e4 and e4['methods']:
+        m = e4['methods']
+        f['e4_Ldem'] = m['L_demosaic']['mean_rmse_pct']
+        f['e4_Lexact'] = m['L']['mean_rmse_pct']
+        f['e4_D'] = m['D']['rmse_pct']
+        f['e4_C'] = m['C']['mean_rmse_pct']
+        f['e4_C1'] = m['C1']['rmse_pct']
+        f['e4_D_over_dem'] = rd(m['D']['rmse_pct'] / m['L_demosaic']['mean_rmse_pct'], 4)
+        f['e4_C_over_dem'] = rd(m['C']['mean_rmse_pct'] / m['L_demosaic']['mean_rmse_pct'], 4)
     return f
 
 

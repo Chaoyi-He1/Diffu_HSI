@@ -4,42 +4,49 @@
 @media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--s4:#a585ee;--s4-bg:#2a2140}}
 :root[data-theme="dark"]{--s4:#a585ee;--s4-bg:#2a2140}
 svg .box-s4{fill:var(--s4-bg);stroke:var(--s4)}
-.status{font-size:14px;color:var(--ink-2);background:var(--panel);border:1px solid var(--rule);border-radius:10px;padding:10px 14px;margin:14px 0 4px}
-.status b{color:var(--ink)}
+.status{font-size:14px;color:var(--ink-2);background:var(--warn-bg);border:1px solid var(--rule);border-radius:10px;padding:10px 14px;margin:14px 0 4px}
+.status:empty{display:none}
 .marks{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:13px;color:var(--ink-2);margin:8px 0 0}
 .marks span{white-space:nowrap}
+.outcome{background:var(--panel);border:1px solid var(--rule);border-left:4px solid var(--s4);border-radius:0 12px 12px 0;padding:14px 18px;margin:18px 0 6px}
+.outcome .lbl{font-family:var(--mono);font-size:12.5px;font-weight:700;letter-spacing:.04em;color:var(--s4);display:block;margin-bottom:4px}
+.outcome p{margin:6px 0;font-size:15.5px}
+.outcome ul{margin:6px 0 2px;padding-left:1.2em;font-size:15px}
+.outcome li{margin:3px 0}
+.hint{font-size:12px;color:var(--muted);margin:2px 0 0;text-align:right}
 </style>
 <main>
 <header>
-  <div class="eyebrow">Diffu_HSI · sensor degradation · Phase 3 · data as of <span data-v="generated"></span></div>
+  <div class="eyebrow">Diffu_HSI · sensor degradation · Phase 3 · records as of <span data-v="generated"></span></div>
   <h1>Phase 3 — Reconstruction from a poor EC sensor</h1>
-  <p class="lede">The paper's claim is that a diffusion model is the most suitable way to recover the spectrum seen by a poor electrochromic (EC) sensor: 30 voltage states with broad, overlapping responses, of which only about <span data-v="facts.d1_informative:0"></span> carry independent information about the 31 bands. Phase 3 tests that claim where the sensor's poorness matters. <b>E1</b> adds measurement noise to Device 1 in sequential mode and sweeps the SNR from the 60 dB floor down to 20 dB. <b>E2</b> applies models trained on Device 1, without retraining, to Device 2 and to PH5. <b>E3</b> runs Device 1 in snapshot (mosaic) mode, where each pixel measures one state. Two diffusion lines compete against the noise-aware linear MMSE (L), a one-call regressor (D) and a variance head (V): <b>B</b>, an unconditional spectral–spatial prior guided by the measurement (ΠGDM), and <b>C</b>, a conditional residual diffusion around the MMSE estimate, trained over the whole noise and mode family.</p>
-  <p class="lede" style="margin-top:10px">The test was fixed in advance. The user approved the spec on 4 November 2026, and the thresholds of clauses T1–T4 were written into <code>scripts/sensor/sd_verdict.py</code> before any record existed. Every number on this page is read from the evaluation records at build time.</p>
+  <p class="lede">The paper claims that a diffusion model is the most suitable way to recover the spectrum seen by a poor electrochromic (EC) sensor: 30 voltage states with broad, overlapping responses, of which only about <span data-v="facts.d1_informative:0"></span>–13 carry independent information about the 31 bands. Phase 3 tests that claim where the sensor's poorness matters. <b>E1</b> adds measurement noise to Device 1 in sequential mode and sweeps the SNR from the 60 dB noise floor down to 20 dB. <b>E2</b> applies models trained on Device 1, without retraining, to Device 2 and to PH5. <b>E3</b> runs Device 1 in snapshot (mosaic) mode, where each pixel measures one state; <b>E4</b> (report-only) does the same on Device 2 at 30 dB. Two diffusion lines compete against the noise-aware linear MMSE (L), a one-call regressor (D) and a variance head (V). <b>B</b> is an unconditional spectral–spatial prior guided by the measurement (ΠGDM). <b>C</b> is a conditional residual diffusion around the MMSE estimate, trained over the whole noise and mode family.</p>
+  <p class="lede" style="margin-top:10px">The test was fixed in advance. The user approved the spec on 4 November 2026, and the thresholds of clauses T1–T4 were written into <code>scripts/sensor/sd_verdict.py</code> before any record existed. One amendment came later: B's prior was retrained with x₀-prediction after the first prior failed (section 6). Every number on this page is read from the evaluation records and the verdict file at build time.</p>
   <div class="status" data-slot="status"></div>
+  <div class="outcome"><span class="lbl">OUTCOME</span><div data-slot="outcome"></div></div>
   <div class="kv">
-    <div><small>MMSE at the 60 dB floor (sanity reference)</small><b class="hi"><span data-v="facts.L_floor:3"></span> %</b><small>Device 1, sequential, 200 cubes</small></div>
+    <div><small>MMSE at the 60 dB noise floor (sanity reference)</small><b class="hi"><span data-v="facts.L_floor:3"></span> %</b><small>Device 1, sequential, 200 cubes</small></div>
     <div><small>regressor D at 20 dB</small><b class="hi"><span data-v="facts.D_20:2"></span> %</b><small>MMSE <span data-v="facts.L_20:2"></span> %: <span data-v="facts.D_below_L_20:0"></span> % lower</small></div>
-    <div><small>C's CRPS at 20 dB vs the MMSE posterior</small><b class="hi">−<span data-v="facts.C_crps_below_L_20:0"></span> %</b><small>and −<span data-v="facts.C_crps_below_V_20:0"></span> % vs the variance head</small></div>
-    <div><small>line C, clauses passed</small><b class="hi" data-slot="countC"></b><small>pre-registered T1–T4</small></div>
-    <div><small>line B, the guided prior</small><b class="hi" data-slot="countB"></b><small data-slot="countBsub"></small></div>
+    <div><small>B's mean-of-32 at 20 dB vs D (same 50 cubes)</small><b class="hi" data-slot="kpiB"></b><small data-slot="kpiBsub"></small></div>
+    <div><small>C's CRPS at 30 dB vs the MMSE posterior</small><b class="hi">−<span data-v="facts.C_crps_below_L_30:0"></span> %</b><small>−<span data-v="facts.C_crps_below_V_30:0"></span> % vs V; cov90 <span data-v="settings.device1_sequential_30.methods.C.cov90:3"></span> (T2 passed)</small></div>
+    <div><small>clauses passed (of 5), main line</small><b class="hi" data-slot="countBC"></b><small data-slot="countsub"></small></div>
   </div>
   <figure>
     <div class="scroll" data-fig="pipeline" data-aria="The scene is measured by the sensor response R in sequential or snapshot mode with Gaussian noise. The closed-form MMSE turns the measurement into an estimate and a posterior standard deviation; the regressor D, the variance head V and the conditional diffusion C take those two maps as input. The guided prior B uses the measurement and the forward operator directly."></div>
-    <figcaption>What was compared. L, D, V and C share one interface: the forward model reaches the networks only through the MMSE estimate $\hat x$ and its posterior standard deviation $s$, which have the same meaning for every sensor, noise level and mode. That is what makes zero-shot transfer possible in principle. B never sees $\hat x$: it combines a prior trained on spectra alone with the exact operator $H$ and the known noise level at sampling time. D, V and C were trained on Device 1 only, over SNRs drawn from 20 to 50 dB plus the 60 dB floor, half in sequential and half in snapshot mode.</figcaption>
+    <figcaption>What was compared. L, D, V and C share one interface: the forward model reaches the networks only through the MMSE estimate $\hat x$ and its posterior standard deviation $s$. These two maps mean the same thing for every sensor, noise level and mode, which is what makes zero-shot transfer possible in principle. B never sees $\hat x$. It combines a prior trained on spectra alone with the exact operator $H$ and the known noise level at sampling time. D, V and C were trained on Device 1 only, over SNRs drawn from 20 to 50 dB plus the 60 dB floor, half in sequential and half in snapshot mode.</figcaption>
   </figure>
   <nav class="toc" aria-label="Contents">
-    <a href="#s1"><b>1</b>The sensor</a><a href="#s2"><b>2</b>Error vs SNR</a><a href="#s3"><b>3</b>Calibration</a><a href="#s4"><b>4</b>Transfer</a><a href="#s5"><b>5</b>Snapshot</a><a href="#s6"><b>6</b>Line B</a><a href="#s7"><b>7</b>Clauses</a><a href="#s8"><b>8</b>Runs</a><a href="#s9"><b>9</b>Rulings</a>
+    <a href="#s1"><b>1</b>The sensor</a><a href="#s2"><b>2</b>Error vs SNR</a><a href="#s3"><b>3</b>Uncertainty</a><a href="#s4"><b>4</b>Transfer</a><a href="#s5"><b>5</b>Snapshot</a><a href="#s6"><b>6</b>Line B</a><a href="#s7"><b>7</b>Clauses</a><a href="#s8"><b>8</b>Runs</a><a href="#s9"><b>9</b>Rulings</a>
   </nav>
   <div class="gloss">
     <h3>Terms used below</h3>
-    <div><b>L</b>the noise-aware linear MMSE with its Gaussian posterior: closed form, no training; the classical point and probabilistic baseline</div>
+    <div><b>L</b>the noise-aware linear MMSE with its Gaussian posterior: closed form, no training; the classical point and probabilistic baseline. In snapshot mode “L exact” is the one-channel per-pixel posterior and “L demosaic” is demosaic-then-MMSE</div>
     <div><b>D / V</b>the one-call regressor and the heteroscedastic variance head, trained over the same family as C (selected epochs <span data-v="runs.2.selected:0"></span> and <span data-v="runs.3.selected:0"></span>)</div>
     <div><b>C</b>the family-conditioned residual diffusion around $\hat x$, residual whitened by $s$; 32 DDIM-10 samples per cube. C1 is the same network called once</div>
     <div><b>B</b>an unconditional prior on 64-band cubes plus ΠGDM guidance with the exact operator, 50 steps, 32 samples, on the 50-cube subset</div>
-    <div><b>RMSE</b>per cube in % of the [0, 1] range, averaged over cubes; for samplers it is the error of the mean of 32 samples (“mean-of-32”) unless “single” is stated</div>
-    <div><b>CRPS, cov50 / cov90, AUSE</b>continuous ranked probability score in % of range (lower is better), share of elements inside the central 50 % / 90 % interval, and the area between the sparsification curve and the oracle's; a calibrated model covers 0.50 / 0.90; AUSE 0 means the spread ranks the errors perfectly</div>
-    <div><b>SNR</b>in dB against one global signal power $P_y$ = <span data-v="config.P_y:3"></span> (Device 1, sequential), so a given SNR means the same detector noise for every device and mode; 60 dB is the noise-free end</div>
-    <div><b>± values</b>standard errors over cubes, clustered by source image (113 images for the 200 gate cubes, 45 for B's 50); B's comparisons are paired on the files the two records share</div>
+    <div><b>RMSE</b>per cube in % of the [0, 1] range, averaged over cubes. For B and C it is the error of the mean of the 32 samples (“mean-of-32”, the sampler's posterior-mean estimate) unless “single” is stated</div>
+    <div><b>CRPS, cov50 / cov90, AUSE</b>continuous ranked probability score in % of range (lower is better); the share of elements inside the central 50 % / 90 % interval (calibrated: 0.50 / 0.90); the area between the sparsification curve and the oracle's (0 = the spread ranks the errors perfectly)</div>
+    <div><b>SNR</b>in dB against one global signal power $P_y$ = <span data-v="config.P_y:3"></span> (Device 1, sequential), so a given SNR means the same detector noise for every device and mode. 60 dB is the noise floor of the sweep ($\sigma^2 = P_y/10^6$), not noise-free: no σ = 0 is used anywhere</div>
+    <div><b>± values</b>standard errors over cubes, clustered by source image (113 images for the 200 gate cubes, 45 for B's 50). B's comparisons are paired on the files the two records share</div>
   </div>
 </header>
 
@@ -56,13 +63,13 @@ svg .box-s4{fill:var(--s4-bg);stroke:var(--s4)}
     <figure>
       <p class="charthead">Singular values of R, relative to the largest (log scale)</p>
       <div class="scroll" data-chart="sensorSV" data-aria="Singular values of the three sensors on a log scale. Most fall below one percent of the largest; PH5 collapses fastest."></div>
-      <figcaption>The dashed line is 1 % of the largest singular value. Values below it carry almost no signal at the SNRs tested here.</figcaption>
+      <figcaption>The dashed line is 1 % of the largest singular value; values below it carry almost no signal at the SNRs tested here. Values below 1e-12 (PH5's rank-<span data-v="facts.ph5_rank:0"></span> null space) are drawn at the axis floor.</figcaption>
     </figure>
   </div>
   <figure>
     <p class="charthead">Stage 0: the MMSE error against SNR for the three sensors (sequential mode, 200 gate cubes)</p>
     <div class="scroll" data-chart="stage0" data-aria="MMSE RMSE against SNR on a log scale for Device 1, Device 2 and PH5, plus Device 1 with the raw response. Error rises steadily as SNR falls; PH5 is far worse at every SNR."></div>
-    <figcaption>At the 60 dB floor the MMSE error on Device 1 is <span data-v="facts.L_floor:3"></span> %, and it grows by about <span data-v="facts.L_growth_per10:2"></span>× per 10 dB. This is the poorness the paper is about, and it is invisible without noise. Device 2 is harder at every SNR (<span data-v="facts.d2_L_floor:2"></span> → <span data-v="facts.d2_L_20:2"></span> %). PH5 reaches only <span data-v="facts.ph5_L_floor:2"></span> % even at the floor. <span data-slot="normcheck"></span></figcaption>
+    <figcaption>At the 60 dB noise floor the MMSE error on Device 1 is <span data-v="facts.L_floor:3"></span> %, <span data-v="facts.floor_over_legacy:1"></span> times the noise-free figure of Phase 0 (<span data-v="facts.legacy_noise_free:3"></span> %, legacy axis, s = 3e-7 regulariser, no noise; not directly comparable). The error then grows by about <span data-v="facts.L_growth_per10:2"></span>× per 10 dB. This is the poorness the paper is about, and without noise it does not show. Device 2 is harder at every SNR (<span data-v="facts.d2_L_floor:2"></span> → <span data-v="facts.d2_L_20:2"></span> %). PH5 reaches only <span data-v="facts.ph5_L_floor:2"></span> % even at the floor. <span data-slot="normcheck"></span></figcaption>
   </figure>
   <div class="remark" data-slot="angles"></div>
 </section>
@@ -70,48 +77,48 @@ svg .box-s4{fill:var(--s4-bg);stroke:var(--s4)}
 <!-- ============================================================ -->
 <section id="s2">
   <h2><span class="no">02</span>Figure (i): error against SNR on Device 1</h2>
-  <p class="lead">The paper's main figure. The regressor is the most accurate method at every SNR, and its lead grows as the noise rises. Clause T1 asked whether the better diffusion line's mean-of-32 RMSE stays within 5 % of the regressor's, by 2 clustered SE.</p>
+  <p class="lead" data-slot="e1lead"></p>
   <figure>
     <p class="charthead">Point error: RMSE of each method's estimate (log scale)</p>
     <div class="legend" data-legend="e1"></div>
-    <div class="scroll" data-chart="e1rmse" data-aria="RMSE against SNR on a log scale for L, D, C, C1 and B. D is lowest at every SNR; C's mean-of-32 lies between D and L."></div>
+    <div class="scroll" data-chart="e1rmse" data-aria="RMSE against SNR on a log scale for L, D, C, C1 and B. D is lowest from 60 to 40 dB. B, on its 50 cubes, is nearly flat with SNR and is lowest at 30 and 20 dB. C's mean-of-32 lies between D and L."></div>
     <div class="marks" data-slot="t1marks"></div>
-    <figcaption>L, D, C and C1 are on the 200 gate cubes, B on its 50-cube subset (the like-for-like numbers are in section 6). T1 markers give the ratio of mean RMSE to D's. <span data-slot="t1text"></span></figcaption>
+    <figcaption>L, D, C and C1 are on the 200 gate cubes, B on its 50-cube subset. The verdict pairs B with D on the files they share; section 6 has the like-for-like numbers. The T1 markers give the ratio of mean RMSE to D's. <span data-slot="t1text"></span></figcaption>
   </figure>
   <figure>
     <p class="charthead">Predictive distribution: CRPS of each probabilistic method (log scale)</p>
     <div class="legend" data-legend="e1c"></div>
-    <div class="scroll" data-chart="e1crps" data-aria="CRPS against SNR for L, V, C and B. From 40 dB down, C has the lowest CRPS."></div>
-    <figcaption>At 60 dB the three 200-cube methods are level. From 40 dB down, C's CRPS is <span data-v="facts.C_crps_gain_lo_min:0"></span>–<span data-v="facts.C_crps_gain_lo_max:0"></span> % below both the MMSE posterior's and the variance head's.</figcaption>
+    <div class="scroll" data-chart="e1crps" data-aria="CRPS against SNR for L, V, C and B. At 40 dB C has the lowest CRPS; at 30 and 20 dB B, on its 50 cubes, is lowest, but with badly under-dispersed samples."></div>
+    <figcaption><span data-slot="e1crpscap"></span></figcaption>
   </figure>
   <h3>Reading</h3>
   <ul class="plain">
-    <li><b>For the point estimate, the regressor is the right tool.</b> D is <span data-slot="dbest"></span> and halves the MMSE error at 20 dB (<span data-v="facts.D_20:2"></span> against <span data-v="facts.L_20:2"></span> %). C's posterior mean is level with D only at the high-SNR end. The spec predicted C would pass T1 everywhere, and that prediction was wrong at low SNR.</li>
-    <li><b>C's samples are rough, and their mean is not.</b> A single sample's log high-frequency energy ratio is +<span data-v="facts.C_hf_single_60:1"></span> to +<span data-v="facts.C_hf_single_20:1"></span> against the truth; the mean of 32 is +<span data-v="facts.C_hf_mean_60:1"></span> to +<span data-v="facts.C_hf_mean_20:1"></span>. A single sample's RMSE is <span data-v="facts.Csingle_30:2"></span> % at 30 dB and <span data-v="facts.Csingle_20:2"></span> % at 20 dB, the √2 cost of a calibrated draw.</li>
+    <li data-slot="dbest"></li>
+    <li><b>C's samples are rough; their mean is not.</b> A single sample's log high-frequency energy ratio against the truth is +<span data-v="facts.C_hf_single_60:1"></span> to +<span data-v="facts.C_hf_single_20:1"></span>; for the mean of 32 it is +<span data-v="facts.C_hf_mean_60:1"></span> to +<span data-v="facts.C_hf_mean_20:1"></span>. A single sample's RMSE is <span data-v="facts.Csingle_30:2"></span> % at 30 dB and <span data-v="facts.Csingle_20:2"></span> % at 20 dB, the √2 cost of a calibrated draw.</li>
     <li data-slot="e1B"></li>
   </ul>
 </section>
 
 <!-- ============================================================ -->
 <section id="s3">
-  <h2><span class="no">03</span>Figure (ii): calibrated uncertainty at low SNR</h2>
+  <h2><span class="no">03</span>Figure (ii): uncertainty at low SNR</h2>
   <p class="lead">Clause T2: at 30 and 20 dB, the diffusion line's CRPS must be below both the MMSE posterior's and the variance head's by 2 clustered SE, with 90 % coverage in [0.85, 0.95]. The MMSE posterior is a strong baseline: it is close to calibrated and slightly over-dispersed at every SNR (cov90 <span data-v="facts.L_cov90_min:3"></span>–<span data-v="facts.L_cov90_max:3"></span>).</p>
   <figure>
     <p class="charthead">CRPS at 30 and 20 dB (lower is better)</p>
-    <div class="scroll" data-chart="t2crps" data-aria="Grouped bars of CRPS at 30 and 20 dB for L, V, C and B. C is lowest at both SNRs."></div>
+    <div class="scroll" data-chart="t2crps" data-aria="Grouped bars of CRPS at 30 and 20 dB for L, V, C and B. B, on its 50 cubes, is lowest at both SNRs; C is lowest of the 200-cube methods."></div>
     <div class="marks" data-slot="t2marks"></div>
     <figcaption data-slot="t2text"></figcaption>
   </figure>
   <div class="twocol">
     <figure>
       <p class="charthead">Coverage of the central 50 % and 90 % intervals</p>
-      <div class="scroll" data-chart="t2cov" data-aria="Coverage dots for each method at 30 and 20 dB against the nominal 0.5 and 0.9, with the T2 band from 0.85 to 0.95 shaded."></div>
-      <figcaption>Circles are cov90, squares cov50. The shaded band is T2's [0.85, 0.95]. <span data-slot="covtext"></span></figcaption>
+      <div class="scroll" data-chart="t2cov" data-aria="Coverage dots for each method at 30 and 20 dB against the nominal 0.5 and 0.9, with the T2 band from 0.85 to 0.95 shaded. B's coverage is far below nominal."></div>
+      <figcaption>Circles are cov90, squares cov50; the shaded band is T2's [0.85, 0.95]. B is on its 50 cubes. <span data-slot="covtext"></span></figcaption>
     </figure>
     <figure>
       <p class="charthead">Error ranking: AUSE (lower is better)</p>
       <div class="scroll" data-chart="t2ause" data-aria="Grouped bars of AUSE at 30 and 20 dB. The variance head ranks errors best."></div>
-      <figcaption>The variance head still ranks the errors best (AUSE <span data-v="facts.V_ause_min:2"></span>–<span data-v="facts.V_ause_max:2"></span> over E1 against C's <span data-v="facts.C_ause_min:2"></span>–<span data-v="facts.C_ause_max:2"></span>), so C's advantage is in the shape of its marginals, not in where it puts the uncertainty. This is the opposite of Phase 2a, where the variance head won on CRPS.</figcaption>
+      <figcaption>The variance head still ranks the errors best (AUSE <span data-v="facts.V_ause_min:3"></span>–<span data-v="facts.V_ause_max:3"></span> over E1, against C's <span data-v="facts.C_ause_min:3"></span>–<span data-v="facts.C_ause_max:3"></span>). C's advantage is therefore in the shape of its marginals, not in where it puts the uncertainty. B is on its 50 cubes.</figcaption>
     </figure>
   </div>
 </section>
@@ -119,60 +126,63 @@ svg .box-s4{fill:var(--s4-bg);stroke:var(--s4)}
 <!-- ============================================================ -->
 <section id="s4">
   <h2><span class="no">04</span>Transfer to Device 2 and PH5 without retraining (E2)</h2>
-  <p class="lead">D, V and C were trained on Device 1 only. Clause T3 asked whether a line's error ratio to the MMSE on Device 2 at 30 dB stays within 10 % of its ratio on Device 1. PH5 is report-only.</p>
+  <p class="lead">D, V and C were trained on Device 1 only; B was never trained on any sensor. Clause T3 asks whether a line's error ratio to the MMSE on Device 2 at 30 dB stays within 10 % of its ratio on Device 1. PH5 is report-only.</p>
   <figure>
     <p class="charthead">RMSE by sensor (sequential mode)</p>
     <div class="seg" role="group" aria-label="SNR"><button type="button" data-e2="40" aria-pressed="false">40 dB</button><button type="button" data-e2="30" aria-pressed="true">30 dB</button><button type="button" data-e2="20" aria-pressed="false">20 dB</button></div>
-    <div class="scroll" data-chart="e2" data-aria="Grouped bars of RMSE for L, D, C and B on Device 1, Device 2 and PH5. On Device 2 the learned methods keep part of their advantage; on PH5 they fall behind the MMSE."></div>
+    <div class="scroll" data-chart="e2" data-aria="Grouped bars of RMSE for L, D, C and B on Device 1, Device 2 and PH5. On Device 2 B is lowest and the learned conditional methods keep part of their advantage; on PH5 they fall behind the MMSE, and B was not run."></div>
     <figcaption><span data-slot="t3text"></span></figcaption>
   </figure>
   <ul class="plain">
-    <li><b>Device 2: the conditioning transfers only in part.</b> C stays below the MMSE at 40 and 30 dB (ratio <span data-v="facts.device2_C_vs_L_40:3"></span> and <span data-v="facts.device2_C_vs_L_30:3"></span>), with cov90 <span data-v="facts.device2_C_cov90_40:2"></span>–<span data-v="facts.device2_C_cov90_30:2"></span>, but falls behind it at 20 dB (ratio <span data-v="facts.device2_C_vs_L_20:3"></span>, cov90 <span data-v="facts.device2_C_cov90_20:3"></span>). The regressor transfers better: <span data-slot="d2D"></span></li>
-    <li><b>PH5: nothing learned on Device 1 transfers.</b> D is <span data-v="facts.ph5_D_worse_min:0"></span>–<span data-v="facts.ph5_D_worse_max:0"></span> % worse than the MMSE, C's mean <span data-v="facts.ph5_C_ratio_min:2"></span>–<span data-v="facts.ph5_C_ratio_max:2"></span>× worse, and C is badly under-dispersed (cov50 ≤ <span data-v="facts.ph5_C_cov50_max:2"></span>, cov90 ≤ <span data-v="facts.ph5_C_cov90_max:2"></span>). PH5's response has rank <span data-v="facts.ph5_rank:0"></span> and a very different posterior-std structure, so its $(\hat x, s)$ maps lie outside every family model's training distribution. On this sensor the paper's “no retraining” claim is false for the conditional networks. B's PH5 rows were dropped for cost.</li>
     <li data-slot="e2B"></li>
+    <li><b>Device 2: C's conditioning transfers only in part.</b> C stays below the MMSE at 40 and 30 dB (ratio <span data-v="facts.device2_C_vs_L_40:3"></span> and <span data-v="facts.device2_C_vs_L_30:3"></span>) with cov90 <span data-v="facts.device2_C_cov90_40:2"></span>–<span data-v="facts.device2_C_cov90_30:2"></span>, but falls behind it at 20 dB (ratio <span data-v="facts.device2_C_vs_L_20:3"></span>, cov90 <span data-v="facts.device2_C_cov90_20:3"></span>). The regressor keeps more of its advantage than C: <span data-slot="d2D"></span></li>
+    <li><b>PH5: almost nothing learned on Device 1 transfers.</b> D is <span data-v="facts.ph5_D_worse_min:0"></span>–<span data-v="facts.ph5_D_worse_max:0"></span> % worse than the MMSE and C's mean <span data-v="facts.ph5_C_ratio_min:2"></span>–<span data-v="facts.ph5_C_ratio_max:2"></span>× worse. C is badly under-dispersed (cov50 ≤ <span data-v="facts.ph5_C_cov50_max:2"></span>, cov90 ≤ <span data-v="facts.ph5_C_cov90_max:2"></span>). Only V's CRPS stays level with L's (<span data-slot="ph5V"></span>). PH5's response has rank <span data-v="facts.ph5_rank:0"></span> and a very different posterior-std structure, so its $(\hat x, s)$ maps lie outside every family model's training distribution. On this sensor the paper's “no retraining” claim is false for the conditional networks. B's PH5 rows were dropped for cost.</li>
   </ul>
 </section>
 
 <!-- ============================================================ -->
 <section id="s5">
-  <h2><span class="no">05</span>Snapshot mode (E3)</h2>
-  <p class="lead">In snapshot mode each pixel measures one of the 30 states in a 5 × 6 tile. The exact per-pixel posterior from one channel is essentially the prior mean (<span data-v="facts.e3_Lexact_min:1"></span>–<span data-v="facts.e3_Lexact_max:1"></span> %). The classical baseline demosaics the 30 channels first and then runs the sequential MMSE. Clause T4 asks for a 15 % improvement over that baseline at 30 dB, i.e. RMSE at most <span data-v="facts.Ldem_target_30:3"></span> % against <span data-v="facts.Ldem_30:3"></span> %.</p>
+  <h2><span class="no">05</span>Snapshot mode (E3, and E4 on Device 2)</h2>
+  <p class="lead">In snapshot mode each pixel measures one of the 30 states in a 5 × 6 tile. The exact per-pixel posterior from one channel is essentially the prior mean (<span data-v="facts.e3_Lexact_min:1"></span>–<span data-v="facts.e3_Lexact_max:1"></span> %). The classical baseline demosaics the 30 channels first and then runs the sequential MMSE. Clause T4 asks for a 15 % improvement over that baseline at 30 dB: RMSE at most <span data-v="facts.Ldem_target_30:3"></span> % against <span data-v="facts.Ldem_30:3"></span> %. The E3 grid is 60 / 40 / 30 / 20 dB, with no 50 dB point.</p>
   <figure>
     <p class="charthead">RMSE against SNR, Device 1 snapshot (log scale)</p>
     <div class="legend" data-legend="e3"></div>
-    <div class="scroll" data-chart="e3rmse" data-aria="RMSE against SNR in snapshot mode. The exact per-pixel MMSE is near 12 percent, demosaic-then-MMSE near 6, D near 3; C's mean lies above the demosaic baseline."></div>
+    <div class="scroll" data-chart="e3rmse" data-aria="RMSE against SNR in snapshot mode. The exact per-pixel MMSE is near 12 percent, demosaic-then-MMSE near 6, D near 3. C's mean and B lie at or above the demosaic baseline."></div>
     <figcaption><span data-slot="t4text"></span></figcaption>
   </figure>
   <figure>
-    <p class="charthead">Snapshot uncertainty: CRPS · cov50 / cov90 · AUSE</p>
+    <p class="charthead">Snapshot uncertainty: CRPS, cov50 / cov90 and AUSE</p>
     <div class="tbl" data-table="e3unc"></div>
   </figure>
-  <div class="remark"><b>Why C loses here.</b> In snapshot mode the centre $\hat x$ is the one-channel posterior, so the whitened residual is large and highly structured: modelling it <i>is</i> the demosaicing problem. The one-call regressor learns it (<span data-v="facts.e3_D_min:1"></span>–<span data-v="facts.e3_D_max:1"></span> %). The diffusion trained on the same target does not: C1 is <span data-v="facts.e3_C1_min:1"></span>–<span data-v="facts.e3_C1_max:1"></span> %, and its samples are heavily over-dispersed (cov50 <span data-v="facts.e3_C_cov50_min:2"></span>–<span data-v="facts.e3_C_cov50_max:2"></span>, cov90 ≥ <span data-v="facts.e3_C_cov90_min:2"></span>). The variance head inherits the poor centre and cannot shrink enough to be calibrated (cov50 <span data-v="facts.e3_V_cov50_30:2"></span> at 30 dB). A diffusion centred on D's prediction, Phase 2a's construction, would have been the fairer snapshot test. That is out of scope here and is recorded for the write-up.</div>
-  <p data-slot="e3B"></p>
+  <div class="remark"><b>Why the diffusions lose here.</b> In snapshot mode C's centre $\hat x$ is the one-channel posterior, so the whitened residual is large and highly structured: modelling it <i>is</i> the demosaicing problem. The one-call regressor learns it (<span data-v="facts.e3_D_min:1"></span>–<span data-v="facts.e3_D_max:1"></span> %). The diffusion trained on the same target does not. C1 is <span data-v="facts.e3_C1_min:1"></span>–<span data-v="facts.e3_C1_max:1"></span> %, and C's samples are heavily over-dispersed (cov50 <span data-v="facts.e3_C_cov50_min:2"></span>–<span data-v="facts.e3_C_cov50_max:2"></span>, cov90 ≥ <span data-v="facts.e3_C_cov90_min:3"></span>). The variance head inherits the poor centre and cannot shrink enough to be calibrated (cov50 <span data-v="facts.e3_V_cov50_30:2"></span> at 30 dB). A diffusion centred on D's prediction, as in Phase 2a, would have been the fairer snapshot test for C. That is out of scope here and is recorded for the write-up.</div>
+  <ul class="plain">
+    <li data-slot="e3B"></li>
+    <li data-slot="e4"></li>
+  </ul>
 </section>
 
 <!-- ============================================================ -->
 <section id="s6">
   <h2><span class="no">06</span>Line B: a prior that first had to learn to be one</h2>
-  <p class="lead">The first B records were degenerate, and the cause was the prior, not the sampler. On the isotropic Gaussian toy the ΠGDM code reproduces the exact posterior at 50 steps. With a per-pixel Wiener filter as the denoiser the same code reconstructs real cubes close to the MMSE. The learned v-prediction prior, though, did not read its input at low and medium noise.</p>
+  <p class="lead">The first B records were degenerate. The cause was the prior, not the sampler. On the isotropic Gaussian toy the ΠGDM code reproduces the exact posterior at 50 steps, and with a per-pixel Wiener filter as the denoiser the same code reconstructs real cubes close to the MMSE. The learned v-prediction prior, however, ignored its input at low and medium noise.</p>
   <figure>
     <p class="charthead">x̂₀-estimate error of each prior against the diffusion timestep (16 gate cubes, 60 dB; log scale)</p>
     <div class="legend" data-legend="probe"></div>
-    <div class="scroll" data-chart="bprobe" data-aria="x0-estimate error against timestep. The v-prediction prior and two recipe variants follow an input-blind predictor up to t of about 300 and exceed the mean-cube error; the x0-prediction pilot and prior are monotone and far lower."></div>
+    <div class="scroll" data-chart="bprobe" data-aria="x0-estimate error against timestep. The v-prediction prior and two recipe variants follow an input-blind predictor up to t of about 200 and exceed the mean-cube error from t = 150 to 400; the x0-prediction pilot and prior are monotone and far lower."></div>
     <figcaption data-slot="probetext"></figcaption>
   </figure>
   <div class="thm"><span class="lbl">THE SAMPLER WAS LICENSED FIRST</span><span data-slot="toytext"></span></div>
   <div class="tbl" data-table="toy"></div>
-  <h3>B's records: archived v-prediction prior and the x₀-prediction prior</h3>
-  <p>B is scored on the 50-cube subset. The other methods are shown on the same 50 cubes, and the paired differences use the files both records share. These differences come from the page's extractor, not from the verdict.</p>
+  <h3>B's records: the archived v-prediction prior and the x₀-prediction prior</h3>
+  <p>B is scored on the 50-cube subset. The other methods are shown on the same 50 cubes, and the paired differences use the files both records share.</p>
   <div class="tbl" data-table="brec"></div>
   <p data-slot="bnow"></p>
 </section>
 
 <!-- ============================================================ -->
 <section id="s7">
-  <h2><span class="no">07</span>The pre-registered clauses</h2>
-  <p class="lead">One row per clause and setting, for both diffusion lines, as the verdict file reports them. The main-line rule names the line that passes more of T1–T4, with T2 at 20 dB breaking a tie.</p>
+  <h2><span class="no">07</span>The pre-registered clauses and the main line</h2>
+  <p class="lead" data-slot="mainline"></p>
   <div class="tbl" data-table="clauses"></div>
   <p data-slot="verdictnote" style="font-size:14px;color:var(--muted)"></p>
 </section>
@@ -180,7 +190,7 @@ svg .box-s4{fill:var(--s4-bg);stroke:var(--s4)}
 <!-- ============================================================ -->
 <section id="s8">
   <h2><span class="no">08</span>Runs and budget</h2>
-  <p class="lead">Five 100-epoch-class trainings at base 64 on one RTX A4500 each, and three 10-epoch prior pilots. Selection followed the pre-registered rule: the lowest monitoring loss for D and V, and the fixed epoch 100 for the diffusions.</p>
+  <p class="lead">Five trainings at base 64, each on one RTX A4500: four of 100 epochs and the variance head's 40. There were also three 10-epoch prior pilots. Selection followed the pre-registered rule: the lowest monitoring loss for D and V, and the fixed epoch 100 for the diffusions. Each network was trained once (seed 42); there is no seed replication. Sample k of every sampler is drawn under torch seed k, and the measurement noise uses a crc32 seed per file.</p>
   <div class="tbl" data-table="runs"></div>
   <p data-slot="budget"></p>
 </section>
@@ -191,10 +201,11 @@ svg .box-s4{fill:var(--s4-bg);stroke:var(--s4)}
   <ul class="plain">
     <li><b>ΠGDM's correction coefficient.</b> The draft's $\sqrt{\bar\alpha_t}$ diverged on the isotropic toy. The correction is now $\hat x_0 + (1-\bar\alpha_t)/\sqrt{\bar\alpha_t}\cdot g$, the score correction in $x_0$ coordinates.</li>
     <li><b>Noise seeds per file.</b> Each cube's noise seed is the crc32 of its path relative to the data root, not its list position. Records on the 50 and the 200 cubes therefore see identical noise and pair by file.</li>
-    <li><b>K = 32 everywhere; B on the 50-cube subset.</b> Coverage verdicts need K ≥ 19, so the draft's K = 16 was withdrawn. B's ΠGDM cost limits it to the 50-cube subset, paired against the 200-cube records on the common files.</li>
-    <li><b>B's prior retrained with x₀-prediction.</b> This amends spec §5.5's “v-prediction” for the prior only (section 6). The pilot met the pre-registered decision rule (monotone, and at least 30 % below the current prior at t ≤ 300). C stays v-prediction, and the harness builds B's sampler from the checkpoint's own prediction type.</li>
-    <li><b>B's cost.</b> A B record costs ≈ <span data-v="budget.b_hours_mean:1"></span> GPU-h, not the plan's 0.63. The 12 GPU-h cap was exceeded with the user's GPUs otherwise idle.</li>
-    <li><b>PH5's B rows dropped.</b> First in the spec's drop order once B's cost was known; PH5 is report-only anyway.</li>
+    <li><b>K = 32 everywhere; B on the 50-cube subset.</b> Coverage verdicts need K ≥ 19, so the draft's K = 16 was withdrawn. B's ΠGDM cost restricts it to the 50-cube subset, where it is paired against the 200-cube records on the common files. B's tie-break CRPS difference is therefore on 50 cubes and C's on 200.</li>
+    <li data-slot="x0rule"></li>
+    <li><b>B's cost.</b> A B record costs ≈ <span data-v="budget.b_hours_mean:2"></span> GPU-h, not the plan's 0.63, so the spec's 12 GPU-h cap was exceeded; the user's GPUs were otherwise idle.</li>
+    <li><b>PH5's B rows dropped.</b> They were first in the spec's drop order once B's cost was known, and PH5 is report-only anyway.</li>
+    <li><b>E4 run.</b> GPU time remained after E1–E3, so the spec's optional E4 (Device 2, snapshot, 30 dB, all methods, report-only) was run; it is in section 5.</li>
   </ul>
 </section>
 

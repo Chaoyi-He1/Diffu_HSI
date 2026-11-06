@@ -181,42 +181,49 @@ svg .err{stroke:var(--ink-2);stroke-width:1.4}
 @media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--s4:#a585ee;--s4-bg:#2a2140}}
 :root[data-theme="dark"]{--s4:#a585ee;--s4-bg:#2a2140}
 svg .box-s4{fill:var(--s4-bg);stroke:var(--s4)}
-.status{font-size:14px;color:var(--ink-2);background:var(--panel);border:1px solid var(--rule);border-radius:10px;padding:10px 14px;margin:14px 0 4px}
-.status b{color:var(--ink)}
+.status{font-size:14px;color:var(--ink-2);background:var(--warn-bg);border:1px solid var(--rule);border-radius:10px;padding:10px 14px;margin:14px 0 4px}
+.status:empty{display:none}
 .marks{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:13px;color:var(--ink-2);margin:8px 0 0}
 .marks span{white-space:nowrap}
+.outcome{background:var(--panel);border:1px solid var(--rule);border-left:4px solid var(--s4);border-radius:0 12px 12px 0;padding:14px 18px;margin:18px 0 6px}
+.outcome .lbl{font-family:var(--mono);font-size:12.5px;font-weight:700;letter-spacing:.04em;color:var(--s4);display:block;margin-bottom:4px}
+.outcome p{margin:6px 0;font-size:15.5px}
+.outcome ul{margin:6px 0 2px;padding-left:1.2em;font-size:15px}
+.outcome li{margin:3px 0}
+.hint{font-size:12px;color:var(--muted);margin:2px 0 0;text-align:right}
 </style>
 <main>
 <header>
-  <div class="eyebrow">Diffu_HSI · sensor degradation · Phase 3 · data as of <span data-v="generated"></span></div>
+  <div class="eyebrow">Diffu_HSI · sensor degradation · Phase 3 · records as of <span data-v="generated"></span></div>
   <h1>Phase 3 — Reconstruction from a poor EC sensor</h1>
-  <p class="lede">The paper's claim is that a diffusion model is the most suitable way to recover the spectrum seen by a poor electrochromic (EC) sensor: 30 voltage states with broad, overlapping responses, of which only about <span data-v="facts.d1_informative:0"></span> carry independent information about the 31 bands. Phase 3 tests that claim where the sensor's poorness matters. <b>E1</b> adds measurement noise to Device 1 in sequential mode and sweeps the SNR from the 60 dB floor down to 20 dB. <b>E2</b> applies models trained on Device 1, without retraining, to Device 2 and to PH5. <b>E3</b> runs Device 1 in snapshot (mosaic) mode, where each pixel measures one state. Two diffusion lines compete against the noise-aware linear MMSE (L), a one-call regressor (D) and a variance head (V): <b>B</b>, an unconditional spectral–spatial prior guided by the measurement (ΠGDM), and <b>C</b>, a conditional residual diffusion around the MMSE estimate, trained over the whole noise and mode family.</p>
-  <p class="lede" style="margin-top:10px">The test was fixed in advance. The user approved the spec on 4 November 2026, and the thresholds of clauses T1–T4 were written into <code>scripts/sensor/sd_verdict.py</code> before any record existed. Every number on this page is read from the evaluation records at build time.</p>
+  <p class="lede">The paper claims that a diffusion model is the most suitable way to recover the spectrum seen by a poor electrochromic (EC) sensor: 30 voltage states with broad, overlapping responses, of which only about <span data-v="facts.d1_informative:0"></span>–13 carry independent information about the 31 bands. Phase 3 tests that claim where the sensor's poorness matters. <b>E1</b> adds measurement noise to Device 1 in sequential mode and sweeps the SNR from the 60 dB noise floor down to 20 dB. <b>E2</b> applies models trained on Device 1, without retraining, to Device 2 and to PH5. <b>E3</b> runs Device 1 in snapshot (mosaic) mode, where each pixel measures one state; <b>E4</b> (report-only) does the same on Device 2 at 30 dB. Two diffusion lines compete against the noise-aware linear MMSE (L), a one-call regressor (D) and a variance head (V). <b>B</b> is an unconditional spectral–spatial prior guided by the measurement (ΠGDM). <b>C</b> is a conditional residual diffusion around the MMSE estimate, trained over the whole noise and mode family.</p>
+  <p class="lede" style="margin-top:10px">The test was fixed in advance. The user approved the spec on 4 November 2026, and the thresholds of clauses T1–T4 were written into <code>scripts/sensor/sd_verdict.py</code> before any record existed. One amendment came later: B's prior was retrained with x₀-prediction after the first prior failed (section 6). Every number on this page is read from the evaluation records and the verdict file at build time.</p>
   <div class="status" data-slot="status"></div>
+  <div class="outcome"><span class="lbl">OUTCOME</span><div data-slot="outcome"></div></div>
   <div class="kv">
-    <div><small>MMSE at the 60 dB floor (sanity reference)</small><b class="hi"><span data-v="facts.L_floor:3"></span> %</b><small>Device 1, sequential, 200 cubes</small></div>
+    <div><small>MMSE at the 60 dB noise floor (sanity reference)</small><b class="hi"><span data-v="facts.L_floor:3"></span> %</b><small>Device 1, sequential, 200 cubes</small></div>
     <div><small>regressor D at 20 dB</small><b class="hi"><span data-v="facts.D_20:2"></span> %</b><small>MMSE <span data-v="facts.L_20:2"></span> %: <span data-v="facts.D_below_L_20:0"></span> % lower</small></div>
-    <div><small>C's CRPS at 20 dB vs the MMSE posterior</small><b class="hi">−<span data-v="facts.C_crps_below_L_20:0"></span> %</b><small>and −<span data-v="facts.C_crps_below_V_20:0"></span> % vs the variance head</small></div>
-    <div><small>line C, clauses passed</small><b class="hi" data-slot="countC"></b><small>pre-registered T1–T4</small></div>
-    <div><small>line B, the guided prior</small><b class="hi" data-slot="countB"></b><small data-slot="countBsub"></small></div>
+    <div><small>B's mean-of-32 at 20 dB vs D (same 50 cubes)</small><b class="hi" data-slot="kpiB"></b><small data-slot="kpiBsub"></small></div>
+    <div><small>C's CRPS at 30 dB vs the MMSE posterior</small><b class="hi">−<span data-v="facts.C_crps_below_L_30:0"></span> %</b><small>−<span data-v="facts.C_crps_below_V_30:0"></span> % vs V; cov90 <span data-v="settings.device1_sequential_30.methods.C.cov90:3"></span> (T2 passed)</small></div>
+    <div><small>clauses passed (of 5), main line</small><b class="hi" data-slot="countBC"></b><small data-slot="countsub"></small></div>
   </div>
   <figure>
     <div class="scroll" data-fig="pipeline" data-aria="The scene is measured by the sensor response R in sequential or snapshot mode with Gaussian noise. The closed-form MMSE turns the measurement into an estimate and a posterior standard deviation; the regressor D, the variance head V and the conditional diffusion C take those two maps as input. The guided prior B uses the measurement and the forward operator directly."></div>
-    <figcaption>What was compared. L, D, V and C share one interface: the forward model reaches the networks only through the MMSE estimate $\hat x$ and its posterior standard deviation $s$, which have the same meaning for every sensor, noise level and mode. That is what makes zero-shot transfer possible in principle. B never sees $\hat x$: it combines a prior trained on spectra alone with the exact operator $H$ and the known noise level at sampling time. D, V and C were trained on Device 1 only, over SNRs drawn from 20 to 50 dB plus the 60 dB floor, half in sequential and half in snapshot mode.</figcaption>
+    <figcaption>What was compared. L, D, V and C share one interface: the forward model reaches the networks only through the MMSE estimate $\hat x$ and its posterior standard deviation $s$. These two maps mean the same thing for every sensor, noise level and mode, which is what makes zero-shot transfer possible in principle. B never sees $\hat x$. It combines a prior trained on spectra alone with the exact operator $H$ and the known noise level at sampling time. D, V and C were trained on Device 1 only, over SNRs drawn from 20 to 50 dB plus the 60 dB floor, half in sequential and half in snapshot mode.</figcaption>
   </figure>
   <nav class="toc" aria-label="Contents">
-    <a href="#s1"><b>1</b>The sensor</a><a href="#s2"><b>2</b>Error vs SNR</a><a href="#s3"><b>3</b>Calibration</a><a href="#s4"><b>4</b>Transfer</a><a href="#s5"><b>5</b>Snapshot</a><a href="#s6"><b>6</b>Line B</a><a href="#s7"><b>7</b>Clauses</a><a href="#s8"><b>8</b>Runs</a><a href="#s9"><b>9</b>Rulings</a>
+    <a href="#s1"><b>1</b>The sensor</a><a href="#s2"><b>2</b>Error vs SNR</a><a href="#s3"><b>3</b>Uncertainty</a><a href="#s4"><b>4</b>Transfer</a><a href="#s5"><b>5</b>Snapshot</a><a href="#s6"><b>6</b>Line B</a><a href="#s7"><b>7</b>Clauses</a><a href="#s8"><b>8</b>Runs</a><a href="#s9"><b>9</b>Rulings</a>
   </nav>
   <div class="gloss">
     <h3>Terms used below</h3>
-    <div><b>L</b>the noise-aware linear MMSE with its Gaussian posterior: closed form, no training; the classical point and probabilistic baseline</div>
+    <div><b>L</b>the noise-aware linear MMSE with its Gaussian posterior: closed form, no training; the classical point and probabilistic baseline. In snapshot mode “L exact” is the one-channel per-pixel posterior and “L demosaic” is demosaic-then-MMSE</div>
     <div><b>D / V</b>the one-call regressor and the heteroscedastic variance head, trained over the same family as C (selected epochs <span data-v="runs.2.selected:0"></span> and <span data-v="runs.3.selected:0"></span>)</div>
     <div><b>C</b>the family-conditioned residual diffusion around $\hat x$, residual whitened by $s$; 32 DDIM-10 samples per cube. C1 is the same network called once</div>
     <div><b>B</b>an unconditional prior on 64-band cubes plus ΠGDM guidance with the exact operator, 50 steps, 32 samples, on the 50-cube subset</div>
-    <div><b>RMSE</b>per cube in % of the [0, 1] range, averaged over cubes; for samplers it is the error of the mean of 32 samples (“mean-of-32”) unless “single” is stated</div>
-    <div><b>CRPS, cov50 / cov90, AUSE</b>continuous ranked probability score in % of range (lower is better), share of elements inside the central 50 % / 90 % interval, and the area between the sparsification curve and the oracle's; a calibrated model covers 0.50 / 0.90; AUSE 0 means the spread ranks the errors perfectly</div>
-    <div><b>SNR</b>in dB against one global signal power $P_y$ = <span data-v="config.P_y:3"></span> (Device 1, sequential), so a given SNR means the same detector noise for every device and mode; 60 dB is the noise-free end</div>
-    <div><b>± values</b>standard errors over cubes, clustered by source image (113 images for the 200 gate cubes, 45 for B's 50); B's comparisons are paired on the files the two records share</div>
+    <div><b>RMSE</b>per cube in % of the [0, 1] range, averaged over cubes. For B and C it is the error of the mean of the 32 samples (“mean-of-32”, the sampler's posterior-mean estimate) unless “single” is stated</div>
+    <div><b>CRPS, cov50 / cov90, AUSE</b>continuous ranked probability score in % of range (lower is better); the share of elements inside the central 50 % / 90 % interval (calibrated: 0.50 / 0.90); the area between the sparsification curve and the oracle's (0 = the spread ranks the errors perfectly)</div>
+    <div><b>SNR</b>in dB against one global signal power $P_y$ = <span data-v="config.P_y:3"></span> (Device 1, sequential), so a given SNR means the same detector noise for every device and mode. 60 dB is the noise floor of the sweep ($\sigma^2 = P_y/10^6$), not noise-free: no σ = 0 is used anywhere</div>
+    <div><b>± values</b>standard errors over cubes, clustered by source image (113 images for the 200 gate cubes, 45 for B's 50). B's comparisons are paired on the files the two records share</div>
   </div>
 </header>
 
@@ -233,13 +240,13 @@ svg .box-s4{fill:var(--s4-bg);stroke:var(--s4)}
     <figure>
       <p class="charthead">Singular values of R, relative to the largest (log scale)</p>
       <div class="scroll" data-chart="sensorSV" data-aria="Singular values of the three sensors on a log scale. Most fall below one percent of the largest; PH5 collapses fastest."></div>
-      <figcaption>The dashed line is 1 % of the largest singular value. Values below it carry almost no signal at the SNRs tested here.</figcaption>
+      <figcaption>The dashed line is 1 % of the largest singular value; values below it carry almost no signal at the SNRs tested here. Values below 1e-12 (PH5's rank-<span data-v="facts.ph5_rank:0"></span> null space) are drawn at the axis floor.</figcaption>
     </figure>
   </div>
   <figure>
     <p class="charthead">Stage 0: the MMSE error against SNR for the three sensors (sequential mode, 200 gate cubes)</p>
     <div class="scroll" data-chart="stage0" data-aria="MMSE RMSE against SNR on a log scale for Device 1, Device 2 and PH5, plus Device 1 with the raw response. Error rises steadily as SNR falls; PH5 is far worse at every SNR."></div>
-    <figcaption>At the 60 dB floor the MMSE error on Device 1 is <span data-v="facts.L_floor:3"></span> %, and it grows by about <span data-v="facts.L_growth_per10:2"></span>× per 10 dB. This is the poorness the paper is about, and it is invisible without noise. Device 2 is harder at every SNR (<span data-v="facts.d2_L_floor:2"></span> → <span data-v="facts.d2_L_20:2"></span> %). PH5 reaches only <span data-v="facts.ph5_L_floor:2"></span> % even at the floor. <span data-slot="normcheck"></span></figcaption>
+    <figcaption>At the 60 dB noise floor the MMSE error on Device 1 is <span data-v="facts.L_floor:3"></span> %, <span data-v="facts.floor_over_legacy:1"></span> times the noise-free figure of Phase 0 (<span data-v="facts.legacy_noise_free:3"></span> %, legacy axis, s = 3e-7 regulariser, no noise; not directly comparable). The error then grows by about <span data-v="facts.L_growth_per10:2"></span>× per 10 dB. This is the poorness the paper is about, and without noise it does not show. Device 2 is harder at every SNR (<span data-v="facts.d2_L_floor:2"></span> → <span data-v="facts.d2_L_20:2"></span> %). PH5 reaches only <span data-v="facts.ph5_L_floor:2"></span> % even at the floor. <span data-slot="normcheck"></span></figcaption>
   </figure>
   <div class="remark" data-slot="angles"></div>
 </section>
@@ -247,48 +254,48 @@ svg .box-s4{fill:var(--s4-bg);stroke:var(--s4)}
 <!-- ============================================================ -->
 <section id="s2">
   <h2><span class="no">02</span>Figure (i): error against SNR on Device 1</h2>
-  <p class="lead">The paper's main figure. The regressor is the most accurate method at every SNR, and its lead grows as the noise rises. Clause T1 asked whether the better diffusion line's mean-of-32 RMSE stays within 5 % of the regressor's, by 2 clustered SE.</p>
+  <p class="lead" data-slot="e1lead"></p>
   <figure>
     <p class="charthead">Point error: RMSE of each method's estimate (log scale)</p>
     <div class="legend" data-legend="e1"></div>
-    <div class="scroll" data-chart="e1rmse" data-aria="RMSE against SNR on a log scale for L, D, C, C1 and B. D is lowest at every SNR; C's mean-of-32 lies between D and L."></div>
+    <div class="scroll" data-chart="e1rmse" data-aria="RMSE against SNR on a log scale for L, D, C, C1 and B. D is lowest from 60 to 40 dB. B, on its 50 cubes, is nearly flat with SNR and is lowest at 30 and 20 dB. C's mean-of-32 lies between D and L."></div>
     <div class="marks" data-slot="t1marks"></div>
-    <figcaption>L, D, C and C1 are on the 200 gate cubes, B on its 50-cube subset (the like-for-like numbers are in section 6). T1 markers give the ratio of mean RMSE to D's. <span data-slot="t1text"></span></figcaption>
+    <figcaption>L, D, C and C1 are on the 200 gate cubes, B on its 50-cube subset. The verdict pairs B with D on the files they share; section 6 has the like-for-like numbers. The T1 markers give the ratio of mean RMSE to D's. <span data-slot="t1text"></span></figcaption>
   </figure>
   <figure>
     <p class="charthead">Predictive distribution: CRPS of each probabilistic method (log scale)</p>
     <div class="legend" data-legend="e1c"></div>
-    <div class="scroll" data-chart="e1crps" data-aria="CRPS against SNR for L, V, C and B. From 40 dB down, C has the lowest CRPS."></div>
-    <figcaption>At 60 dB the three 200-cube methods are level. From 40 dB down, C's CRPS is <span data-v="facts.C_crps_gain_lo_min:0"></span>–<span data-v="facts.C_crps_gain_lo_max:0"></span> % below both the MMSE posterior's and the variance head's.</figcaption>
+    <div class="scroll" data-chart="e1crps" data-aria="CRPS against SNR for L, V, C and B. At 40 dB C has the lowest CRPS; at 30 and 20 dB B, on its 50 cubes, is lowest, but with badly under-dispersed samples."></div>
+    <figcaption><span data-slot="e1crpscap"></span></figcaption>
   </figure>
   <h3>Reading</h3>
   <ul class="plain">
-    <li><b>For the point estimate, the regressor is the right tool.</b> D is <span data-slot="dbest"></span> and halves the MMSE error at 20 dB (<span data-v="facts.D_20:2"></span> against <span data-v="facts.L_20:2"></span> %). C's posterior mean is level with D only at the high-SNR end. The spec predicted C would pass T1 everywhere, and that prediction was wrong at low SNR.</li>
-    <li><b>C's samples are rough, and their mean is not.</b> A single sample's log high-frequency energy ratio is +<span data-v="facts.C_hf_single_60:1"></span> to +<span data-v="facts.C_hf_single_20:1"></span> against the truth; the mean of 32 is +<span data-v="facts.C_hf_mean_60:1"></span> to +<span data-v="facts.C_hf_mean_20:1"></span>. A single sample's RMSE is <span data-v="facts.Csingle_30:2"></span> % at 30 dB and <span data-v="facts.Csingle_20:2"></span> % at 20 dB, the √2 cost of a calibrated draw.</li>
+    <li data-slot="dbest"></li>
+    <li><b>C's samples are rough; their mean is not.</b> A single sample's log high-frequency energy ratio against the truth is +<span data-v="facts.C_hf_single_60:1"></span> to +<span data-v="facts.C_hf_single_20:1"></span>; for the mean of 32 it is +<span data-v="facts.C_hf_mean_60:1"></span> to +<span data-v="facts.C_hf_mean_20:1"></span>. A single sample's RMSE is <span data-v="facts.Csingle_30:2"></span> % at 30 dB and <span data-v="facts.Csingle_20:2"></span> % at 20 dB, the √2 cost of a calibrated draw.</li>
     <li data-slot="e1B"></li>
   </ul>
 </section>
 
 <!-- ============================================================ -->
 <section id="s3">
-  <h2><span class="no">03</span>Figure (ii): calibrated uncertainty at low SNR</h2>
+  <h2><span class="no">03</span>Figure (ii): uncertainty at low SNR</h2>
   <p class="lead">Clause T2: at 30 and 20 dB, the diffusion line's CRPS must be below both the MMSE posterior's and the variance head's by 2 clustered SE, with 90 % coverage in [0.85, 0.95]. The MMSE posterior is a strong baseline: it is close to calibrated and slightly over-dispersed at every SNR (cov90 <span data-v="facts.L_cov90_min:3"></span>–<span data-v="facts.L_cov90_max:3"></span>).</p>
   <figure>
     <p class="charthead">CRPS at 30 and 20 dB (lower is better)</p>
-    <div class="scroll" data-chart="t2crps" data-aria="Grouped bars of CRPS at 30 and 20 dB for L, V, C and B. C is lowest at both SNRs."></div>
+    <div class="scroll" data-chart="t2crps" data-aria="Grouped bars of CRPS at 30 and 20 dB for L, V, C and B. B, on its 50 cubes, is lowest at both SNRs; C is lowest of the 200-cube methods."></div>
     <div class="marks" data-slot="t2marks"></div>
     <figcaption data-slot="t2text"></figcaption>
   </figure>
   <div class="twocol">
     <figure>
       <p class="charthead">Coverage of the central 50 % and 90 % intervals</p>
-      <div class="scroll" data-chart="t2cov" data-aria="Coverage dots for each method at 30 and 20 dB against the nominal 0.5 and 0.9, with the T2 band from 0.85 to 0.95 shaded."></div>
-      <figcaption>Circles are cov90, squares cov50. The shaded band is T2's [0.85, 0.95]. <span data-slot="covtext"></span></figcaption>
+      <div class="scroll" data-chart="t2cov" data-aria="Coverage dots for each method at 30 and 20 dB against the nominal 0.5 and 0.9, with the T2 band from 0.85 to 0.95 shaded. B's coverage is far below nominal."></div>
+      <figcaption>Circles are cov90, squares cov50; the shaded band is T2's [0.85, 0.95]. B is on its 50 cubes. <span data-slot="covtext"></span></figcaption>
     </figure>
     <figure>
       <p class="charthead">Error ranking: AUSE (lower is better)</p>
       <div class="scroll" data-chart="t2ause" data-aria="Grouped bars of AUSE at 30 and 20 dB. The variance head ranks errors best."></div>
-      <figcaption>The variance head still ranks the errors best (AUSE <span data-v="facts.V_ause_min:2"></span>–<span data-v="facts.V_ause_max:2"></span> over E1 against C's <span data-v="facts.C_ause_min:2"></span>–<span data-v="facts.C_ause_max:2"></span>), so C's advantage is in the shape of its marginals, not in where it puts the uncertainty. This is the opposite of Phase 2a, where the variance head won on CRPS.</figcaption>
+      <figcaption>The variance head still ranks the errors best (AUSE <span data-v="facts.V_ause_min:3"></span>–<span data-v="facts.V_ause_max:3"></span> over E1, against C's <span data-v="facts.C_ause_min:3"></span>–<span data-v="facts.C_ause_max:3"></span>). C's advantage is therefore in the shape of its marginals, not in where it puts the uncertainty. B is on its 50 cubes.</figcaption>
     </figure>
   </div>
 </section>
@@ -296,60 +303,63 @@ svg .box-s4{fill:var(--s4-bg);stroke:var(--s4)}
 <!-- ============================================================ -->
 <section id="s4">
   <h2><span class="no">04</span>Transfer to Device 2 and PH5 without retraining (E2)</h2>
-  <p class="lead">D, V and C were trained on Device 1 only. Clause T3 asked whether a line's error ratio to the MMSE on Device 2 at 30 dB stays within 10 % of its ratio on Device 1. PH5 is report-only.</p>
+  <p class="lead">D, V and C were trained on Device 1 only; B was never trained on any sensor. Clause T3 asks whether a line's error ratio to the MMSE on Device 2 at 30 dB stays within 10 % of its ratio on Device 1. PH5 is report-only.</p>
   <figure>
     <p class="charthead">RMSE by sensor (sequential mode)</p>
     <div class="seg" role="group" aria-label="SNR"><button type="button" data-e2="40" aria-pressed="false">40 dB</button><button type="button" data-e2="30" aria-pressed="true">30 dB</button><button type="button" data-e2="20" aria-pressed="false">20 dB</button></div>
-    <div class="scroll" data-chart="e2" data-aria="Grouped bars of RMSE for L, D, C and B on Device 1, Device 2 and PH5. On Device 2 the learned methods keep part of their advantage; on PH5 they fall behind the MMSE."></div>
+    <div class="scroll" data-chart="e2" data-aria="Grouped bars of RMSE for L, D, C and B on Device 1, Device 2 and PH5. On Device 2 B is lowest and the learned conditional methods keep part of their advantage; on PH5 they fall behind the MMSE, and B was not run."></div>
     <figcaption><span data-slot="t3text"></span></figcaption>
   </figure>
   <ul class="plain">
-    <li><b>Device 2: the conditioning transfers only in part.</b> C stays below the MMSE at 40 and 30 dB (ratio <span data-v="facts.device2_C_vs_L_40:3"></span> and <span data-v="facts.device2_C_vs_L_30:3"></span>), with cov90 <span data-v="facts.device2_C_cov90_40:2"></span>–<span data-v="facts.device2_C_cov90_30:2"></span>, but falls behind it at 20 dB (ratio <span data-v="facts.device2_C_vs_L_20:3"></span>, cov90 <span data-v="facts.device2_C_cov90_20:3"></span>). The regressor transfers better: <span data-slot="d2D"></span></li>
-    <li><b>PH5: nothing learned on Device 1 transfers.</b> D is <span data-v="facts.ph5_D_worse_min:0"></span>–<span data-v="facts.ph5_D_worse_max:0"></span> % worse than the MMSE, C's mean <span data-v="facts.ph5_C_ratio_min:2"></span>–<span data-v="facts.ph5_C_ratio_max:2"></span>× worse, and C is badly under-dispersed (cov50 ≤ <span data-v="facts.ph5_C_cov50_max:2"></span>, cov90 ≤ <span data-v="facts.ph5_C_cov90_max:2"></span>). PH5's response has rank <span data-v="facts.ph5_rank:0"></span> and a very different posterior-std structure, so its $(\hat x, s)$ maps lie outside every family model's training distribution. On this sensor the paper's “no retraining” claim is false for the conditional networks. B's PH5 rows were dropped for cost.</li>
     <li data-slot="e2B"></li>
+    <li><b>Device 2: C's conditioning transfers only in part.</b> C stays below the MMSE at 40 and 30 dB (ratio <span data-v="facts.device2_C_vs_L_40:3"></span> and <span data-v="facts.device2_C_vs_L_30:3"></span>) with cov90 <span data-v="facts.device2_C_cov90_40:2"></span>–<span data-v="facts.device2_C_cov90_30:2"></span>, but falls behind it at 20 dB (ratio <span data-v="facts.device2_C_vs_L_20:3"></span>, cov90 <span data-v="facts.device2_C_cov90_20:3"></span>). The regressor keeps more of its advantage than C: <span data-slot="d2D"></span></li>
+    <li><b>PH5: almost nothing learned on Device 1 transfers.</b> D is <span data-v="facts.ph5_D_worse_min:0"></span>–<span data-v="facts.ph5_D_worse_max:0"></span> % worse than the MMSE and C's mean <span data-v="facts.ph5_C_ratio_min:2"></span>–<span data-v="facts.ph5_C_ratio_max:2"></span>× worse. C is badly under-dispersed (cov50 ≤ <span data-v="facts.ph5_C_cov50_max:2"></span>, cov90 ≤ <span data-v="facts.ph5_C_cov90_max:2"></span>). Only V's CRPS stays level with L's (<span data-slot="ph5V"></span>). PH5's response has rank <span data-v="facts.ph5_rank:0"></span> and a very different posterior-std structure, so its $(\hat x, s)$ maps lie outside every family model's training distribution. On this sensor the paper's “no retraining” claim is false for the conditional networks. B's PH5 rows were dropped for cost.</li>
   </ul>
 </section>
 
 <!-- ============================================================ -->
 <section id="s5">
-  <h2><span class="no">05</span>Snapshot mode (E3)</h2>
-  <p class="lead">In snapshot mode each pixel measures one of the 30 states in a 5 × 6 tile. The exact per-pixel posterior from one channel is essentially the prior mean (<span data-v="facts.e3_Lexact_min:1"></span>–<span data-v="facts.e3_Lexact_max:1"></span> %). The classical baseline demosaics the 30 channels first and then runs the sequential MMSE. Clause T4 asks for a 15 % improvement over that baseline at 30 dB, i.e. RMSE at most <span data-v="facts.Ldem_target_30:3"></span> % against <span data-v="facts.Ldem_30:3"></span> %.</p>
+  <h2><span class="no">05</span>Snapshot mode (E3, and E4 on Device 2)</h2>
+  <p class="lead">In snapshot mode each pixel measures one of the 30 states in a 5 × 6 tile. The exact per-pixel posterior from one channel is essentially the prior mean (<span data-v="facts.e3_Lexact_min:1"></span>–<span data-v="facts.e3_Lexact_max:1"></span> %). The classical baseline demosaics the 30 channels first and then runs the sequential MMSE. Clause T4 asks for a 15 % improvement over that baseline at 30 dB: RMSE at most <span data-v="facts.Ldem_target_30:3"></span> % against <span data-v="facts.Ldem_30:3"></span> %. The E3 grid is 60 / 40 / 30 / 20 dB, with no 50 dB point.</p>
   <figure>
     <p class="charthead">RMSE against SNR, Device 1 snapshot (log scale)</p>
     <div class="legend" data-legend="e3"></div>
-    <div class="scroll" data-chart="e3rmse" data-aria="RMSE against SNR in snapshot mode. The exact per-pixel MMSE is near 12 percent, demosaic-then-MMSE near 6, D near 3; C's mean lies above the demosaic baseline."></div>
+    <div class="scroll" data-chart="e3rmse" data-aria="RMSE against SNR in snapshot mode. The exact per-pixel MMSE is near 12 percent, demosaic-then-MMSE near 6, D near 3. C's mean and B lie at or above the demosaic baseline."></div>
     <figcaption><span data-slot="t4text"></span></figcaption>
   </figure>
   <figure>
-    <p class="charthead">Snapshot uncertainty: CRPS · cov50 / cov90 · AUSE</p>
+    <p class="charthead">Snapshot uncertainty: CRPS, cov50 / cov90 and AUSE</p>
     <div class="tbl" data-table="e3unc"></div>
   </figure>
-  <div class="remark"><b>Why C loses here.</b> In snapshot mode the centre $\hat x$ is the one-channel posterior, so the whitened residual is large and highly structured: modelling it <i>is</i> the demosaicing problem. The one-call regressor learns it (<span data-v="facts.e3_D_min:1"></span>–<span data-v="facts.e3_D_max:1"></span> %). The diffusion trained on the same target does not: C1 is <span data-v="facts.e3_C1_min:1"></span>–<span data-v="facts.e3_C1_max:1"></span> %, and its samples are heavily over-dispersed (cov50 <span data-v="facts.e3_C_cov50_min:2"></span>–<span data-v="facts.e3_C_cov50_max:2"></span>, cov90 ≥ <span data-v="facts.e3_C_cov90_min:2"></span>). The variance head inherits the poor centre and cannot shrink enough to be calibrated (cov50 <span data-v="facts.e3_V_cov50_30:2"></span> at 30 dB). A diffusion centred on D's prediction, Phase 2a's construction, would have been the fairer snapshot test. That is out of scope here and is recorded for the write-up.</div>
-  <p data-slot="e3B"></p>
+  <div class="remark"><b>Why the diffusions lose here.</b> In snapshot mode C's centre $\hat x$ is the one-channel posterior, so the whitened residual is large and highly structured: modelling it <i>is</i> the demosaicing problem. The one-call regressor learns it (<span data-v="facts.e3_D_min:1"></span>–<span data-v="facts.e3_D_max:1"></span> %). The diffusion trained on the same target does not. C1 is <span data-v="facts.e3_C1_min:1"></span>–<span data-v="facts.e3_C1_max:1"></span> %, and C's samples are heavily over-dispersed (cov50 <span data-v="facts.e3_C_cov50_min:2"></span>–<span data-v="facts.e3_C_cov50_max:2"></span>, cov90 ≥ <span data-v="facts.e3_C_cov90_min:3"></span>). The variance head inherits the poor centre and cannot shrink enough to be calibrated (cov50 <span data-v="facts.e3_V_cov50_30:2"></span> at 30 dB). A diffusion centred on D's prediction, as in Phase 2a, would have been the fairer snapshot test for C. That is out of scope here and is recorded for the write-up.</div>
+  <ul class="plain">
+    <li data-slot="e3B"></li>
+    <li data-slot="e4"></li>
+  </ul>
 </section>
 
 <!-- ============================================================ -->
 <section id="s6">
   <h2><span class="no">06</span>Line B: a prior that first had to learn to be one</h2>
-  <p class="lead">The first B records were degenerate, and the cause was the prior, not the sampler. On the isotropic Gaussian toy the ΠGDM code reproduces the exact posterior at 50 steps. With a per-pixel Wiener filter as the denoiser the same code reconstructs real cubes close to the MMSE. The learned v-prediction prior, though, did not read its input at low and medium noise.</p>
+  <p class="lead">The first B records were degenerate. The cause was the prior, not the sampler. On the isotropic Gaussian toy the ΠGDM code reproduces the exact posterior at 50 steps, and with a per-pixel Wiener filter as the denoiser the same code reconstructs real cubes close to the MMSE. The learned v-prediction prior, however, ignored its input at low and medium noise.</p>
   <figure>
     <p class="charthead">x̂₀-estimate error of each prior against the diffusion timestep (16 gate cubes, 60 dB; log scale)</p>
     <div class="legend" data-legend="probe"></div>
-    <div class="scroll" data-chart="bprobe" data-aria="x0-estimate error against timestep. The v-prediction prior and two recipe variants follow an input-blind predictor up to t of about 300 and exceed the mean-cube error; the x0-prediction pilot and prior are monotone and far lower."></div>
+    <div class="scroll" data-chart="bprobe" data-aria="x0-estimate error against timestep. The v-prediction prior and two recipe variants follow an input-blind predictor up to t of about 200 and exceed the mean-cube error from t = 150 to 400; the x0-prediction pilot and prior are monotone and far lower."></div>
     <figcaption data-slot="probetext"></figcaption>
   </figure>
   <div class="thm"><span class="lbl">THE SAMPLER WAS LICENSED FIRST</span><span data-slot="toytext"></span></div>
   <div class="tbl" data-table="toy"></div>
-  <h3>B's records: archived v-prediction prior and the x₀-prediction prior</h3>
-  <p>B is scored on the 50-cube subset. The other methods are shown on the same 50 cubes, and the paired differences use the files both records share. These differences come from the page's extractor, not from the verdict.</p>
+  <h3>B's records: the archived v-prediction prior and the x₀-prediction prior</h3>
+  <p>B is scored on the 50-cube subset. The other methods are shown on the same 50 cubes, and the paired differences use the files both records share.</p>
   <div class="tbl" data-table="brec"></div>
   <p data-slot="bnow"></p>
 </section>
 
 <!-- ============================================================ -->
 <section id="s7">
-  <h2><span class="no">07</span>The pre-registered clauses</h2>
-  <p class="lead">One row per clause and setting, for both diffusion lines, as the verdict file reports them. The main-line rule names the line that passes more of T1–T4, with T2 at 20 dB breaking a tie.</p>
+  <h2><span class="no">07</span>The pre-registered clauses and the main line</h2>
+  <p class="lead" data-slot="mainline"></p>
   <div class="tbl" data-table="clauses"></div>
   <p data-slot="verdictnote" style="font-size:14px;color:var(--muted)"></p>
 </section>
@@ -357,7 +367,7 @@ svg .box-s4{fill:var(--s4-bg);stroke:var(--s4)}
 <!-- ============================================================ -->
 <section id="s8">
   <h2><span class="no">08</span>Runs and budget</h2>
-  <p class="lead">Five 100-epoch-class trainings at base 64 on one RTX A4500 each, and three 10-epoch prior pilots. Selection followed the pre-registered rule: the lowest monitoring loss for D and V, and the fixed epoch 100 for the diffusions.</p>
+  <p class="lead">Five trainings at base 64, each on one RTX A4500: four of 100 epochs and the variance head's 40. There were also three 10-epoch prior pilots. Selection followed the pre-registered rule: the lowest monitoring loss for D and V, and the fixed epoch 100 for the diffusions. Each network was trained once (seed 42); there is no seed replication. Sample k of every sampler is drawn under torch seed k, and the measurement noise uses a crc32 seed per file.</p>
   <div class="tbl" data-table="runs"></div>
   <p data-slot="budget"></p>
 </section>
@@ -368,10 +378,11 @@ svg .box-s4{fill:var(--s4-bg);stroke:var(--s4)}
   <ul class="plain">
     <li><b>ΠGDM's correction coefficient.</b> The draft's $\sqrt{\bar\alpha_t}$ diverged on the isotropic toy. The correction is now $\hat x_0 + (1-\bar\alpha_t)/\sqrt{\bar\alpha_t}\cdot g$, the score correction in $x_0$ coordinates.</li>
     <li><b>Noise seeds per file.</b> Each cube's noise seed is the crc32 of its path relative to the data root, not its list position. Records on the 50 and the 200 cubes therefore see identical noise and pair by file.</li>
-    <li><b>K = 32 everywhere; B on the 50-cube subset.</b> Coverage verdicts need K ≥ 19, so the draft's K = 16 was withdrawn. B's ΠGDM cost limits it to the 50-cube subset, paired against the 200-cube records on the common files.</li>
-    <li><b>B's prior retrained with x₀-prediction.</b> This amends spec §5.5's “v-prediction” for the prior only (section 6). The pilot met the pre-registered decision rule (monotone, and at least 30 % below the current prior at t ≤ 300). C stays v-prediction, and the harness builds B's sampler from the checkpoint's own prediction type.</li>
-    <li><b>B's cost.</b> A B record costs ≈ <span data-v="budget.b_hours_mean:1"></span> GPU-h, not the plan's 0.63. The 12 GPU-h cap was exceeded with the user's GPUs otherwise idle.</li>
-    <li><b>PH5's B rows dropped.</b> First in the spec's drop order once B's cost was known; PH5 is report-only anyway.</li>
+    <li><b>K = 32 everywhere; B on the 50-cube subset.</b> Coverage verdicts need K ≥ 19, so the draft's K = 16 was withdrawn. B's ΠGDM cost restricts it to the 50-cube subset, where it is paired against the 200-cube records on the common files. B's tie-break CRPS difference is therefore on 50 cubes and C's on 200.</li>
+    <li data-slot="x0rule"></li>
+    <li><b>B's cost.</b> A B record costs ≈ <span data-v="budget.b_hours_mean:2"></span> GPU-h, not the plan's 0.63, so the spec's 12 GPU-h cap was exceeded; the user's GPUs were otherwise idle.</li>
+    <li><b>PH5's B rows dropped.</b> They were first in the spec's drop order once B's cost was known, and PH5 is report-only anyway.</li>
+    <li><b>E4 run.</b> GPU time remained after E1–E3, so the spec's optional E4 (Device 2, snapshot, 30 dB, all methods, report-only) was run; it is in section 5.</li>
   </ul>
 </section>
 
@@ -480,14 +491,14 @@ function xy(host,o){
   line(svg,m.l,m.t+ph,m.l+pw,m.t+ph,'axis');
   o.xTicks.forEach(function(t){tx(svg,X(t),m.t+ph+18,(o.xFmt||String)(t),'tick','middle');});
   if(o.yTitle)tx(svg,4,13,o.yTitle,'axt','start');if(o.xTitle)tx(svg,m.l+pw,m.t+ph+38,o.xTitle,'axt','end');
-  (o.refs||[]).forEach(function(r){const x1=r.x0==null?m.l:X(r.x0),x2=r.x1==null?m.l+pw:X(r.x1);line(svg,x1,Y(r.y),x2,Y(r.y),r.cls||'ref');tx(svg,r.lx==null?x2+6:X(r.lx),Y(r.y)+(r.dy==null?4:r.dy),r.label,'reflbl',r.anchor||'start');});
   const live=o.series.filter(function(s){return s.data.length;});
   live.forEach(function(s){
     const d=s.data.map(function(p,i){return (i?'L':'M')+X(p[0]).toFixed(1)+' '+Y(p[1]).toFixed(1);}).join(' ');
-    if(s.data.length>1)el('path',{d:d,class:'ln',style:'stroke:var('+s.c+');'+(s.faint?'opacity:.55;':'')+(s.dash?'stroke-dasharray:5 4;':'')+(s.thin?'stroke-width:1.3;':'')},svg);
+    if(s.data.length>1)el('path',{d:d,class:'ln',style:'stroke:var('+s.c+');'+(s.faint?'opacity:.55;':'')+(s.dash?'stroke-dasharray:'+(s.da||'5 4')+';':'')+(s.thin?'stroke-width:1.3;':'')},svg);
     if(s.marks!==false)s.data.forEach(function(p){el('circle',{cx:X(p[0]),cy:Y(p[1]),r:s.r||3.2,class:'dot',style:'fill:var('+s.c+');'+(s.faint?'opacity:.6':'')},svg);});
     if(s.label){const L=s.data[o.labelAt==='first'?0:s.data.length-1];tx(svg,X(L[0])+(o.labelAt==='first'?-8:8),Y(L[1])+(s.ldy||4),s.label,'endlbl',o.labelAt==='first'?'end':'start');}
   });
+  (o.refs||[]).forEach(function(r){const x1=r.x0==null?m.l:X(r.x0),x2=r.x1==null?m.l+pw:X(r.x1);line(svg,x1,Y(r.y),x2,Y(r.y),r.cls||'ref');tx(svg,r.lx==null?x2+6:X(r.lx),Y(r.y)+(r.dy==null?4:r.dy),r.label,'reflbl',r.anchor||'start');});
   const cross=el('line',{y1:m.t,y2:m.t+ph,class:'cross',visibility:'hidden'},svg);
   const hit=el('rect',{x:m.l,y:m.t,width:pw,height:ph,class:'hit'},svg);
   hit.addEventListener('pointermove',function(e){const p=svgPt(svg,e);const xv=o.x[0]+(p.x-m.l)/pw*(o.x[1]-o.x[0]);
@@ -577,12 +588,12 @@ CH.t2crps=function(h){const ms=['L','V','C','B'];
     groups:T2S.map(function(x){const s=set('device1','sequential',x);return {label:x+' dB',values:ms.map(function(m){return met(s,m,'crps');}),tags:ms.map(function(m){return m==='B'?bStatusTxt(s)||'pending':null;})};})});};
 CH.t2ause=function(h){const ms=['L','V','C','B'];
   bars(h,{w:520,minW:380,h:300,y:[0,0.5],ticks:[0,0.1,0.2,0.3,0.4,0.5],fmt:function(v){return v.toFixed(1);},vfmt:function(v){return v.toFixed(3);},yTitle:'AUSE',gname:'SNR',
-    series:ms.map(function(m){return {name:m,c:MC[m]};}),
+    series:ms.map(function(m){return {name:m==='B'?'B (50 cubes)':m,c:MC[m]};}),
     groups:T2S.map(function(x){const s=set('device1','sequential',x);return {label:x+' dB',values:ms.map(function(m){return met(s,m,'ause');})};})});};
 CH.t2cov=function(h){const ms=['L','V','C','B'];const W=520,H=300,m={l:46,r:12,t:16,b:50};const svg=mk(h,W,H,380);const pw=W-m.l-m.r,ph=H-m.t-m.b;
-  const Y=function(v){return m.t+ph-(v-0.2)/(1.0-0.2)*ph;};
+  const Y=function(v){return m.t+ph-(v-0)/(1.0-0)*ph;};
   el('rect',{x:m.l,y:Y(0.95),width:pw,height:Y(0.85)-Y(0.95),style:'fill:var(--good-bg)'},svg);
-  [0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1.0].forEach(function(t){line(svg,m.l,Y(t),m.l+pw,Y(t),'grid');tx(svg,m.l-8,Y(t)+4,t.toFixed(1),'tick','end');});
+  [0,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1.0].forEach(function(t){line(svg,m.l,Y(t),m.l+pw,Y(t),'grid');tx(svg,m.l-8,Y(t)+4,t.toFixed(1),'tick','end');});
   line(svg,m.l,Y(0.9),m.l+pw,Y(0.9),'refacc');line(svg,m.l,Y(0.5),m.l+pw,Y(0.5),'refacc');
   tx(svg,4,12,'coverage','axt');
   const slots=[];T2S.forEach(function(x){ms.forEach(function(mm){slots.push([x,mm]);});});const sw=pw/slots.length;
@@ -590,12 +601,12 @@ CH.t2cov=function(h){const ms=['L','V','C','B'];const W=520,H=300,m={l:46,r:12,t
   const rows=[];
   slots.forEach(function(q,i){const s=set('device1','sequential',q[0]);const cx=m.l+sw*(i+0.5);tx(svg,cx,H-m.b+18,q[1],'tick','middle');
     const c50=met(s,q[1],'cov50'),c90=met(s,q[1],'cov90');
-    if(c90==null){tx(svg,cx,Y(0.62),'pending','sm','middle').setAttribute('transform','rotate(-90 '+cx+' '+Y(0.62)+')');rows.push([q[0],q[1],'pending','pending']);return;}
+    if(c90==null){tx(svg,cx,Y(0.5),'pending','sm','middle').setAttribute('transform','rotate(-90 '+cx+' '+Y(0.5)+')');rows.push([q[0],q[1],'pending','pending']);return;}
     const a=el('circle',{cx:cx,cy:Y(c90),r:5.5,class:'dot',style:'fill:var('+MC[q[1]]+')'},svg);
     const b=el('rect',{x:cx-4.5,y:Y(c50)-4.5,width:9,height:9,rx:1.5,class:'dot',style:'fill:var('+MC[q[1]]+')'},svg);
     [a,b].forEach(function(n){hover(n,function(){return '<div><b style="margin:0;padding:0">'+q[1]+' · '+q[0]+' dB</b></div><div class="sub">cov50 '+c50.toFixed(3)+' · cov90 '+c90.toFixed(3)+'</div>';});});
     rows.push([q[0],q[1],c50.toFixed(3),c90.toFixed(3)]);});
-  dataTable(h,['SNR','method','cov50','cov90'],rows);};
+  dataTable(h,['SNR','method (B on 50 cubes)','cov50','cov90'],rows);};
 CH.e2=function(h){const ms=['L','D','C','B'];
   function draw(x){clear(h);const prevLg=h.parentNode.querySelector('.legend');if(prevLg)prevLg.remove();
     bars(h,{y:[0,25],ticks:[0,5,10,15,20,25],fmt:function(v){return v.toFixed(0);},vfmt:function(v){return v.toFixed(2);},yTitle:'RMSE % ('+x+' dB)',gname:'sensor',
@@ -604,23 +615,24 @@ CH.e2=function(h){const ms=['L','D','C','B'];
   draw('30');seg('e2',draw);};
 CH.e3rmse=function(h){const snrs=[20,30,40,60];const ms=['L','L_demosaic','D','C','C1','B'];
   legendInto('e3',ms.map(function(m){const has=snrs.some(function(x){return rmse(set('device1','snapshot',x),m)!=null;});return {n:(m==='L'?'L, exact per-pixel posterior':MN[m])+(m==='B'&&!has?' — pending':''),c:MC[m],dash:m==='C1'};}));
-  const ser=ms.map(function(m){return {name:m==='L'?'L exact':MN[m],c:MC[m],dash:m==='C1',label:{L:'L exact',L_demosaic:'L demosaic',D:'D',C:'C',B:'B'}[m],data:snrs.map(function(x){const v=rmse(set('device1','snapshot',x),m);return v==null?null:[x,v];}).filter(Boolean)};});
+  const ser=ms.map(function(m){return {name:m==='L'?'L exact':MN[m],c:MC[m],dash:m==='C1',label:{L:'L exact',L_demosaic:'L demosaic',D:'D',C:'C',B:'B'}[m],ldy:{C:-2,L_demosaic:7,B:18}[m],data:snrs.map(function(x){const v=rmse(set('device1','snapshot',x),m);return v==null?null:[x,v];}).filter(Boolean)};});
   const t=D.facts.Ldem_target_30;
   xy(h,{log:true,x:[9,62],y:[2,16],xTicks:[20,30,40,60],xFmt:function(v){return v===60?'60 (floor)':String(v);},yTicks:[2,3,5,8,12,16],yTitle:'RMSE % (log)',xTitle:'SNR (dB)',labelAt:'first',mr:20,ml:56,series:ser,tipX:function(v){return v+' dB';},
-    refs:[{y:t,x0:26,x1:34,lx:35,label:'T4 target '+fx(t,2),cls:'refacc'}],
-    table:{head:['SNR (dB)','L exact','L demosaic','D','C mean-of-32','C1','C single','B (50)'],rows:[60,40,30,20].map(function(x){const s=set('device1','snapshot',x);return [x,fx(rmse(s,'L'),3),fx(rmse(s,'L_demosaic'),3),fx(rmse(s,'D'),3),fx(rmse(s,'C'),3),fx(rmse(s,'C1'),3),fx(met(s,'C','single_rmse_pct'),3),bOk(s)?fx(rmse(s,'B'),3):bStatusTxt(s)];})}});};
-CH.bprobe=function(h){const P=D.b_prior_probe;const cs={blind:['--ink-2',true,false],vpred:['--s2',false,false],g0:['--de',false,true],tt:['--de',true,true],x0pilot:['--accent',false,true],x0:['--s4',false,false]};
-  legendInto('probe',P.series.map(function(s){return {n:s.name,c:cs[s.key][0],dash:cs[s.key][1],faint:cs[s.key][2]};}).concat([{n:'mean-cube predictor',c:'--muted',dash:true}]));
+    refs:[{y:t,x0:26,x1:34,lx:35,label:'T4 target '+fx(t,2),cls:'ref'}],
+    table:{head:['setting','L exact','L demosaic','D','C mean-of-32','C1','C single','B (50)'],rows:[['device1',60],['device1',40],['device1',30],['device1',20],['device2',30]].map(function(q){const x=q[1];const s=set(q[0],'snapshot',x);if(!s)return [q[0]+' '+x,'—','—','—','—','—','—','pending'];return [(q[0]==='device2'?'E4 Device 2, ':'E3, ')+x+' dB',fx(rmse(s,'L'),3),fx(rmse(s,'L_demosaic'),3),fx(rmse(s,'D'),3),fx(rmse(s,'C'),3),fx(rmse(s,'C1'),3),fx(met(s,'C','single_rmse_pct'),3),bOk(s)?fx(rmse(s,'B'),3):bStatusTxt(s)];})}});};
+CH.bprobe=function(h){const P=D.b_prior_probe;const cs={blind:['--ink-2',true,false,'7 4'],vpred:['--s2',false,false],g0:['--muted',false,false],tt:['--muted',true,false,'2 3'],x0pilot:['--accent',false,false],x0:['--s4',false,false]};
+  legendInto('probe',P.series.map(function(s){return {n:s.name,c:cs[s.key][0],dash:cs[s.key][1],faint:cs[s.key][2]};}).concat([{n:'mean-cube predictor (thin dashed rule)',c:'--muted',dash:true}]));
   xy(h,{log:true,x:[0,920],y:[2,32],xTicks:[25,100,200,300,400,500,700,900],yTicks:[2,3,5,10,20,30],yTitle:'x̂₀ error % (log)',xTitle:'diffusion timestep t',mr:20,
-    series:P.series.map(function(s){return {name:s.name,c:cs[s.key][0],dash:cs[s.key][1],faint:cs[s.key][2],data:P.t.map(function(t,i){return [t,s.err[i]];})};}),
-    refs:[{y:P.mean_cube,label:'mean cube '+fx(P.mean_cube,2),lx:560,anchor:'start',dy:-6}],tipX:function(v){return 't = '+v;},tipY:function(v){return v.toFixed(1)+' %';},
+    series:P.series.map(function(s){return {name:s.name,c:cs[s.key][0],dash:cs[s.key][1],da:cs[s.key][3],faint:cs[s.key][2],thin:s.key==='g0'||s.key==='tt',data:P.t.map(function(t,i){return [t,s.err[i]];})};}),
+    refs:[{y:P.mean_cube,label:'mean cube '+fx(P.mean_cube,2),lx:520,anchor:'start',dy:-6}],tipX:function(v){return 't = '+v;},tipY:function(v){return v.toFixed(1)+' %';},
     table:{head:['t'].concat(P.series.map(function(s){return s.name;})),rows:P.t.map(function(t,i){return [t].concat(P.series.map(function(s){return s.err[i].toFixed(1);}));})}});};
 
 /* ---------- tables ---------- */
 const T={};
-T.e3unc=function(h){const ms=['L','L_demosaic','V','C','B'];const nm={L:'L exact',L_demosaic:'L demosaic',V:'V',C:'C',B:'B (50 cubes)'};
-  tbl(h,['SNR'].concat(ms.map(function(m){return nm[m];})),[60,40,30,20].map(function(x){const s=set('device1','snapshot',x);return [x+' dB'].concat(ms.map(function(m){const c=met(s,m,'crps');if(c==null)return pend(bStatusTxt(s)||'pending');return num('CRPS '+fx(c,2)+'<br>'+fx(met(s,m,'cov50'),2)+' / '+fx(met(s,m,'cov90'),2)+' · '+fx(met(s,m,'ause'),2));}));}),function(i){return i===2;});
-  const p=document.createElement('p');p.style.fontSize='14px';p.style.color='var(--muted)';p.textContent='Each cell: CRPS %, then cov50 / cov90 · AUSE. The 30 dB row (highlighted) is T4’s setting.';h.appendChild(p);};
+T.e3unc=function(h){const ms=['L','L_demosaic','V','C','B'];const nm={L:'L exact',L_demosaic:'L demosaic',V:'V',C:'C',B:'B (50)'};
+  const rowsK=[['device1',60],['device1',40],['device1',30],['device1',20],['device2',30]];
+  tbl(h,['setting'].concat(ms.map(function(m){return nm[m];})),rowsK.map(function(q){const s=set(q[0],'snapshot',q[1]);return [(q[0]==='device2'?'E4 Device 2 · ':'E3 · ')+q[1]+' dB'].concat(ms.map(function(m){if(!s)return pend();const c=met(s,m,'crps');if(c==null)return pend(bStatusTxt(s)||'pending');return num(fx(c,2)+'<br>'+fx(met(s,m,'cov50'),2)+'/'+fx(met(s,m,'cov90'),2)+'<br>'+fx(met(s,m,'ause'),2));}));}),function(i){return i===2;});
+  const p=document.createElement('p');p.style.fontSize='14px';p.style.color='var(--muted)';p.textContent='Each cell: CRPS %, then cov50 / cov90, then AUSE. The 30 dB row (highlighted) is T4’s setting; E4 is report-only.';h.appendChild(p);};
 T.toy=function(h){const t=D.toy;if(!t){h.innerHTML=pend('toy record not found');return;}const g=t.gate;
   const inb=function(r){return r.rmse_excess<=g.rmse_excess&&Math.abs(r.var_ratio-1)<=g.var_tol&&r.cov90>=g.cov90[0]&&r.cov90<=g.cov90[1]&&r.cov50>=g.cov50[0]&&r.cov50<=g.cov50[1];};
   const rk=function(r){return (r.C_kind==='isotropic'?0:2)+(r.method==='pigdm'?0:1);};const rows=t.rows.slice().sort(function(a,b){return rk(a)-rk(b)||(a.mode>b.mode)-(a.mode<b.mode)||a.n_steps-b.n_steps;});
@@ -628,12 +640,12 @@ T.toy=function(h){const t=D.toy;if(!t){h.innerHTML=pend('toy record not found');
 function bRow(label,s,b,exp){if(!b||b.status!=='final'&&b.status!=='archived'&&b.status!=='stale'){return [label,b&&b.status==='dropped'?pend('dropped'):pend(),'','','','','',''];}
   const mm=b.means,sub=b.on_subset,p=b.paired;const ref=s.mode==='snapshot'?'L_demosaic':'D';const pr=p['rmse_vs_'+ref];const keyRef=ref==='D'?'rmse_pct':'mean_rmse_pct';
   return [label+(b.status==='final'?' <span class="pill nt">x₀</span>':' <span class="pill nt">v-pred</span>'),num(fx(mm.mean_rmse_pct,2)+' / '+fx(mm.single_rmse_pct,1)),num(fx(mm.crps,2)),num(fx(mm.cov50,2)+' / '+fx(mm.cov90,2)),num(sg(mm.single_hf,1)),
-    num((sub.L?fx(sub.L.mean_rmse_pct,2):'—')+' / '+(sub[ref]?fx(sub[ref][keyRef],2):'—')+' / '+(sub.C?fx(sub.C.mean_rmse_pct,2):'—')),
+    num(s.mode==='snapshot'?((sub.L?fx(sub.L.mean_rmse_pct,2):'—')+' / '+(sub.L_demosaic?fx(sub.L_demosaic.mean_rmse_pct,2):'—')+' / '+(sub.D?fx(sub.D.rmse_pct,2):'—')+' / '+(sub.C?fx(sub.C.mean_rmse_pct,2):'—')):((sub.L?fx(sub.L.mean_rmse_pct,2):'—')+' / '+(sub.D?fx(sub.D.rmse_pct,2):'—')+' / '+(sub.C?fx(sub.C.mean_rmse_pct,2):'—'))),
     num(pr?sg(pr.diff,2)+' ± '+fx(pr.se_cluster,2)+' ('+fx(pr.ratio,2)+'×)':'—'),num(fx(b.hours,2))];}
 T.brec=function(h){const rows=[];
-  [['E1','device1','sequential',[60,50,40,30,20]],['E2','device2','sequential',[40,30,20]],['E3','device1','snapshot',[60,40,30,20]]].forEach(function(e){e[3].forEach(function(x){const s=set(e[1],e[2],x);const lab=e[0]+' · '+DEVN[e[1]]+(e[2]==='snapshot'?' snapshot':'')+' · '+x+' dB';
+  [['E1','device1','sequential',[60,50,40,30,20]],['E2','device2','sequential',[40,30,20]],['E3','device1','snapshot',[60,40,30,20]],['E4','device2','snapshot',[30]]].forEach(function(e){e[3].forEach(function(x){const s=set(e[1],e[2],x);if(!s)return;const lab=e[0]+' · '+DEVN[e[1]]+(e[2]==='snapshot'?' snapshot':'')+' · '+x+' dB';
     if(e[0]==='E1'&&D.b_vpred[String(x)])rows.push(bRow(lab,s,D.b_vpred[String(x)],e[0]));rows.push(bRow(lab,s,s.B,e[0]));});});
-  tbl(h,['setting · prior','B RMSE mean-of-32 / single (%)','B CRPS','B cov50 / cov90','B single log HF','L / D (snapshot: L demosaic) / C on the same cubes','B − D (snapshot: − L demosaic) ± cl. SE (ratio)','GPU-h'],rows);};
+  tbl(h,['setting · prior','B RMSE mean-of-32 / single (%)','B CRPS','B cov50 / cov90','B single log HF','L / D / C on the same cubes (snapshot: L exact / L demosaic / D / C)','B − D (snapshot: − L demosaic) ± cl. SE (ratio)','GPU-h'],rows);};
 function clauseCellT1(c,limit){if(!c)return pend();return {v:pill(c.passed)+' <span class="num">ratio '+fx(c.ratio,3)+' · 2-SE bound '+fx(c.ratio_2se,3)+' (limit '+fx(limit,2)+')</span>',cls:''};}
 function previewT1(p,limit){if(!p)return null;return {v:prev(p.passed)+' <span class="num">ratio '+fx(p.ratio,3)+' · 2-SE bound '+fx(p.ratio_2se,3)+' (limit '+fx(limit,2)+', n '+p.n+')</span>',cls:''};}
 function bClause(fromVerdict,fallback){if(V.b_valid&&fromVerdict)return fromVerdict;return fallback||{v:pend(),cls:''};}
@@ -645,15 +657,19 @@ T.clauses=function(h){const th=V.thresholds||{};const rows=[];
     let pv=null;if(bOk(s)){const p=s.B.paired,cv=s.B.means.cov90;const ok=p.crps_vs_L.diff+2*p.crps_vs_L.se_cluster<0&&p.crps_vs_V.diff+2*p.crps_vs_V.se_cluster<0&&cv>=th.T2_COV90[0]&&cv<=th.T2_COV90[1];
       pv={v:prev(ok)+' <span class="num">CRPS − L '+sg(p.crps_vs_L.diff,3)+' ± '+fx(p.crps_vs_L.se_cluster,3)+' · − V '+sg(p.crps_vs_V.diff,3)+' ± '+fx(p.crps_vs_V.se_cluster,3)+' · cov90 '+fx(cv,3)+'</span>',cls:''};}
     rows.push(['<b>T2</b> · '+x+' dB','CRPS below L and V (2 cl. SE), cov90 ∈ ['+th.T2_COV90.join(', ')+']',cell(c),bClause(vb&&cell(vb),pv)]);});
-  const t3=function(c){if(!c)return null;return {v:pill(c.passed)+' <span class="num">ratio to L: Device 1 '+fx(c.ratio_dev1,3)+' · Device 2 '+fx(c.ratio_dev2,3)+' (limit '+fx(th.T3_RATIO*c.ratio_dev1,3)+') · PH5 '+fx(c.ph5,3)+' (report)</span>',cls:''};};
+  const t3=function(c){if(!c)return null;return {v:pill(c.passed)+' <span class="num">ratio to L: Device 1 '+fx(c.ratio_dev1,3)+' · Device 2 '+fx(c.ratio_dev2,3)+' (limit '+fx(th.T3_RATIO*c.ratio_dev1,3)+') · PH5 '+(c.ph5==null?'not run':fx(c.ph5,3)+' (report)')+'</span>',cls:''};};
   let t3p=null;const s1=set('device1','sequential',30),s2=set('device2','sequential',30);if(bOk(s1)&&bOk(s2)){const r1=s1.B.paired.rmse_vs_L.ratio,r2=s2.B.paired.rmse_vs_L.ratio;t3p={v:prev(r2<=th.T3_RATIO*r1)+' <span class="num">ratio to L: Device 1 '+fx(r1,3)+' · Device 2 '+fx(r2,3)+' (limit '+fx(th.T3_RATIO*r1,3)+')</span>',cls:''};}
   rows.push(['<b>T3</b> · 30 dB','(B or C / L) on Device 2 ≤ '+fx(th.T3_RATIO,2)+' × the same on Device 1',t3(V.T3&&V.T3.C)||pend(),bClause(t3(V.T3&&V.T3.B),t3p)]);
   const t4=function(c){if(!c)return null;return {v:pill(c.passed)+' <span class="num">ratio '+fx(c.ratio,3)+' · 2-SE bound '+fx(c.ratio_2se,3)+' (limit '+fx(th.T4_RATIO,2)+')'+(c.D?'; D: '+(c.D.passed?'pass':'fail')+' at '+fx(c.D.ratio,3):'')+'</span>',cls:''};};
   const s4=set('device1','snapshot',30);rows.push(['<b>T4</b> · snapshot 30 dB','RMSE ≤ '+fx(th.T4_RATIO,2)+' × demosaic-then-MMSE (2 cl. SE)',t4(V.T4&&V.T4.C)||pend(),bClause(t4(V.T4&&V.T4.B),bOk(s4)?previewT1(s4.B.paired.rmse_vs_L_demosaic,th.T4_RATIO):null)]);
   const sc=V.sanity||{};const fp=sc.floor_pass||{};const mo=sc.monotone||{};
-  rows.push(['<b>sanity</b>','RMSE non-increasing in SNR; at 60 dB ≤ '+fx(sc.floor_reference_rmse_pct,3)+' % + 2 SE',{v:(mo.C&&fp.C?pill(true):pill(false))+' <span class="num">C monotone '+(mo.C?'yes':'no')+' · floor '+(fp.C?'pass':'fail')+'</span>',cls:''},V.b_valid?{v:(mo.B&&fp.B?pill(true):pill(false))+' <span class="num">floor '+(fp.B?'pass':'fail')+'</span>',cls:''}:{v:pend(),cls:''}]);
-  const cnt=V.counts||{};rows.push(['<b>clauses passed</b>','of T1–T4 (a clause passes only if every setting does)',num('<b>'+(cnt.C==null?'—':cnt.C)+' of 4</b>'),V.b_valid?num('<b>'+cnt.B+' of 4</b>'):{v:pend(),cls:''}]);
-  tbl(h,['clause · setting','rule','line C (200 cubes)','line B (50 cubes)'],rows,function(i){return i>=rows.length-1;});};
+  const seqC=E1S.map(function(x){return fx(rmse(set('device1','sequential',x),'C'),3);}).join(' / '),seqB=E1S.map(function(x){return fx(rmse(set('device1','sequential',x),'B'),3);}).join(' / ');
+  const sanCell=function(line,seq){const ok=mo[line]&&fp[line];return {v:pill(ok)+' <span class="num">monotone '+(mo[line]?'yes':'no')+' ('+seq+' % at 60→20 dB) · floor '+(fp[line]?'pass':'fail')+' ('+fx(rmse(set('device1','sequential',60),line),3)+' vs '+fx(sc.floor_reference_rmse_pct,3)+' %)</span>'+(line==='B'&&!mo.B?'<br><span style="font-size:13px;color:var(--muted)">prior-limited: flat within noise, +'+fx(F0.B_e1_rmse['30']-F0.B_e1_rmse['40'],2)+' from 40 to 30 dB</span>':''),cls:''};};
+  rows.push(['<b>sanity</b>','RMSE non-increasing in SNR; at 60 dB ≤ '+fx(sc.floor_reference_rmse_pct,3)+' % + 2 SE',sanCell('C',seqC),sanCell('B',seqB)]);
+  const pc=function(line){const p=passes(line);return num('<b>'+p.length+' of 5</b> ('+(joinAnd(p)||'none')+')');};
+  rows.push(['<b>clauses passed</b>','T1 once (all five SNRs), T2 per SNR, T3, T4: at most 5; tie → lower paired CRPS − V at 20 dB',pc('C'),pc('B')]);
+  rows.push(['<b>main line</b>','',num(V.main_line==='C'?'<b>C</b>':'—'),num(V.main_line==='B'?'<b>B</b> (tie-break: '+sg(t2v('B',20).crps_vs_V.mean,3)+' vs C '+sg(t2v('C',20).crps_vs_V.mean,3)+')':'—')]);
+  tbl(h,['clause · setting','rule','line C (200 cubes)','line B (50 cubes)'],rows,function(i){return i>=rows.length-2;});};
 T.runs=function(h){const rows=D.runs.map(function(r){return [r.run+(r.failed?' <span class="pill no">failed prior</span>':''),r.role,(r.prediction_type||'v')+' · '+(r.loss_type||'')+(r.snr_gamma&&r.prediction_type!=='direct'?' · min-SNR γ '+r.snr_gamma:''),num(r.epochs+' / '+r.planned),num(fx(r.sec_per_epoch,0)),num(fx(r.hours,2)),num(String(r.selected)),num(fx(r.val_at_sel,5))];});
   D.pilots.forEach(function(p){rows.push([p.run,'prior pilot',(p.prediction_type||'v')+' · '+(p.loss_type||'')+(p.snr_gamma!=null?' · min-SNR γ '+p.snr_gamma:''),num(p.epochs+' / '+p.planned),num(fx(p.sec_per_epoch,0)),num(fx(p.hours,2)),num('—'),num('—')]);});
   tbl(h,['run','role','parameterisation · loss','epochs','s / epoch','GPU-h','selected epoch','monitoring loss there'],rows);};
@@ -661,64 +677,84 @@ T.runs=function(h){const rows=D.runs.map(function(r){return [r.run+(r.failed?' <
 /* ---------- slots ---------- */
 const SL={};
 function bList(keys){return keys.map(function(k){const s=S[k];return (s.exp+' '+DEVN[s.device]+(s.mode==='snapshot'?' snapshot':'')+' '+s.snr+' dB');}).join(', ');}
-SL.status=function(h){const nf=ST.final.length,np=ST.pending.length;const nB=ST.b_have.length,eB=ST.b_expected.length;
-  h.innerHTML='<b>Status (records as of '+D.generated+').</b> '+(nf-nB)+' main and C records final (L, D, V, C, C1 on 200 cubes in every E1–E3 setting). Line B: <b>'+nB+' of '+eB+'</b> x₀-prior records present'+(nB?' ('+bList(ST.b_have)+')':'')+(ST.b_pending.length?'; <b>pending</b>: '+bList(ST.b_pending)+'.':'; none pending.')+
-  ' Verdict file <code>'+ST.verdict_file+'</code>'+(V.report_only?' (report-only)':'')+'; '+(V.b_valid?'its B clauses are current.':'its B clauses are not used here ('+V.b_invalid_reason+'). B cells show the page’s paired preview or “pending”.')+(np&&np>ST.b_pending.length?' Other pending records: '+ST.pending.filter(function(r){return r.slice(-2)!=='_B';}).join(', ')+'.':'');};
-SL.countC=function(h){h.textContent=(V.counts&&V.counts.C!=null?V.counts.C:'—')+' of 4';};
-SL.countB=function(h){h.textContent=V.b_valid&&V.counts?V.counts.B+' of 4':'pending';};
-SL.countBsub=function(h){h.textContent=ST.b_have.length+' of '+ST.b_expected.length+' x₀-prior records present';};
 SL.normcheck=function(h){const sc=D.stage0.shape_check;h.textContent='The normalisation check '+(D.stage0.normalisation_check_passed?'passed':'FAILED')+': with the raw (un-normalised) response the curve keeps its shape within the 10 % rule (largest deviation '+fx(100*sc.sequential.max_dev,1)+' % sequential, '+fx(100*sc.snapshot.max_dev,1)+' % snapshot), so the normalised R is the paper’s sensor and the raw curve (dashed) goes to the appendix.';};
 SL.angles=function(h){const a=D.stage0.principal_angles;h.innerHTML='<b>Principal angles between the sensors’ column spaces.</b> Device 1 and Device 2 share a '+F0.ang_d1d2_shared+'-dimensional subspace: only '+F0.ang_d1d2_nonzero+' of the '+a.device1_device2.n+' angles is non-zero ('+fx(F0.ang_d1d2_max,1)+'°). The transfer test is therefore about how the two sensors weight directions, not about different subspaces. PH5’s response has rank '+F0.ph5_rank+', and every angle to Device 1’s space is at most '+fx(F0.ang_d1ph5_max,1)+'°, so PH5 measures a '+F0.ph5_rank+'-dimensional part of what Device 1 measures, with far worse conditioning.';};
 SL.t1marks=function(h){const th=V.thresholds||{};h.innerHTML='<span><b>T1</b> (limit '+fx(th.T1_RATIO,2)+'):</span>'+[60,50,40,30,20].map(function(x){const c=V.T1&&V.T1.C&&V.T1.C[vk(x)];const s=set('device1','sequential',x);const vb=V.b_valid&&V.T1.B&&V.T1.B[vk(x)];
-    let b;if(vb)b=pill(vb.passed,'B '+fx(vb.ratio,2));else if(bOk(s))b='<span class="pill wn">B '+fx(s.B.paired.rmse_vs_D.ratio,2)+'*</span>';else b=pend('B pending');
+    let b;if(vb)b=pill(vb.passed,'B '+fx(vb.ratio,2));else if(bOk(s))b='<span class="pill wn">B '+fx(s.B.paired.rmse_vs_D.ratio,2)+' (preview)</span>';else b=pend('B pending');
     return '<span>'+x+' dB '+(c?pill(c.passed,'C '+fx(c.ratio,2)):pend('C'))+' '+b+'</span>';}).join('');};
-SL.t1text=function(h){const c=V.T1&&V.T1.C||{};const ks=[60,50,40,30,20];const nf=ks.filter(function(x){return c[vk(x)]&&!c[vk(x)].passed;}).length;
-  h.innerHTML='C fails T1 at '+nf+' of 5 SNRs. Its ratio to D is '+ks.map(function(x){return fx(c[vk(x)]&&c[vk(x)].ratio,3);}).join(' / ')+' at 60 / 50 / 40 / 30 / 20 dB. At the high-SNR end the gap is about 5 %, partly the 1/K Monte-Carlo term of a 32-sample mean, and the one-call C1 is closer ('+fx(F0.C1_60,3)+' % against D’s '+fx(F0.D_60,3)+' % at 60 dB). From 30 dB down the gap opens to '+fx(100*(c['30.0'].ratio-1),0)+'–'+fx(100*(c['20.0'].ratio-1),0)+' %. A starred B marker is the page’s paired preview on the 50 cubes, not a verdict.';};
-SL.dbest=function(h){h.textContent=F0.D_best_every_snr?'the most accurate method at every SNR':'not the most accurate method at every SNR';};
-SL.e1B=function(h){const have=[60,50,40,30,20].filter(function(x){return bOk(set('device1','sequential',x));});
-  if(!have.length){h.innerHTML='<b>Line B:</b> its E1 records with the x₀-prediction prior are pending.';return;}
-  const parts=have.map(function(x){const b=set('device1','sequential',x).B;return x+' dB: '+fx(b.means.mean_rmse_pct,2)+' % against D’s '+fx(b.on_subset.D.rmse_pct,2)+' % on the same cubes (cov90 '+fx(b.means.cov90,2)+')';});
-  const pend_=[60,50,40,30,20].filter(function(x){return have.indexOf(x)<0;});
-  const under=have.filter(function(x){return set('device1','sequential',x).B.means.cov90<0.85;}).length;
-  h.innerHTML='<b>Line B with the retrained x₀-prediction prior</b> ('+have.length+' of 5 E1 records present): '+parts.join('; ')+'. '+(under?'Its samples are under-dispersed at '+under+' of these SNRs (cov90 below 0.85). ':'')+(pend_.length?'Pending: '+pend_.join(', ')+' dB.':'');};
 SL.t2marks=function(h){h.innerHTML=T2S.map(function(x){const c=V.T2&&V.T2.C&&V.T2.C[vk(x)];const s=set('device1','sequential',x);const vb=V.b_valid&&V.T2.B&&V.T2.B[vk(x)];
   return '<span><b>T2</b> '+x+' dB '+(c?pill(c.passed,'C '+(c.passed?'PASS':'FAIL')):pend('C'))+' '+(vb?pill(vb.passed,'B '+(vb.passed?'PASS':'FAIL')):(bOk(s)?'<span class="pill wn">B preview</span>':pend('B pending')))+'</span>';}).join('');};
-SL.t2text=function(h){const c=V.T2&&V.T2.C||{};const a=c['30.0'],b=c['20.0'];if(!a||!b){h.textContent='T2 for C is pending.';return;}const band=V.thresholds.T2_COV90;
-  h.innerHTML='L, V and C on the 200 gate cubes; B on its 50. At 30 dB C '+(a.passed?'passes':'fails')+' T2: CRPS − L = '+sg(a.crps_vs_L.mean,3)+' ± '+fx(a.crps_vs_L.se_cluster,3)+', − V = '+sg(a.crps_vs_V.mean,3)+' ± '+fx(a.crps_vs_V.se_cluster,3)+' (clustered), cov90 '+fx(a.cov90,3)+'. At 20 dB both CRPS differences are clear ('+sg(b.crps_vs_L.mean,3)+' ± '+fx(b.crps_vs_L.se_cluster,3)+' and '+sg(b.crps_vs_V.mean,3)+' ± '+fx(b.crps_vs_V.se_cluster,3)+'; C’s CRPS is '+fx(100*(1-b.crps_vs_L.ratio_of_means),0)+' % below L’s), but cov90 = '+fx(b.cov90,3)+(b.cov90_passed?' lies inside the band':' lies '+fx(b.cov90-band[1],3)+' above the band')+', so the clause '+(b.passed?'passes':'fails')+(b.passed?'':' on coverage only')+'.';};
-SL.covtext=function(h){const c20=met(set('device1','sequential',20),'C','cov50'),c30=met(set('device1','sequential',30),'C','cov50');const b30=set('device1','sequential',30),b20=set('device1','sequential',20);
-  let t='C is slightly over-dispersed, and more so as the SNR falls (cov50 '+fx(c30,3)+' at 30 dB, '+fx(c20,3)+' at 20 dB, against 0.50 nominal). The variance head is the best calibrated of the four.';
-  if(bOk(b30)||bOk(b20)){const xs=[30,20].filter(function(x){return bOk(set('device1','sequential',x));});t+=' B: '+xs.map(function(x){const m=set('device1','sequential',x).B.means;return 'cov50 '+fx(m.cov50,2)+' / cov90 '+fx(m.cov90,2)+' at '+x+' dB';}).join('; ')+'.';}else t+=' B’s 30 and 20 dB records are pending.';
-  h.textContent=t;};
-SL.t3text=function(h){const c=V.T3&&V.T3.C;const th=V.thresholds;if(!c){h.textContent='T3 pending.';return;}
-  let t='L, D and C on the 200 gate cubes; B on its 50, where present. T3 for C '+(c.passed?'passes':'fails')+': C’s RMSE ratio to the MMSE is '+fx(c.ratio_dev1,3)+' on Device 1 and '+fx(c.ratio_dev2,3)+' on Device 2, against the limit '+fx(th.T3_RATIO,2)+' × '+fx(c.ratio_dev1,3)+' = '+fx(th.T3_RATIO*c.ratio_dev1,3)+'. On PH5 (report-only) the ratio is '+fx(c.ph5,3)+'.';
-  const s1=set('device1','sequential',30),s2=set('device2','sequential',30);
-  if(V.b_valid&&V.T3.B)t+=' T3 for B '+(V.T3.B.passed?'passes':'fails')+' (ratios '+fx(V.T3.B.ratio_dev1,3)+' and '+fx(V.T3.B.ratio_dev2,3)+').';
-  else if(bOk(s1)&&bOk(s2))t+=' B (page preview on the 50 cubes): ratio '+fx(s1.B.paired.rmse_vs_L.ratio,3)+' on Device 1, '+fx(s2.B.paired.rmse_vs_L.ratio,3)+' on Device 2.';
-  else t+=' T3 for B waits for its 30 dB records on '+[[s1,'Device 1'],[s2,'Device 2']].filter(function(q){return !bOk(q[0]);}).map(function(q){return q[1];}).join(' and ')+'.';
-  h.textContent=t;};
 SL.d2D=function(h){h.textContent=[40,30,20].map(function(x){return fx(-F0['device2_D_vs_L_'+x],0)+' %';}).join(' / ')+' below the MMSE at 40 / 30 / 20 dB (on Device 1: '+[40,30,20].map(function(x){return fx(F0['D_below_L_'+x],0)+' %';}).join(' / ')+').';};
-SL.e2B=function(h){const xs=[40,30,20].filter(function(x){return bOk(set('device2','sequential',x));});
-  if(!xs.length){h.innerHTML='<b>Line B on Device 2:</b> pending. B needs no retraining for any sensor by construction, so its transfer test is only whether its error ratio to the MMSE holds.';return;}
-  h.innerHTML='<b>Line B on Device 2</b> ('+xs.length+' of 3 records): '+xs.map(function(x){const b=set('device2','sequential',x).B;return x+' dB: '+fx(b.means.mean_rmse_pct,2)+' % against L’s '+fx(b.on_subset.L.mean_rmse_pct,2)+' % on the same cubes';}).join('; ')+'.';};
-SL.t4text=function(h){const c=V.T4&&V.T4.C;if(!c){h.textContent='T4 pending.';return;}
-  let t='L, L demosaic, D and C on the 200 gate cubes; B on its 50. The dashed segment at 30 dB is T4’s target. T4 for C '+(c.passed?'passes':'fails')+': ratio '+fx(c.ratio,3)+' (2-SE bound '+fx(c.ratio_2se,3)+'). C’s posterior mean ('+fx(F0.e3_C_30,2)+' %) is '+(c.ratio>1?'worse than':'better than')+' demosaic-then-MMSE ('+fx(F0.Ldem_30,2)+' %).'+(c.D?' The regressor passes the same clause '+(c.D.passed?'easily':'—')+': '+fx(F0.e3_D_30,2)+' %, ratio '+fx(c.D.ratio,3)+', at every SNR below the baseline.':'');
-  const s4=set('device1','snapshot',30);if(V.b_valid&&V.T4.B)t+=' T4 for B '+(V.T4.B.passed?'passes':'fails')+' (ratio '+fx(V.T4.B.ratio,3)+').';else if(bOk(s4))t+=' B (preview): ratio '+fx(s4.B.paired.rmse_vs_L_demosaic.ratio,3)+' to the demosaic baseline on its 50 cubes.';else t+=' T4 for B waits for its 30 dB snapshot record.';
-  h.textContent=t;};
-SL.e3B=function(h){const xs=[60,40,30,20].filter(function(x){return bOk(set('device1','snapshot',x));});
-  if(!xs.length){h.innerHTML='<b>Line B in snapshot mode</b> (zero-shot, masked operator): pending.';return;}
-  h.innerHTML='<b>Line B in snapshot mode</b> (zero-shot, masked operator; '+xs.length+' of 4 records): '+xs.map(function(x){const b=set('device1','snapshot',x).B;const p=b.paired.rmse_vs_L_demosaic;return x+' dB: '+fx(b.means.mean_rmse_pct,2)+' % against demosaic-then-MMSE '+fx(p.b,2)+' % on the same cubes (ratio '+fx(p.ratio,3)+'), cov50 / cov90 '+fx(b.means.cov50,2)+' / '+fx(b.means.cov90,2);}).join('; ')+'.';};
-SL.probetext=function(h){const P=D.b_prior_probe;const g=function(k){return P.series.filter(function(s){return s.key===k;})[0].err;};const i299=P.t.indexOf(299);const v=g('vpred'),bl=g('blind'),x0=g('x0');
-  const worse=P.t.filter(function(t,i){return v[i]>P.mean_cube;});
-  h.textContent='The v-prediction prior (epoch 100) tracks the input-blind predictor E[v | t] to within a point for t ≤ 200, and is worse than predicting the mean cube ('+fx(P.mean_cube,2)+' %) at t = '+worse.join(', ')+'. Neither uniform loss weighting nor a time-token path moves the curve. With x₀-prediction the low-t target is close to the identity, which forces the network to read x_t: the retrained prior’s error is '+fx(x0[0],1)+' % at t = '+P.t[0]+' and '+fx(x0[i299],1)+' % at t = 299, where the v-prediction prior had '+fx(v[i299],1)+' % and the blind predictor '+fx(bl[i299],1)+' %. Its error grows monotonically and stays below the mean cube at every t. Unguided DDIM-50 samples saturated '+fx(P.saturation_pct.vpred,1)+' % of their elements with the v-prediction prior and '+fx(P.saturation_pct.x0,1)+' % with the x₀-prediction prior.';};
 SL.toytext=function(h){const t=D.toy;if(!t){h.textContent='The toy record was not found at build time.';return;}const r=t.rows.filter(function(r){return r.C_kind==='isotropic'&&r.method==='pigdm'&&r.n_steps===t.steps_for_B;});
-  h.textContent='Before Stage 0, ΠGDM had to reproduce the exact Gaussian posterior on an isotropic toy with the real Device 1 operator (1 000 draws per cell, 30 dB). At '+t.steps_for_B+' steps it meets every gate in both modes ('+r.map(function(q){return q.mode+': mean excess '+fx(q.rmse_excess,4)+', variance ratio '+fx(q.var_ratio,3)+', cov90 '+fx(q.cov90,3);}).join('; ')+'), so B runs at '+t.steps_for_B+' steps as pre-registered. On the correlated HFD covariance (report only) the isotropic approximation costs about 4 % in RMSE and under-disperses in sequential mode. That is the first explanation to test if B’s calibration clauses fail.';};
-SL.bnow=function(h){const have=ST.b_have.length;if(!have){h.innerHTML='No x₀-prior B record yet: the B story ends at the prior.';return;}
-  const keys=ST.b_have;const under=keys.filter(function(k){return S[k].B.means.cov90<0.85;});
-  const worseD=keys.filter(function(k){const p=S[k].B.paired;const q=S[k].mode==='snapshot'?p.rmse_vs_L_demosaic:p.rmse_vs_D;return q&&q.diff-2*q.se_cluster>0;});
-  h.innerHTML='<b>Where B stands ('+have+' of '+ST.b_expected.length+' records).</b> With the x₀-prediction prior the samples are no longer degenerate (single-sample RMSE '+keys.map(function(k){return fx(S[k].B.means.single_rmse_pct,1)+' %';}).join(', ')+' against the v-prediction prior’s '+Object.keys(D.b_vpred).map(function(k){return fx(D.b_vpred[k].means.single_rmse_pct,1)+' %';}).join(', ')+'). '+
-    (worseD.length?'Its mean-of-32 is still worse than the reference method (D; in snapshot mode, demosaic-then-MMSE) by more than 2 clustered SE in '+worseD.length+' of '+have+' settings. ':'')+(under.length?'Its samples are under-dispersed (cov90 below 0.85) in '+under.length+' of '+have+'. ':'')+(ST.b_pending.length?'The remaining '+ST.b_pending.length+' records are pending, and the verdict on B waits for them.':'All B records are in.');};
-SL.verdictnote=function(h){h.innerHTML='Verdict <code>'+ST.verdict_file+'</code>, created '+(V.created||'—')+(V.report_only?', report-only':'')+'. Main line: '+(V.main_line?'<b>'+V.main_line+'</b>':'not named (the verdict needs B)')+'. '+(V.b_valid?'':'B cells marked “preview” are the page’s own paired computation on the 50-cube subset, using the verdict’s rule and thresholds; they become verdict cells when the final verdict that reads the x₀-prior records is built ('+V.b_invalid_reason+').')+(V.missing&&V.missing.length?' Settings the verdict lists as missing: '+V.missing.length+'.':'');};
-SL.budget=function(h){const b=D.budget,e=b.eval_hours;h.innerHTML='<b>Budget.</b> Training '+fx(b.train_hours,1)+' GPU-h for the five runs (the failed v-prediction prior included), plus '+fx(b.pilot_hours,1)+' GPU-h for the three prior pilots. Evaluation so far: '+fx(e.main,2)+' GPU-h for the L / D / V records, '+fx(e.C,1)+' for C, '+fx(e.B_vpred,1)+' for the two archived v-prediction B records and '+fx(e.B,1)+' for the '+b.b_records+' x₀-prior B records present. A B record costs ≈ '+fx(b.b_hours_mean,2)+' GPU-h, so the '+b.b_expected+' planned B records come to ≈ '+fx(b.b_hours_projected,0)+' GPU-h, against the spec’s 12 GPU-h cap for B.';};
+  h.textContent='Before Stage 0, ΠGDM had to reproduce the exact Gaussian posterior on an isotropic toy with the real Device 1 operator (1 000 draws per cell, 30 dB). At '+t.steps_for_B+' steps it meets every gate in both modes ('+r.map(function(q){return q.mode+': mean excess '+fx(q.rmse_excess,4)+', variance ratio '+fx(q.var_ratio,3)+', cov90 '+fx(q.cov90,3);}).join('; ')+'), so B runs at '+t.steps_for_B+' steps as pre-registered. On the correlated HFD covariance (report only) the isotropic approximation costs about 4 % in RMSE and under-disperses in sequential mode. '+((passes('B').indexOf('T2 at 30 dB')<0&&passes('B').indexOf('T2 at 20 dB')<0)?'B’s coverage did fail T2 (section 3), so that approximation is the first explanation to test.':'That would be the first explanation to test if B’s calibration clauses failed.');};
+/* verdict helpers: the verdict's own counting rule (sd_verdict._counts) */
+const E1S=[60,50,40,30,20];
+function passes(line){const out=[];const t1=V.T1&&V.T1[line]||{};if(E1S.every(function(x){return t1[vk(x)]&&t1[vk(x)].passed;}))out.push('T1');
+  T2S.forEach(function(x){const c=V.T2&&V.T2[line]&&V.T2[line][vk(x)];if(c&&c.passed)out.push('T2 at '+x+' dB');});
+  if(V.T3&&V.T3[line]&&V.T3[line].passed)out.push('T3');if(V.T4&&V.T4[line]&&V.T4[line].passed)out.push('T4');return out;}
+function t2v(line,x){return V.T2&&V.T2[line]&&V.T2[line][vk(x)];}
+function joinAnd(a){return a.length<2?a.join(''):a.slice(0,-1).join(', ')+' and '+a[a.length-1];}
+function bestSnrs(m){const b=F0.e1_best_common||{};return E1S.filter(function(x){return b[String(x)]===m;}).sort(function(a,b){return b-a;});}
+function rng(a){return a.length?(a.length>1?a[0]+'–'+a[a.length-1]:String(a[0]))+' dB':'no SNR';}
+SL.status=function(h){const p=ST.pending;h.innerHTML=p.length?'<b>Not yet in the records at build time:</b> '+p.join(', ')+'. The cells that need them show “pending”.':'';};
+SL.outcome=function(h){const cB=passes('B'),cC=passes('C');const tb=t2v('B',20),tc=t2v('C',20);const ml=V.main_line;
+  const r30=V.T1.B&&V.T1.B['30.0'],r20=V.T1.B&&V.T1.B['20.0'];const c30=t2v('B',30);
+  const d2=set('device2','sequential',30);const cC40=[40,30,20].map(function(x){return met(set('device1','sequential',x),'C','cov90');});
+  h.innerHTML='<p><b>Main line: '+(ml||'—')+'.</b> The pre-registered verdict (<code>'+ST.verdict_file+'</code>) gives B '+cB.length+' pass ('+(joinAnd(cB)||'none')+') and C '+cC.length+' pass ('+(joinAnd(cC)||'none')+') out of 5. The tie goes to the line with the lower paired CRPS − CRPS<sub>V</sub> at 20 dB: B '+sg(tb.crps_vs_V.mean,2)+' on its 50 cubes against C '+sg(tc.crps_vs_V.mean,2)+' on the 200, so B is named. '+
+   '<b>B wins on the accuracy of its mean, not on calibration.</b> Its mean-of-32 is '+fx(r30.ratio,3)+' / '+fx(r20.ratio,3)+' × the regressor at 30 / 20 dB on the shared cubes, and it transfers zero-shot to Device 2. Its samples are badly over-confident, though (cov90 '+fx(c30.cov90,3)+' / '+fx(tb.cov90,3)+' at 30 / 20 dB against 0.90 nominal). Both lines are reported in full below.</p>'+
+   '<ul><li><b>Regressor D:</b> the best point estimate at high SNR ('+rng(bestSnrs('D'))+' on the shared cubes) and the only method that demosaics: '+fx(F0.e3_D_30,2)+' % in snapshot at 30 dB against '+fx(F0.Ldem_30,2)+' % for demosaic-then-MMSE.</li>'+
+   '<li><b>B, guided prior:</b> the best point estimate at '+rng(bestSnrs('B'))+', and zero-shot on Device 2 ('+fx(d2.B.means.mean_rmse_pct,2)+' % at 30 dB against the regressor’s '+fx(d2.B.on_subset.D.rmse_pct,2)+' %), but over-confident everywhere.</li>'+
+   '<li><b>C, conditional diffusion:</b> near-nominal coverage on its own sensor (cov90 '+fx(Math.min.apply(null,cC40),3)+'–'+fx(Math.max.apply(null,cC40),3)+' at 40–20 dB), and the lowest CRPS of any method whose coverage is near nominal at ≤ 40 dB ('+fx(F0.C_crps_gain_lo_min,0)+'–'+fx(F0.C_crps_gain_lo_max,0)+' % below L and V). It never matches the regressor’s mean.</li></ul>';};
+SL.kpiB=function(h){const r=V.T1.B&&V.T1.B['20.0'];h.textContent=r?fx(r.ratio,3)+' ×':'—';};
+SL.kpiBsub=function(h){const r=V.T1.B&&V.T1.B['30.0'];h.textContent=r?(fx(r.ratio,3)+' × at 30 dB; T1 passes at 30 and 20 dB'):'';};
+SL.countBC=function(h){h.textContent='B '+passes('B').length+' · C '+passes('C').length;};
+SL.countsub=function(h){h.textContent='B: '+(joinAnd(passes('B'))||'none')+' · C: '+(joinAnd(passes('C'))||'none')+' · main line '+(V.main_line||'—')+' by tie-break';};
+SL.e1lead=function(h){const bD=bestSnrs('D'),bB=bestSnrs('B');h.textContent='The paper’s main figure. On the cubes B and the others share, the regressor D is the most accurate method at '+rng(bD)+' and B’s mean-of-32 at '+rng(bB)+'. B’s error barely moves with SNR, so it is limited by its prior rather than by the noise. Clause T1 asks whether the better diffusion line’s mean-of-32 RMSE stays within 5 % of the regressor’s, by 2 clustered SE.';};
+SL.dbest=function(h){const c=V.T1.C;const bB=bestSnrs('B');
+  h.innerHTML='<b>No single method is the best point estimate.</b> D is the most accurate method at '+rng(bestSnrs('D'))+' and halves the MMSE error at 20 dB ('+fx(F0.D_20,2)+' against '+fx(F0.L_20,2)+' %). B is the most accurate at '+rng(bB)+' on its 50 cubes ('+bB.map(function(x){return fx(V.T1.B[vk(x)].ratio,3)+' × D at '+x+' dB';}).join(', ')+'). C’s mean-of-32 never beats D. The spec predicted that C would pass T1 at every SNR, and it failed at every SNR: about '+fx(100*(c['60.0'].ratio-1),0)+' % behind at the high end, and '+fx(100*(c['30.0'].ratio-1),0)+'–'+fx(100*(c['20.0'].ratio-1),0)+' % from 30 dB down.';};
+SL.t1text=function(h){const c=V.T1.C,b=V.T1.B;const bp=E1S.filter(function(x){return b[vk(x)]&&b[vk(x)].passed;});
+  h.innerHTML='C fails T1 at all five SNRs; its ratio to D is '+E1S.map(function(x){return fx(c[vk(x)].ratio,3);}).join(' / ')+' at 60 / 50 / 40 / 30 / 20 dB. At the high-SNR end part of the gap is the 1/K Monte-Carlo term of a 32-sample mean, and the one-call C1 is closer ('+fx(F0.C1_60,3)+' % against D’s '+fx(F0.D_60,3)+' % at 60 dB). B passes at '+(bp.join(' and ')||'no SNR')+' dB, but T1 is counted once over all five SNRs, so neither line passes T1. B’s 2-SE bound at 30 dB is '+fx(b['30.0'].ratio_2se,3)+', a narrow margin from one training seed.';};
+SL.e1crpscap=function(h){const b30=t2v('B',30),b20=t2v('B',20);
+  h.innerHTML='At 60 dB the three 200-cube methods are level. From 40 dB down C’s CRPS is '+fx(F0.C_crps_gain_lo_min,0)+'–'+fx(F0.C_crps_gain_lo_max,0)+' % below both the MMSE posterior’s and the variance head’s. This is the opposite of Phase 2a, where the variance head won on CRPS. B, on its 50 cubes, has the lowest CRPS at 30 and 20 dB (ratio to L '+fx(b30.crps_vs_L.ratio_of_means,2)+' and '+fx(b20.crps_vs_L.ratio_of_means,2)+'). That comes from its accurate mean, not from its spread (section 3).';};
+SL.e1B=function(h){const m=F0.B_e1_rmse;const mono=V.sanity&&V.sanity.monotone;
+  h.innerHTML='<b>B is nearly flat with SNR.</b> Its mean-of-32 is '+E1S.map(function(x){return fx(m[String(x)],3);}).join(' / ')+' % at 60 / 50 / 40 / 30 / 20 dB. At the noise floor it is far above the MMSE (it fails the floor sanity check), and its error even rises by '+fx(m['30']-m['40'],2)+' from 40 to 30 dB, which fails the pre-registered monotonicity check'+(mono&&mono.B===false?'':' (verdict: passed)')+'. The prior, not the measurement noise, sets its error. That is why it wins only where the noise dominates everyone else’s error.';};
+SL.t2text=function(h){const a=t2v('C',30),b=t2v('C',20),ba=t2v('B',30),bb=t2v('B',20);const band=V.thresholds.T2_COV90;
+  h.innerHTML='L, V and C on the 200 gate cubes, B on its 50 (paired on the shared files). <b>C</b> '+(a.passed?'passes':'fails')+' T2 at 30 dB: CRPS − L = '+sg(a.crps_vs_L.mean,3)+' ± '+fx(a.crps_vs_L.se_cluster,3)+', − V = '+sg(a.crps_vs_V.mean,3)+' ± '+fx(a.crps_vs_V.se_cluster,3)+' (clustered), cov90 '+fx(a.cov90,3)+'. At 20 dB both differences are clear ('+sg(b.crps_vs_L.mean,3)+' ± '+fx(b.crps_vs_L.se_cluster,3)+' and '+sg(b.crps_vs_V.mean,3)+' ± '+fx(b.crps_vs_V.se_cluster,3)+'), but cov90 = '+fx(b.cov90,3)+(b.cov90_passed?' is inside the band':' lies '+fx(b.cov90-band[1],3)+' above the band')+', so it '+(b.passed?'passes':'fails on coverage only')+'. '+
+   '<b>B</b> has the lowest CRPS at both SNRs (− V = '+sg(ba.crps_vs_V.mean,2)+' ± '+fx(ba.crps_vs_V.se_cluster,2)+' and '+sg(bb.crps_vs_V.mean,2)+' ± '+fx(bb.crps_vs_V.se_cluster,2)+'). It still fails T2 at both, on coverage (cov90 '+fx(ba.cov90,3)+' / '+fx(bb.cov90,3)+'). CRPS rewards an accurate mean more than it punishes a spread that is too narrow, so an over-confident sampler with a good mean can score the lowest CRPS.';};
+SL.covtext=function(h){const c20=met(set('device1','sequential',20),'C','cov50'),c30=met(set('device1','sequential',30),'C','cov50');const B30=set('device1','sequential',30).B.means,B20=set('device1','sequential',20).B.means;
+  h.textContent='C is slightly over-dispersed, and more so as the SNR falls (cov50 '+fx(c30,3)+' at 30 dB, '+fx(c20,3)+' at 20 dB, against 0.50 nominal). The variance head is the best calibrated of the four. B is badly over-confident: its 50 % interval covers '+fx(B30.cov50,2)+' / '+fx(B20.cov50,2)+' and its 90 % interval '+fx(B30.cov90,2)+' / '+fx(B20.cov90,2)+' at 30 / 20 dB.';};
+SL.t3text=function(h){const c=V.T3.C,b=V.T3.B,th=V.thresholds;
+  h.innerHTML='L, D and C on the 200 gate cubes, B on its 50. T3 at 30 dB: <b>B '+(b&&b.passed?'passes':'fails')+'</b>. Its RMSE ratio to the MMSE is '+fx(b.ratio_dev1,3)+' on Device 1 and '+fx(b.ratio_dev2,3)+' on Device 2, against the limit '+fx(th.T3_RATIO*b.ratio_dev1,3)+'. <b>C '+(c.passed?'passes':'fails')+'</b>: its ratio is '+fx(c.ratio_dev1,3)+' and '+fx(c.ratio_dev2,3)+', against the limit '+fx(th.T3_RATIO*c.ratio_dev1,3)+'. On PH5 (report-only) C’s ratio is '+fx(c.ph5,3)+'.';};
+SL.ph5V=function(h){h.textContent=[40,30,20].map(function(x){const s=set('ph5','sequential',x);return fx(met(s,'V','crps'),2)+' vs '+fx(met(s,'L','crps'),2);}).join(', ')+' at 40 / 30 / 20 dB';};
+SL.e2B=function(h){const xs=[40,30,20];
+  h.innerHTML='<b>Device 2: B transfers zero-shot and '+(F0.B_best_dev2_all?'is the most accurate method at every SNR':'keeps most of its accuracy')+', but stays over-confident.</b> On its 50 cubes it scores '+xs.map(function(x){const b=set('device2','sequential',x).B;return fx(b.means.mean_rmse_pct,2)+' % against L '+fx(b.on_subset.L.mean_rmse_pct,2)+' and D '+fx(b.on_subset.D.rmse_pct,2)+' at '+x+' dB';}).join('; ')+'. Its cov90 is '+xs.map(function(x){return fx(set('device2','sequential',x).B.means.cov90,2);}).join(' / ')+'. B was never trained on any sensor, so transfer costs it nothing; its error is set by the prior.';};
+SL.t4text=function(h){const c=V.T4.C,b=V.T4.B;
+  h.textContent='L exact, L demosaic, D and C on the 200 gate cubes, B on its 50. The dashed segment at 30 dB is T4’s target. T4 fails for both lines. C: ratio '+fx(c.ratio,3)+' (2-SE bound '+fx(c.ratio_2se,3)+'), and its mean-of-32 ('+fx(F0.e3_C_30,2)+' %) is worse than demosaic-then-MMSE ('+fx(F0.Ldem_30,2)+' %). B: ratio '+fx(b.ratio,3)+' (2-SE bound '+fx(b.ratio_2se,3)+'). The regressor passes the same clause by a wide margin, at '+fx(F0.e3_D_30,2)+' % (ratio '+fx(c.D.ratio,3)+'), and it is below the baseline at every SNR.';};
+SL.e3B=function(h){const xs=[60,40,30,20].filter(function(x){return bOk(set('device1','snapshot',x));});
+  const r=xs.map(function(x){return set('device1','snapshot',x).B.paired.rmse_vs_L_demosaic.ratio;});
+  h.innerHTML='<b>B cannot demosaic.</b> With the masked operator, zero-shot, it lands at the demosaic baseline: ratio '+fx(Math.min.apply(null,r),2)+'–'+fx(Math.max.apply(null,r),2)+' to demosaic-then-MMSE on its 50 cubes at '+xs.join(' / ')+' dB. Its spread is still too narrow (cov90 '+xs.map(function(x){return fx(set('device1','snapshot',x).B.means.cov90,2);}).join(' / ')+'). A spectral–spatial prior learned on full cubes does not supply the cross-pixel interpolation that the regressor learned from snapshot training cubes.';};
+SL.e4=function(h){const s=set('device2','snapshot',30);if(!s||!s.methods.L){h.innerHTML='<b>E4 (Device 2, snapshot, 30 dB, report-only):</b> '+pend();return;}
+  h.innerHTML='<b>E4, Device 2 in snapshot mode at 30 dB (report-only):</b> '+(F0.e4_D_over_dem>1&&F0.e4_C_over_dem>1?'nothing trained on Device 1 transfers to the other sensor’s mosaic. ':'')+'Demosaic-then-MMSE gives '+fx(F0.e4_Ldem,2)+' % (exact per-pixel posterior '+fx(F0.e4_Lexact,2)+' %). D gives '+fx(F0.e4_D,2)+' % ('+fx(F0.e4_D_over_dem,2)+' × the baseline), C '+fx(F0.e4_C,2)+' % ('+fx(F0.e4_C_over_dem,2)+' ×) and C1 '+fx(F0.e4_C1,2)+' %. B: '+(bOk(s)?fx(s.B.means.mean_rmse_pct,2)+' % on its 50 cubes (ratio '+fx(s.B.paired.rmse_vs_L_demosaic.ratio,3)+' to the baseline on those cubes), cov90 '+fx(s.B.means.cov90,2):pend())+'.'+(F0.e4_D_over_dem>1?' The regressor’s demosaicing is specific to the sensor it was trained on.':'')+'';};
+SL.probetext=function(h){const P=D.b_prior_probe;const g=function(k){return P.series.filter(function(s){return s.key===k;})[0].err;};const i299=P.t.indexOf(299);const v=g('vpred'),bl=g('blind'),x0=g('x0'),g0=g('g0'),tt=g('tt');
+  const gap=P.t.map(function(t,i){return Math.abs(v[i]-bl[i]);});const lo=P.t.filter(function(t){return t<=50;}).map(function(t){return gap[P.t.indexOf(t)];});const mid=P.t.filter(function(t){return t>=100&&t<=200;}).map(function(t){return gap[P.t.indexOf(t)];});
+  const pg=Math.max.apply(null,P.t.filter(function(t){return t<=200;}).map(function(t){const i=P.t.indexOf(t);return Math.max(Math.abs(g0[i]-bl[i]),Math.abs(tt[i]-bl[i]));}));
+  const worse=P.t.filter(function(t,i){return v[i]>P.mean_cube;});
+  h.textContent='The v-prediction prior (epoch 100) follows the input-blind predictor E[v | t]: the two curves agree to within '+fx(Math.max.apply(null,lo),1)+' at t = 25 / 50 and within '+fx(Math.min.apply(null,mid),1)+'–'+fx(Math.max.apply(null,mid),1)+' points from t = 100 to 200 (the two pilots within '+fx(pg,1)+'). It is worse than predicting the mean cube ('+fx(P.mean_cube,2)+' %) at t = '+worse.join(', ')+'. Neither uniform loss weighting nor a time-token path moves the curve. With x₀-prediction the low-t target is close to the identity, which forces the network to read x_t. The retrained prior’s error is '+fx(x0[0],1)+' % at t = '+P.t[0]+' and '+fx(x0[i299],1)+' % at t = 299, where the v-prediction prior had '+fx(v[i299],1)+' % and the blind predictor '+fx(bl[i299],1)+' %; it grows monotonically and stays below the mean cube at every t. Unguided DDIM-50 samples saturated '+fx(P.saturation_pct.vpred,1)+' % of their elements with the v-prediction prior and '+fx(P.saturation_pct.x0,1)+' % with the x₀-prediction prior.';};
+SL.x0rule=function(h){const P=D.b_prior_probe;const g=function(k){return P.series.filter(function(s){return s.key===k;})[0].err;};const v=g('vpred'),p=g('x0pilot');
+  const idx=P.t.map(function(t,i){return i;}).filter(function(i){return P.t[i]<=300;});const drops=idx.map(function(i){return 1-p[i]/v[i];});const ok=idx.filter(function(i,j){return drops[j]>=0.3;}).map(function(i){return P.t[i];});const bad=idx.filter(function(i,j){return drops[j]<0.3;});
+  h.innerHTML='<b>B’s prior retrained with x₀-prediction (an amendment, not pre-registered).</b> This amends spec §5.5’s “v-prediction” for the prior only (section 6). The decision rule was set after the first prior failed and before the pilot ran: the pilot’s curve must be monotone and at least 30 % below the failed prior’s at t ≤ 300. It met that at t = '+ok[0]+'–'+ok[ok.length-1]+(bad.length?'; at t = '+bad.map(function(i){return P.t[i]+' the drop is '+fx(100*(1-p[i]/v[i]),0)+' %';}).join(', '):'')+'. C stays v-prediction. The harness builds B’s sampler from the checkpoint’s own prediction type. B’s verdict therefore scores an amended line.';};
+SL.bnow=function(h){const keys=ST.b_have;const under=keys.filter(function(k){return S[k].B.means.cov90<0.85;});
+  const worse=keys.filter(function(k){const p=S[k].B.paired;const q=S[k].mode==='snapshot'?p.rmse_vs_L_demosaic:p.rmse_vs_D;return q&&q.diff-2*q.se_cluster>0;});
+  const vk_=Object.keys(D.b_vpred).sort(function(a,b){return b-a;});
+  h.innerHTML='<b>Where B stands.</b> With the x₀-prediction prior the samples are no longer degenerate. The single-sample RMSE is '+fx(Math.min.apply(null,keys.map(function(k){return S[k].B.means.single_rmse_pct;})),1)+'–'+fx(Math.max.apply(null,keys.map(function(k){return S[k].B.means.single_rmse_pct;})),1)+' % over the '+keys.length+' settings, against the v-prediction prior’s '+vk_.map(function(k){return fx(D.b_vpred[k].means.single_rmse_pct,1)+' % at '+k+' dB';}).join(' and ')+'. The mean-of-32 is worse than the reference method (D; in snapshot mode, demosaic-then-MMSE) by more than 2 clustered SE in '+worse.length+' of '+keys.length+' settings. The samples are under-dispersed (cov90 below 0.85) in '+under.length+' of '+keys.length+'.';};
+SL.mainline=function(h){const cB=passes('B'),cC=passes('C'),tb=t2v('B',20),tc=t2v('C',20);
+  h.innerHTML='The verdict counts T1 once (it passes only if all five SNRs pass), T2 once per SNR, then T3 and T4: at most 5 passes per line. B passes '+cB.length+' ('+(joinAnd(cB)||'none')+') and C passes '+cC.length+' ('+(joinAnd(cC)||'none')+'). A tie goes to the line with the lower paired CRPS − CRPS<sub>V</sub> at 20 dB, whether or not it passes T2 there. B’s '+sg(tb.crps_vs_V.mean,3)+' (50 cubes) is below C’s '+sg(tc.crps_vs_V.mean,3)+' (200 cubes), so the main line is <b>'+V.main_line+'</b>. B wins on the accuracy of its mean; its coverage fails T2 at both SNRs. Both lines are reported in full.';};
+SL.verdictnote=function(h){h.innerHTML='Verdict <code>'+ST.verdict_file+'</code>, created '+(V.created||'—')+'. B cells are on B’s 50 cubes, paired with the 200-cube references on the shared files (at least '+V.min_common+' common files required).';};
+SL.budget=function(h){const b=D.budget,e=b.eval_hours;const ev=e.main+e.C+e.B+e.B_vpred;const tot=b.train_hours+b.pilot_hours+ev;
+  h.innerHTML='<b>Budget.</b> Training took '+fx(b.train_hours,1)+' GPU-h for the five runs (the failed v-prediction prior included), plus '+fx(b.pilot_hours,1)+' GPU-h for the three prior pilots. Evaluation took '+fx(e.main,2)+' GPU-h for the L / D / V records, '+fx(e.C,1)+' for C, '+fx(e.B_vpred,1)+' for the two archived v-prediction B records and '+fx(e.B,1)+' for the '+b.b_records+' x₀-prior B records (E4’s L / D / V and C records are counted in those totals). A B record costs ≈ '+fx(b.b_hours_mean,2)+' GPU-h, against the spec’s 12 GPU-h cap for all of B. Total: ≈ '+fx(tot,0)+' GPU-h on RTX A4500s.';};
+/* horizontal-scroll cue for charts and tables that overflow their card (phones) */
+function hints(){document.querySelectorAll('.scroll,.tbl').forEach(function(h){const over=h.scrollWidth>h.clientWidth+4;let n=h.nextElementSibling;const has=n&&n.classList&&n.classList.contains('hint');
+  if(over&&!has){const d=document.createElement('p');d.className='hint';d.textContent='scroll sideways for the full '+(h.classList.contains('tbl')?'table':'chart')+' →';h.parentNode.insertBefore(d,h.nextSibling);}else if(!over&&has)n.remove();});}
 
 /* ---------- data-bound values ---------- */
 function resolve(path){return path.split('.').reduce(function(o,k){return o==null?undefined:o[k];},D);}
@@ -729,6 +765,7 @@ document.querySelectorAll('[data-fig]').forEach(function(h){const f=F[h.dataset.
 document.querySelectorAll('[data-chart]').forEach(function(h){const f=CH[h.dataset.chart];if(f)f(h);});
 document.querySelectorAll('[data-table]').forEach(function(h){const f=T[h.dataset.table];if(f)f(h);});
 document.querySelectorAll('[data-slot]').forEach(function(h){const f=SL[h.dataset.slot];if(f)f(h);});
+hints();window.addEventListener('resize',hints);
 
 })();
 </script>
