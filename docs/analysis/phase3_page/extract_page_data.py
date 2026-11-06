@@ -30,7 +30,7 @@ if REPO not in sys.path:
     sys.path.insert(0, REPO)
 from data_loader.warmstart_paths import DATA_ROOT, RESULTS_ROOT  # noqa: E402
 from data_loader.sensor_config import SENSOR_DIR  # noqa: E402
-from scripts.paired_stats import cluster_se  # noqa: E402
+from scripts.paired_stats import cluster_se, source_image  # noqa: E402
 
 OUT = os.path.join(HERE, 'page_data.json')
 EVAL = os.path.join(SENSOR_DIR, 'eval')
@@ -168,7 +168,9 @@ def b_block(brec, main, crec, exp, snr, mode):
 
 
 def settings_block():
-    out, pending, final = {}, [], []
+    """-> (settings, final, pending, stale): a B record whose prior is not x0-prediction is 'stale' (listed under
+    status.stale, never under final)."""
+    out, pending, final, stale = {}, [], [], []
     for exp, dev, mode, snrs, stem in EXPERIMENTS:
         for snr in snrs:
             key = f'{dev}_{mode}_{snr}'
@@ -176,6 +178,8 @@ def settings_block():
             main = load(base + '_main.json') if os.path.exists(base + '_main.json') else None
             crec = load(base + '_C.json') if os.path.exists(base + '_C.json') else None
             s = dict(exp=exp, device=dev, mode=mode, snr=snr, methods={})
+            if main is not None:                                     # source images of the 200 cubes (SE clusters)
+                s['clusters'] = len({source_image(f) for f in main['files']})
             for rec in (main, crec):
                 if rec is None:
                     continue
@@ -190,14 +194,16 @@ def settings_block():
             elif os.path.exists(base + '_B.json'):
                 brec = load(base + '_B.json')
                 s['B'] = b_block(brec, main, crec, exp, snr, mode)
-                final.append(f'{stem.format(snr=snr)}_B')
                 if s['B']['pred_type'] != 'x0':
                     s['B']['status'] = 'stale'
+                    stale.append(f'{stem.format(snr=snr)}_B')
+                else:
+                    final.append(f'{stem.format(snr=snr)}_B')
             else:
                 s['B'] = dict(status='pending')
                 pending.append(f'{stem.format(snr=snr)}_B')
             out[key] = s
-    return out, final, pending
+    return out, final, pending, stale
 
 
 def vpred_block():
@@ -292,7 +298,7 @@ def verdict_block(name):
     p = name if os.path.isabs(name) else os.path.join(SENSOR_DIR, name)
     v = load(p)
     ok, why = b_is_valid_in(v)
-    keep = {k: v[k] for k in ('T1', 'T2', 'T3', 'T4', 'sanity', 'counts', 'main_line', 'report_only', 'missing',
+    keep = {k: v[k] for k in ('T1', 'T2', 'T3', 'T4', 'sanity', 'counts', 'main_line', 'tie_break', 'report_only', 'missing',
                               'thresholds', 'name', 'created', 'min_common') if k in v}
     return dict(file=os.path.basename(p), b_valid=ok, b_invalid_reason=why, **keep)
 
@@ -306,7 +312,7 @@ def runs_block():
         a = load(os.path.join(d, 'args.json'))
         vals = {r['epoch']: r['val_loss'] for r in L if 'val_loss' in r}
         return dict(run=run, mode=a.get('mode'), prediction_type=a.get('prediction_type'), loss_type=a.get('loss_type'),
-                    snr_gamma=a.get('snr_gamma'), epochs=L[-1]['epoch'], planned=a.get('num_epochs'),
+                    snr_gamma=a.get('snr_gamma'), seed=a.get('seed'), epochs=L[-1]['epoch'], planned=a.get('num_epochs'),
                     sec_per_epoch=rd(np.mean([r['sec'] for r in L]), 4), hours=rd(L[-1]['elapsed_hours'], 4),
                     done=os.path.exists(os.path.join(d, 'DONE')), vals=vals,
                     skipped=int(sum(r.get('skipped_nonfinite', 0) for r in L)))
@@ -325,11 +331,15 @@ def runs_block():
 
 
 def eval_hours():
-    tot = {'main': 0.0, 'C': 0.0, 'B': 0.0, 'B_vpred': 0.0}
+    """GPU-h per record kind. 'B' and the B record count hold x0-prior records only; a B record in eval/ that is not
+    x0-prior (stale, not yet archived) counts under 'B_stale'; the archived v-prediction records under 'B_vpred'."""
+    tot = {'main': 0.0, 'C': 0.0, 'B': 0.0, 'B_stale': 0.0, 'B_vpred': 0.0}
     nb = 0
     for p in glob.glob(os.path.join(EVAL, '*.json')):
         r = load(p)
         kind = p[:-5].rsplit('_', 1)[1]
+        if kind == 'B' and b_pred_type(r) != 'x0':
+            kind = 'B_stale'
         tot[kind] = tot.get(kind, 0.0) + r['provenance'].get('seconds', 0) / 3600
         nb += kind == 'B'
     for p in glob.glob(os.path.join(EVAL, 'vpred_prior', '*.json')):
@@ -337,9 +347,20 @@ def eval_hours():
     return {k: rd(v, 4) for k, v in tot.items()}, nb
 
 
-def facts_block(S, stage0, verdict, sensor):
+def facts_block(S, stage0, verdict, sensor, runs=()):
     """Derived numbers the page's prose reads (each one bound to the records)."""
     f = {}
+    # the training seed (the page says "each network was trained once (seed N)": None unless every run shares one seed)
+    seeds = {r.get('seed') for r in runs}
+    f['train_seed'] = seeds.pop() if len(seeds) == 1 else None
+    # source images behind the SEs: the 200 gate cubes, and B's 50-cube subset (paired with the 200 on the common files)
+    s30 = S.get('device1_sequential_30', {})
+    f['clusters_gate'] = s30.get('clusters')
+    pb = (s30.get('B') or {}).get('paired', {}).get('rmse_vs_L') if (s30.get('B') or {}).get('status') == 'final' else None
+    f['clusters_B'] = pb['clusters'] if pb else None
+    # C's T2 at 30 dB as the verdict scored it (the KPI tile's "(T2 passed / failed)")
+    c30 = (((verdict.get('T2') or {}).get('C') or {}).get('30.0') or {})
+    f['C_T2_30_word'] = None if 'passed' not in c30 else ('passed' if c30['passed'] else 'failed')
     e1 = {snr: S[f'device1_sequential_{snr}']['methods'] for snr in (60, 50, 40, 30, 20)}
     f['L_floor'] = stage0['sanity_reference_rmse_pct']
     for snr, m in e1.items():
@@ -481,7 +502,7 @@ def main():
         if vname is None:
             vs = sorted(glob.glob(os.path.join(SENSOR_DIR, 'verdict__*.json')), key=os.path.getmtime)
             vname = os.path.basename(vs[-1])
-    S, final, pending = settings_block()
+    S, final, pending, stale = settings_block()
     stage0 = stage0_block()
     sensor = sensor_block()
     verdict = verdict_block(vname)
@@ -492,7 +513,7 @@ def main():
     b_hours = [S[k]['B']['hours'] for k in b_have]
     page = dict(
         generated=data_as_of(verdict),
-        status=dict(final=sorted(final), pending=sorted(pending), b_expected=b_expected, b_have=b_have,
+        status=dict(final=sorted(final), pending=sorted(pending), stale=sorted(stale), b_expected=b_expected, b_have=b_have,
                     b_pending=[k for k in b_expected if k not in b_have], verdict_file=verdict['file'],
                     verdict_b_valid=verdict['b_valid'], verdict_final=('noB' not in verdict['file'])),
         settings=S, b_vpred=vpred_block(), stage0=stage0, sensor=sensor, toy=toy_block(), config=config_block(),
@@ -502,7 +523,7 @@ def main():
                     b_hours_mean=rd(np.mean(b_hours), 4) if b_hours else None,
                     b_hours_projected=rd(np.mean(b_hours) * len(b_expected), 4) if b_hours else None),
     )
-    page['facts'] = facts_block(S, stage0, verdict, sensor)
+    page['facts'] = facts_block(S, stage0, verdict, sensor, runs)
     s = json.dumps(page, separators=(',', ':'), ensure_ascii=False, sort_keys=True)
     with open(OUT, 'w') as fh:
         fh.write(s)
@@ -513,6 +534,8 @@ def main():
         print('PENDING records: ' + ', '.join(page['status']['pending']))
     else:
         print('PENDING records: none')
+    if page['status']['stale']:
+        print('STALE B records (not x0-prior; not counted as final): ' + ', '.join(page['status']['stale']))
 
 
 if __name__ == '__main__':
