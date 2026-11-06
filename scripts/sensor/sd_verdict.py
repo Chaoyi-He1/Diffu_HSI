@@ -237,14 +237,47 @@ def _counts(res):
     return counts
 
 
-def main_line(res):
-    """Most passes among T1 (once, all five SNRs), T2 (per SNR), T3, T4; a tie goes to the lower paired CRPS - CRPS_V at 20 dB."""
+def tie_break(res, settings, tied, min_common=MIN_COMMON):
+    """The tie-break metric, paired CRPS - CRPS_V at 20 dB, for every tied line on the files common to ALL tied lines and V
+    (spec §6.1: a comparison that involves B is made on identical cubes), in the first tied line's file order, with the
+    clustered SE as in T2. -> the verdict's `tie_break` dict; the winner has the lowest common-file mean."""
+    snr = T2_SNRS[1]
+    key = setting_key('device1', 'sequential', snr)
+    pV, fV, _ = _get(settings, key, 'V')
+    own = {l: _get(settings, key, l) for l in tied}
+    common = set(fV)
+    for l in tied:
+        common &= set(own[l][1])
+    order = [f for f in own[tied[0]][1] if f in common]
+    if len(order) < min_common:
+        raise ValueError(f'tie-break: only {len(order)} files are common to the tied lines {tied} and V (< MIN_COMMON = {min_common})')
+    lines = {}
+    for l in tied:
+        p, f, _ = own[l]
+        pos = {x: i for i, x in enumerate(f)}
+        sub = {'crps': [p['crps'][pos[x]] for x in order]}
+        c = paired_on_common(sub, order, pV, fV, 'crps', 'crps', min_common)
+        o = res['T2'][l][snr]['crps_vs_V']
+        lines[l] = dict(mean_own=float(o['mean']), n_own=int(o['n']), mean_common=c['mean'], se_cluster_common=c['se_cluster'])
+    winner = min(tied, key=lambda l: lines[l]['mean_common'])
+    return dict(metric=f'crps_vs_V@{snr:g}', n_common=int(len(order)), lines=lines, winner=winner)
+
+
+def main_line(res, settings=None, min_common=MIN_COMMON, info=None):
+    """Most passes among T1 (once, all five SNRs), T2 (per SNR), T3, T4; a tie goes to the lower paired CRPS - CRPS_V at 20 dB,
+    computed on the files common to the tied lines when `settings` is given (`info['tie_break']` receives the numbers; this
+    is what `verdict` does), else on each line's own files (the T2 means)."""
     counts = _counts(res)
     top = max(counts.values())
     tied = [l for l in counts if counts[l] == top]
     if len(tied) == 1:
         return tied[0]
-    return min(tied, key=lambda l: res['T2'][l][T2_SNRS[1]]['crps_vs_V']['mean'])
+    if settings is None:
+        return min(tied, key=lambda l: res['T2'][l][T2_SNRS[1]]['crps_vs_V']['mean'])
+    tb = tie_break(res, settings, tied, min_common)
+    if info is not None:
+        info['tie_break'] = tb
+    return tb['winner']
 
 
 def verdict(settings, report_only=False, min_common=MIN_COMMON):
@@ -272,10 +305,11 @@ def verdict(settings, report_only=False, min_common=MIN_COMMON):
         for s in E1_SNRS:
             _get(settings, setting_key('device1', 'sequential', s), 'L')
     counts = _counts(res)
-    ml = None
+    ml, info = None, {}
     if not report_only:
-        ml = main_line(res)
+        ml = main_line(res, settings, min_common, info)
     return dict(T1=res['T1'], T2=res['T2'], T3=res['T3'], T4=res['T4'], sanity=san, counts=counts, main_line=ml,
+                tie_break=info.get('tie_break'),
                 report_only=bool(report_only), min_common=int(min_common), missing=sorted(set(missing)))
 
 
@@ -298,6 +332,10 @@ def _print(v):
             print(f"T4 {line}: {'PASS' if c['passed'] else 'FAIL'}  ratio {c['ratio']:.4f} (2se {c['ratio_2se']:.4f}, limit {T4_RATIO})")
     for m in v['missing']:
         print('MISSING', m)
+    tb = v.get('tie_break')
+    if tb:
+        print('tie-break', tb['metric'], f"on {tb['n_common']} common files:",
+              ', '.join(f"{l} {d['mean_common']:+.4f} (own {d['n_own']}: {d['mean_own']:+.4f})" for l, d in tb['lines'].items()))
     print('passes', v['counts'], '| main line:', v['main_line'] if v['main_line'] else 'none (report only)' if v['report_only'] else 'none')
 
 

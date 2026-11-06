@@ -95,6 +95,10 @@ def get_parser():
     ap.add_argument('--sensor_config', default='',
                     help='Phase 3: sensor forward-model config json (required by, and only allowed with, the sensor modes)')
     ap.add_argument('--sensor_device', choices=list(DEVICES), default='device1', help='Phase 3: which measured sensor simulates y')
+    ap.add_argument('--allow_other_train_device', action='store_true',
+                    help="Phase 3: allow --sensor_device other than the config's device_train. Off by default: the "
+                         "checkpoint's config sha hashes device_train, not the device actually used, so a model trained "
+                         "on another sensor would pass sd_eval's checks and void the zero-shot transfer clause (T3)")
     ap.add_argument('--snr_gamma', type=float, default=5.0, help='min-SNR-gamma loss weighting, <= 0 = off (ignored by --mode regress / varhead)')
     ap.add_argument('--val_every', type=int, default=5, help='loss-only validation on the non-gate validation files every N epochs (0 = never)')
     ap.add_argument('--save_every', type=int, default=10); ap.add_argument('--keep_last', type=int, default=2)
@@ -158,6 +162,7 @@ def make_datasets(args):
     so the monitoring loss is comparable across epochs). Legacy modes: HFDResidualData, optionally a half and the XR cache."""
     if getattr(args, 'mode', None) in SENSOR_MODES:            # getattr: the monitoring scripts' namespace has no mode
         cfg = load_config(args.sensor_config)
+        check_train_device(args, cfg)
         train = HFDSensorSim(args.data_root, 'train', cfg, device=args.sensor_device, prior_path=args.prior)
         val = HFDSensorSim(args.data_root, 'test', cfg, device=args.sensor_device, prior_path=args.prior)
         exclude_gate(val, args.data_root)
@@ -221,6 +226,15 @@ def check_mode_args(args):
                          f'(got mode={args.mode!r}, xr_cache={args.xr_cache!r})')
     if args.train_half and args.mode != 'regress':
         raise ValueError(f'--train_half is for the half-data regressors (--mode regress) only, got mode={args.mode!r}')
+
+
+def check_train_device(args, cfg):
+    """Sensor modes train on the config's device_train unless --allow_other_train_device (see its help): the config sha
+    does not cover the device, so this is the only guard against a checkpoint silently trained on another sensor."""
+    dev, want = getattr(args, 'sensor_device', None), cfg.get('device_train')
+    if dev != want and not getattr(args, 'allow_other_train_device', False):
+        raise ValueError(f'--sensor_device {dev!r} differs from the config\'s device_train {want!r} ({args.sensor_config}); '
+                         f'pass --allow_other_train_device to train on another sensor deliberately')
 
 
 def make_trainer(args, device):

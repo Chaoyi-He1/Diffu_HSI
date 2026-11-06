@@ -44,6 +44,8 @@ FLAG_ALLOWED_MODES = {**{f: (m,) for f, m in FLAG_MODE.items()}, 'uncond': ('unc
 SAMPLED_FLAGS = ('cond', 'uncond')              # sampled on N_TIMESTEPS steps
 N_TIMESTEPS = 1000
 C_CLAMP = (-8.0, 8.0)                           # the standardised residual's x0 estimate in C's sampler
+C_STEPS = 10                                    # C: DDIM-10, draw k under torch.manual_seed(k)
+C1_STEPS, C1_SEED = 1, 0                        # C1 (spec §5.3 one-call point of C): one DDIM step under torch.manual_seed(0)
 
 
 # ----------------------------------------------------------------------------- methods and checkpoints
@@ -68,7 +70,8 @@ def ckpt_epoch(path):
 
 def check_models(args, cfg, device):
     """Load the checkpoint of every requested method (C and C1 share --cond) and refuse (ValueError, naming the file)
-    one whose meta mode is not the method's or whose sensor_config_sha is not training_sha(cfg); the sampled models
+    one whose meta mode is not the method's or whose sensor_config_sha is not training_sha(cfg), and a D / V / C checkpoint
+    trained on another device than cfg['device_train'] (meta sensor_device; missing = device_train); the sampled models
     (cond must be v-prediction, uncond v or x0). Returns (models keyed D / V / C / B, provenance keyed by the flag)."""
     sha = training_sha(cfg)
     models, prov = {}, {}
@@ -85,6 +88,10 @@ def check_models(args, cfg, device):
             bad.append(f"mode: checkpoint {meta.get('mode', '<missing>')!r} vs required {want}")
         if meta.get('sensor_config_sha') != sha:
             bad.append(f"sensor_config_sha: checkpoint {meta.get('sensor_config_sha', '<missing>')!r} vs config {sha!r}")
+        # the sha hashes the constant device_train, not the device the run used; the uncond prior is sensor-free.
+        # A missing field counts as device_train (launch_run.sh never passed --sensor_device, the trainer's default).
+        if flag != 'uncond' and meta.get('sensor_device', cfg['device_train']) != cfg['device_train']:
+            bad.append(f"sensor_device: checkpoint {meta.get('sensor_device')!r} vs config device_train {cfg['device_train']!r}")
         allowed_pt = {'cond': ('v',), 'uncond': ('v', 'x0')}.get(flag)   # B's prior may be v- or x0-prediction
         if allowed_pt and meta.get('prediction_type', 'v') not in allowed_pt:
             want = ' or '.join(repr(a) for a in allowed_pt)
@@ -123,6 +130,18 @@ def _demosaic_baseline(batch, ds, sigma, e2):
     return torch.stack(xs).float(), torch.stack(ss).float()
 
 
+def c_sampler_provenance(methods, K):
+    """C's / C1's sampler as the record states it (B's is pigdm_steps / guidance / b_prediction_type); None without C or C1."""
+    if 'C' not in methods and 'C1' not in methods:
+        return None
+    out = dict(method='ddim', prediction_type='v', n_timesteps=N_TIMESTEPS, clamp_x0=list(C_CLAMP))
+    if 'C' in methods:
+        out['C'] = dict(n_steps=C_STEPS, seeds=list(range(K)), rule='draw k under torch.manual_seed(k); point = mean of K')
+    if 'C1' in methods:
+        out['C1'] = dict(n_steps=C1_STEPS, seed=C1_SEED, rule=f'one DDIM call of the C model under torch.manual_seed({C1_SEED}) (spec §5.3)')
+    return out
+
+
 @torch.no_grad()
 def run_eval(models, ds, loader, args, cfg, provenance, device):
     methods = resolve_methods(args)
@@ -158,12 +177,12 @@ def run_eval(models, ds, loader, args, cfg, provenance, device):
             draws = []
             for k in range(K):
                 torch.manual_seed(k)
-                r = trainer.sample(models['C'], cond, shape, n_steps=10, method='ddim', progress=False, clamp_x0=C_CLAMP)
+                r = trainer.sample(models['C'], cond, shape, n_steps=C_STEPS, method='ddim', progress=False, clamp_x0=C_CLAMP)
                 draws.append(compose(x0_hat, s_post, r))
             _extend(acc, 'C', sample_metrics(torch.stack(draws, 0), x))
         if 'C1' in methods:
-            torch.manual_seed(0)
-            r1 = trainer.sample(models['C'], cond, shape, n_steps=1, method='ddim', progress=False, clamp_x0=C_CLAMP)
+            torch.manual_seed(C1_SEED)
+            r1 = trainer.sample(models['C'], cond, shape, n_steps=C1_STEPS, method='ddim', progress=False, clamp_x0=C_CLAMP)
             _extend(acc, 'C1', point_metrics(compose(x0_hat, s_post, r1), x))
         if 'B' in methods:
             y = batch['y'].float().to(device)
@@ -180,7 +199,9 @@ def run_eval(models, ds, loader, args, cfg, provenance, device):
                 files=[os.path.relpath(f, args.data_root) for f in ds.img_list], classes=[class_of(f) for f in ds.img_list],
                 per_cube=acc, means=means, coverage_exact=bool(K >= min_k_for(0.9)),
                 provenance=dict(sensor_config_sha=training_sha(cfg), config_path=os.path.abspath(args.sensor_config),
-                                checkpoints=provenance, b_prediction_type=b_pt if 'B' in methods else None, git_head=git_head(), created=time.strftime('%Y-%m-%dT%H:%M:%S'),
+                                checkpoints=provenance, b_prediction_type=b_pt if 'B' in methods else None,
+                                c_sampler=c_sampler_provenance(methods, K),
+                                git_head=git_head(), created=time.strftime('%Y-%m-%dT%H:%M:%S'),
                                 seconds=time.time() - t0, seeds=list(range(K)), device=str(device),
                                 batch_size=int(args.batch_size), limit_files=int(args.limit_files)))
 

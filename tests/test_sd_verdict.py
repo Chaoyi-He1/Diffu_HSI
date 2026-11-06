@@ -217,7 +217,7 @@ def test_report_only_lists_missing_settings_and_writes_report_name(tmp_path, mon
     for k in ('device2/sequential/30', 'ph5/sequential/30', 'device1/snapshot/30', 'device1/sequential/60'):
         recs.pop(k)
     mp, st = _load(tmp_path, monkeypatch, recs, name='part')
-    with pytest.raises(Exception):
+    with pytest.raises(sv.Missing, match='setting device1/sequential/60'):
         sv.verdict(st)
     v = sv.verdict(st, report_only=True)
     assert v['report_only'] and v['main_line'] is None and v['missing']
@@ -242,3 +242,35 @@ def test_min_common_override_is_recorded_and_applied(tmp_path, monkeypatch):
     assert sv.verdict(st, report_only=True)['min_common'] == sv.MIN_COMMON
     sv.main(['--manifest', mp, '--report_only', '--min_common', '5'])
     assert json.loads((tmp_path / 'verdict__mc__report.json').read_text())['min_common'] == 5
+
+
+def test_tiebreak_pairs_the_tied_lines_on_their_common_files(tmp_path, monkeypatch):
+    # B on 50 files, C on all 60 (a superset). On the common 50, B - V = -0.3 and C - V = -0.1 -> B wins; on its own 60, C's
+    # mean is pulled to -0.333 by its 10 extra cubes, so the old own-file comparison would have picked C.
+    _, st = _load(tmp_path, monkeypatch, _world())
+    key = sv.setting_key('device1', 'sequential', 20.0)
+    pV, fV, _ = st[key]['V']
+    v = np.asarray(pV['crps'])
+    pB, fB, KB = st[key]['B']
+    nb = 50
+    st[key]['B'] = ({k: list(np.asarray(a)[:nb]) for k, a in dict(pB, crps=(v - 0.3).tolist()).items()}, fB[:nb], KB)
+    pC, fC, KC = st[key]['C']
+    c = v - 0.1
+    c[nb:] = v[nb:] - 1.5
+    st[key]['C'] = (dict(pC, crps=c.tolist()), fC, KC)
+    res = sv.verdict(st)
+    assert res['counts']['B'] == res['counts']['C']
+    assert res['T2']['C'][20.0]['crps_vs_V']['mean'] < res['T2']['B'][20.0]['crps_vs_V']['mean']     # own files: C lower
+    tb = res['tie_break']
+    assert tb['metric'] == 'crps_vs_V@20' and tb['n_common'] == nb and tb['winner'] == 'B' and res['main_line'] == 'B'
+    assert tb['lines']['B']['mean_common'] == pytest.approx(-0.3) and tb['lines']['C']['mean_common'] == pytest.approx(-0.1)
+    assert tb['lines']['B']['n_own'] == nb and tb['lines']['C']['n_own'] == N
+    assert tb['lines']['C']['mean_own'] == pytest.approx(res['T2']['C'][20.0]['crps_vs_V']['mean'])
+    assert tb['lines']['B']['mean_own'] == pytest.approx(-0.3)
+    assert all(tb['lines'][l]['se_cluster_common'] >= 0 for l in ('B', 'C'))
+
+
+def test_no_tie_break_when_the_counts_differ(tmp_path, monkeypatch):
+    _, st = _load(tmp_path, monkeypatch, _world(C=dict(t4=0.95)))
+    v = sv.verdict(st)
+    assert v['main_line'] == 'B' and v['tie_break'] is None

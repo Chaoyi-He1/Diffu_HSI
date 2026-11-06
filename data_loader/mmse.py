@@ -21,6 +21,10 @@ def posterior_sequential(y, R, mu01, C01, noise_var):
     Lc = np.linalg.cholesky(C + 1e-12 * np.eye(C.shape[0]))
     D = 1.0 / np.sqrt(nv)
     M = D[:, None] * (R.T @ Lc)                                   # [S, L]
+    # the thin SVD with the "+1" in S / (S^2 + 1) is the whitened gain only when S <= L: for S > L the complement of U
+    # (directions with singular value 0, gain 0 but not dropped from U^T) would be missing and the gain wrong
+    assert M.shape[0] <= M.shape[1], \
+        f'posterior_sequential needs channels S <= bands L: R is {R.shape} (L, S), whitened M is {M.shape} (S, L)'
     U, S, Vt = np.linalg.svd(M, full_matrices=False)
     K = Lc @ Vt.T @ np.diag(S / (S ** 2 + 1.0)) @ U.T @ np.diag(D)   # [L, S]
     y = np.asarray(y, np.float64)

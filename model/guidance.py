@@ -76,6 +76,10 @@ def _ddim_step(x, x0, ab_t, ab_prev):
 
 
 def _init(trainer, shape, seed):
+    """x_T for draw `seed`. The generator is keyed by the seed alone, so every batch of the same shape gets the SAME x_T for
+    seed k: cube i of batch 1 and cube i of batch 2 start draw k from identical noise (a correlation across batches, not
+    across draws). Kept deliberately: mixing the batch index into the seed would make the existing B records
+    non-reproducible (final-review Minor 10, ruled DOCUMENT only)."""
     g = torch.Generator(device='cpu').manual_seed(int(seed))
     return torch.randn(shape, generator=g).to(trainer.device)
 

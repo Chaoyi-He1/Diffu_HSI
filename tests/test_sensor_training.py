@@ -216,3 +216,18 @@ def test_dry_run_handles_dict_batches(tmp_path, monkeypatch):
     b = args_for(tmp_path, 'residual', '--dry_run_steps', '2', '--batch_size', '2')
     monkeypatch.setattr(tr, 'make_datasets', lambda args: (StubTupleSet(n=32), StubTupleSet()))
     assert math.isfinite(tr.dry_run(b)['loss'])
+
+
+def test_training_device_must_be_the_configs_unless_allowed(tmp_path, monkeypatch):
+    cfg = dict(device_train='device1')
+    tr.check_train_device(sensor_args(tmp_path, 'cond_fam'), cfg)                                  # default device1: fine
+    a = sensor_args(tmp_path, 'cond_fam', '--sensor_device', 'device2')
+    assert a.allow_other_train_device is False
+    with pytest.raises(ValueError, match="sensor_device 'device2'.*device_train 'device1'.*--allow_other_train_device"):
+        tr.check_train_device(a, cfg)
+    tr.check_train_device(sensor_args(tmp_path, 'cond_fam', '--sensor_device', 'device2', '--allow_other_train_device'), cfg)
+    # make_datasets applies it before any dataset is built (the dry_run and training paths both go through it)
+    monkeypatch.setattr(tr, 'load_config', lambda p: cfg)
+    monkeypatch.setattr(tr, 'HFDSensorSim', lambda *a, **k: pytest.fail('a dataset was built for the wrong device'))
+    with pytest.raises(ValueError, match='allow_other_train_device'):
+        tr.make_datasets(a)

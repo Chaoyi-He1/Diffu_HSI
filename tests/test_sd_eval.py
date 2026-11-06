@@ -93,10 +93,11 @@ def run(ds, args, models):
     return SE.run_eval(models, ds, loader, args, CFG, {}, torch.device('cpu'))
 
 
-def save_ckpt(path, mode, sha=None, prediction_type='v'):
-    torch.save(dict(model_state_dict=build_residual_model(mode, 16).state_dict(),
-                    meta=dict(mode=mode, base_channels=16, sensor_config_sha=sha or training_sha(CFG), prediction_type=prediction_type)),
-               path)
+def save_ckpt(path, mode, sha=None, prediction_type='v', sensor_device=None):
+    meta = dict(mode=mode, base_channels=16, sensor_config_sha=sha or training_sha(CFG), prediction_type=prediction_type)
+    if sensor_device is not None:
+        meta['sensor_device'] = sensor_device
+    torch.save(dict(model_state_dict=build_residual_model(mode, 16).state_dict(), meta=meta), path)
     return str(path)
 
 
@@ -124,8 +125,14 @@ def test_record_holds_every_requested_method_with_paired_files(small_R, syntheti
     assert set(rec) == {'name', 'setting', 'subset', 'K', 'pigdm_steps', 'guidance', 'n', 'files', 'classes', 'per_cube',
                         'means', 'coverage_exact', 'provenance'}
     assert set(rec['provenance']) == {'sensor_config_sha', 'config_path', 'checkpoints', 'git_head', 'created', 'seconds',
-                                      'seeds', 'device', 'batch_size', 'limit_files', 'b_prediction_type'}
+                                      'seeds', 'device', 'batch_size', 'limit_files', 'b_prediction_type', 'c_sampler'}
     assert rec['provenance']['sensor_config_sha'] == training_sha(CFG) and rec['provenance']['seeds'] == [0, 1, 2]
+    cs = rec['provenance']['c_sampler']                                   # C's sampler beside B's pigdm_steps / guidance
+    assert cs['method'] == 'ddim' and cs['clamp_x0'] == [-8.0, 8.0] and cs['prediction_type'] == 'v'
+    assert cs['C']['n_steps'] == 10 and cs['C']['seeds'] == [0, 1, 2]
+    assert cs['C1']['n_steps'] == 1 and cs['C1']['seed'] == 0 and 'one DDIM call' in cs['C1']['rule']
+    assert SE.c_sampler_provenance(['L', 'D'], 3) is None and set(SE.c_sampler_provenance(['C1'], 3)) == \
+        {'method', 'prediction_type', 'n_timesteps', 'clamp_x0', 'C1'}
     json.dumps(rec)
 
 
@@ -206,12 +213,23 @@ def test_refuses_overwrite(tmp_path, monkeypatch):
 
 @pytest.mark.filterwarnings('ignore:coverage_samples:UserWarning')                # K = 2 < min_k_for(0.5)
 def test_B_is_unchanged_when_off_mask_entries_are_corrupted(small_R, synthetic_prior):
+    # Shrink depends on x_t, so guidance has a gradient path and B's draws depend on y; the on-mask control below proves it
+    # (with a constant model the off-mask equality would hold even if B ignored y entirely).
     args = fake_args(mode='snapshot', methods=['B'], K=2, pigdm_steps=2)
+
+    class OnMask(StubSensorDS):
+        def __getitem__(self, i):
+            d = super().__getitem__(i)
+            d['y'] = (d['y'] + 0.5 * d['mask']).astype(np.float32)
+            return d
+
     with np.errstate(divide='ignore', invalid='ignore'):
-        a = run(StubSensorDS(small_R, synthetic_prior, mode='snapshot', n=3), args, dict(B=Const(0.0)))
-        b = run(StubSensorDS(small_R, synthetic_prior, mode='snapshot', n=3, corrupt=1e3), args, dict(B=Const(0.0)))
+        a = run(StubSensorDS(small_R, synthetic_prior, mode='snapshot', n=3), args, dict(B=Shrink()))
+        b = run(StubSensorDS(small_R, synthetic_prior, mode='snapshot', n=3, corrupt=1e3), args, dict(B=Shrink()))
+        c = run(OnMask(small_R, synthetic_prior, mode='snapshot', n=3), args, dict(B=Shrink()))
     assert set(a['per_cube']) == {'B'} and len(a['per_cube']['B']['crps']) == 3
     assert json.dumps(a['per_cube']['B']) == json.dumps(b['per_cube']['B'])
+    assert not np.allclose(a['per_cube']['B']['crps'], c['per_cube']['B']['crps'])           # B does read the measured entries
 
 
 def test_coverage_exact_flag(small_R, synthetic_prior):
@@ -236,3 +254,17 @@ def test_records_on_different_subsets_pair_by_file(fake_sensor_root, synthetic_p
     assert rb['setting']['seed_scheme'] == rs['setting']['seed_scheme'] == 'crc32(relpath)'
     for f in rs['files']:
         assert rb['per_cube']['L']['mean_rmse_pct'][rb['files'].index(f)] == rs['per_cube']['L']['mean_rmse_pct'][rs['files'].index(f)]
+
+
+def test_refuses_learned_checkpoint_trained_on_another_device(tmp_path):
+    cfg = dict(CFG, device_train='device1')
+    for flag, mode, m in (('regress', 'regress_fam', 'D'), ('varhead', 'varhead_fam', 'V'), ('cond', 'cond_fam', 'C')):
+        p = save_ckpt(tmp_path / f'{flag}_dev2.pth', mode, sensor_device='device2')
+        with pytest.raises(ValueError, match=f"{flag}_dev2.pth.*sensor_device: checkpoint 'device2' vs config device_train 'device1'"):
+            SE.check_models(fake_args(methods=[m], **{flag: p}), cfg, torch.device('cpu'))
+        ok = save_ckpt(tmp_path / f'{flag}_dev1.pth', mode, sensor_device='device1')
+        SE.check_models(fake_args(methods=[m], **{flag: ok}), cfg, torch.device('cpu'))
+    legacy = save_ckpt(tmp_path / 'nofield.pth', 'regress_fam')                       # no sensor_device field = device_train
+    SE.check_models(fake_args(methods=['D'], regress=legacy), cfg, torch.device('cpu'))
+    prior = save_ckpt(tmp_path / 'u_dev2.pth', 'uncond', sensor_device='device2')      # the prior is sensor-free: no check
+    SE.check_models(fake_args(methods=['B'], uncond=prior), cfg, torch.device('cpu'))

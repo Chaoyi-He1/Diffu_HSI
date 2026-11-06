@@ -26,10 +26,15 @@ GATE = dict(rmse_excess=0.02, var_tol=0.10, cov90=(0.85, 0.95), cov50=(0.45, 0.5
 
 
 class GaussianDenoiser(torch.nn.Module):
-    """v-prediction of the exact E[x0 | x_t] under x0 ~ N(mu, C), per pixel."""
+    """The exact E[x0 | x_t] under x0 ~ N(mu, C), per pixel, emitted in the trainer's own parameterisation
+    (trainer.prediction_type 'v', 'x0' or 'eps'), so the sampler's _model_to_x0_eps recovers it whatever the trainer."""
+    PREDICTION_TYPES = ('v', 'x0', 'eps')
 
     def __init__(self, mu, C, trainer):
         super().__init__()
+        pt = getattr(trainer, 'prediction_type', None)
+        if pt not in self.PREDICTION_TYPES:
+            raise ValueError(f'GaussianDenoiser: trainer.prediction_type {pt!r} is not one of {self.PREDICTION_TYPES}')
         self.register_buffer('mu', mu.to(trainer.device, torch.float32))
         self.register_buffer('C', C.to(trainer.device, torch.float32))
         self.trainer = trainer
@@ -42,7 +47,12 @@ class GaussianDenoiser(torch.nn.Module):
         d = x_t - torch.sqrt(ab)[:, None, None, None] * self.mu[None, :, None, None]
         x0 = self.mu[None, :, None, None] + torch.einsum('bij,bjhw->bihw', M, d)
         sab = torch.sqrt(ab)[:, None, None, None]
-        return (sab * x_t - x0) / torch.sqrt(1.0 - ab)[:, None, None, None]
+        pt = self.trainer.prediction_type
+        if pt == 'x0':
+            return x0
+        if pt == 'eps':
+            return (x_t - sab * x0) / torch.sqrt(1.0 - ab)[:, None, None, None]
+        return (sab * x_t - x0) / torch.sqrt(1.0 - ab)[:, None, None, None]                     # 'v'
 
 
 def exact_posterior(mu, C, H, b, y, sigma, mask):
@@ -103,12 +113,25 @@ def run_toy(trainer, H, b, mode, snr_db, n_steps, K, B, hw, seed, method, C_kind
     mean_e, var_e = exact_posterior(mu, C, H.cpu(), b.cpu(), y.cpu(), sigma, None if mask is None else mask.cpu())
     s, x, me, ve = (a.detach().cpu().double().numpy() for a in (samples, x0, mean_e, var_e))
     rmse = lambda a: float(np.sqrt(np.mean((a - x) ** 2)))  # noqa: E731
+    prior_mean = np.broadcast_to(mu.numpy()[None, :, None, None], x.shape)
+    m_cpu = None if mask is None else mask.cpu().double()
+
+    def meas_rmse(a):
+        """RMSE of H (a - x0) on the measured entries: the direction the measurement informs (in snapshot mode one scalar
+        of 64 per pixel, so the full-space RMSE barely moves from the prior's)."""
+        r = apply_H(torch.from_numpy(np.ascontiguousarray(a - x)), H.cpu().double())
+        if m_cpu is None:
+            return float(torch.sqrt((r ** 2).mean()))
+        return float(torch.sqrt((r ** 2 * m_cpu).sum() / m_cpu.sum()))
+
     cov = coverage_samples(s, x)
     return dict(rmse_excess=rmse(s.mean(0)) / rmse(me) - 1.0,
                 var_ratio=float(s.var(0, ddof=1).mean() / ve.mean()),
                 cov50=cov[0.5], cov90=cov[0.9],
                 crps_ratio=float(crps_samples(s, x).mean() / crps_gaussian(me, np.sqrt(ve), x).mean()),
-                nfe=int(nfe))
+                nfe=int(nfe),
+                rmse=rmse(s.mean(0)), rmse_prior=rmse(prior_mean),                       # the guided mean's / the prior mean's
+                rmse_meas=meas_rmse(s.mean(0)), rmse_meas_prior=meas_rmse(prior_mean))   # the same on the measured entries of H x
 
 
 def passes_gate(r):

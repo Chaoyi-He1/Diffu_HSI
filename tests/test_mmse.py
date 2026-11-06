@@ -70,3 +70,8 @@ def test_lowrank_snapshot_lift_matches_dense(small_R, synthetic_prior):
     np.testing.assert_allclose(xl, xd, atol=1e-9)
     md, sd = MM.lift_mean_std(xd, Sig, A); ml, sl = MM.lift_mean_std_lowrank(xl, C01, Cr, den, A)
     np.testing.assert_allclose(ml, md, atol=1e-9); np.testing.assert_allclose(sl, sd, atol=1e-9)
+
+def test_sequential_posterior_refuses_more_channels_than_bands():
+    mu, C, R = _toy(L=3, S=5)                                   # S > L: the thin-SVD gain would be wrong
+    with pytest.raises(AssertionError, match=r'S <= bands L.*\(3, 5\)'):
+        MM.posterior_sequential(np.zeros((2, 5)), R, mu, C, 0.1)

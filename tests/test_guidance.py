@@ -33,7 +33,19 @@ def test_pigdm_recovers_the_isotropic_gaussian_posterior(small_R):
 def test_pigdm_snapshot_toy_runs_and_beats_the_prior(small_R):
     tr = DiffusionTrainer(device=torch.device('cpu'), prediction_type='v', snr_gamma=None); H, b = _ops(small_R)
     out = T.run_toy(tr, H, b, 'snapshot', 30.0, n_steps=20, K=32, B=1, hw=10, seed=0, method='pigdm')
-    assert out['rmse_excess'] < 0.5 and out['nfe'] == 20
+    assert out['nfe'] == 20
+    # the guided mean must beat the prior's guess (mu) where y informs it (H x on the measured entries; one scalar of 64 per
+    # pixel, so the full-space RMSE can only stay near the prior's), not merely stay within 50 % of the exact posterior's
+    assert out['rmse_meas'] < 0.3 * out['rmse_meas_prior'] and out['rmse'] <= 1.05 * out['rmse_prior'] and out['rmse_excess'] < 0.5
+
+def test_gaussian_denoiser_follows_the_trainer_prediction_type():
+    x, t = torch.randn(2, 64, 3, 3), torch.tensor([100, 700])
+    mu, C = 0.1 * torch.ones(64), 0.5 * torch.eye(64)
+    x0s = []
+    for pt in ('v', 'x0', 'eps'):
+        tr = DiffusionTrainer(device=torch.device('cpu'), prediction_type=pt, snr_gamma=None)
+        x0s.append(tr._model_to_x0_eps(T.GaussianDenoiser(mu, C, tr)(x, None, t), x, t)[0])
+    assert torch.allclose(x0s[0], x0s[1], atol=1e-4) and torch.allclose(x0s[0], x0s[2], atol=1e-3)
 
 def test_dps_runs_and_reduces_the_residual(small_R):
     tr = DiffusionTrainer(device=torch.device('cpu'), prediction_type='v', snr_gamma=None); H, b = _ops(small_R)
