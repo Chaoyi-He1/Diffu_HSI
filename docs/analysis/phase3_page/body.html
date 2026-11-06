@@ -205,6 +205,7 @@ svg .box-s4{fill:var(--s4-bg);stroke:var(--s4)}
     <li data-slot="x0rule"></li>
     <li><b>B's cost.</b> A B record costs ≈ <span data-v="budget.b_hours_mean:2"></span> GPU-h, not the plan's 0.63, so the spec's 12 GPU-h cap was exceeded; the user's GPUs were otherwise idle.</li>
     <li><b>PH5's B rows dropped.</b> They were first in the spec's drop order once B's cost was known, and PH5 is report-only anyway.</li>
+    <li><b>E4's B cell was run twice.</b> The first record came from a per-setting driver that still named the v-prediction checkpoint; the page's extractor flagged it (prediction type v), it is archived with the other v-prediction records and the cell was re-run with the x₀ prior (1.7 GPU-h on an otherwise idle GPU).</li>
     <li><b>E4 run.</b> GPU time remained after E1–E3, so the spec's optional E4 (Device 2, snapshot, 30 dB, all methods, report-only) was run; it is in section 5.</li>
   </ul>
 </section>

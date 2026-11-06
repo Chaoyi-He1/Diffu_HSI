@@ -149,6 +149,22 @@ E3, device1 snapshot (L = demosaic-then-MMSE):
 
 Readings. (i) **B's error is almost independent of the SNR** (2.39 → 2.88 % from 60 to 20 dB on device1) because the prior, not the measurement, sets its floor: at the sharp-likelihood end it is 2.2 × worse than the MMSE and the regressor, from 40 dB down it overtakes the MMSE, and **at 30 and 20 dB it is the best point estimate of all** (0.96 and 0.93 × the regressor; 0.57 and 0.46 × the MMSE). (ii) **B transfers zero-shot**: on device2 at 30 dB it reaches 2.53 % where the MMSE has 5.00, the regressor 3.99 and C 4.83; its RMSE ratio to L is 0.506 on device2 against 0.571 on device1 (limit 1.10 × → T3 PASS), while C's ratio worsens from 0.783 to 0.944 (T3 FAIL). (iii) **B is badly under-dispersed**: cov50 0.11–0.28 and cov90 0.28–0.63 against 0.50 / 0.90 nominal; its CRPS is nevertheless the lowest of every method at 30 and 20 dB (1.54 / 1.82 against V's 2.17 / 3.42 and C's 1.74 / 2.62), because CRPS rewards the accurate mean more than it punishes the narrow spread — the cov90 clause of T2 fails by a wide margin. (iv) In snapshot mode B sits at the demosaic-then-MMSE level (ratio 1.05–1.06 at 60–30 dB, 0.95 at 20 dB), far behind the regressor's 2.7–3.9 %: a measurement operator that keeps one channel per pixel gives the guidance little to work with and the prior alone cannot demosaic. (v) Single B samples are close to their mean (3.2 → 3.0 % against means 2.4 → 2.9), consistent with the over-confidence, and smooth (log HF −1.0 to −1.5).
 
+## E4 — Device 2 in snapshot mode at 30 dB (Task 18; report-only, spec §6.1; D, V, C trained on Device 1 only)
+
+Records `e4_device2_snapshot_30_{main,C}.json` (200 gate cubes, 2026-11-06 08:36–09:12) and `e4_device2_snapshot_30_B.json` (50-cube subset).
+
+| method | RMSE % | CRPS | cov50 / cov90 | AUSE | single sample |
+|---|---|---|---|---|---|
+| L, exact per-pixel posterior | 11.946 | 6.840 | 0.563 / 0.947 | 0.330 | — |
+| L_demosaic, demosaic-then-MMSE | **7.726** | **4.123** | 0.590 / 0.899 | 0.398 | — |
+| D, regressor | 14.394 | — | — | — | — |
+| V, variance head | 11.946 | 6.998 | 0.403 / 0.776 | 0.385 | — |
+| C, mean of 32 / C1 one call | 17.338 / 13.907 | 10.661 | 0.276 / 0.709 | 0.373 | 20.424 |
+| B, mean of 32 (50 cubes, x₀ prior) | pending (re-run, see below) | | | | |
+
+- Reading. **Nothing trained on Device 1 transfers to the other sensor's mosaic.** The regressor, which halves the demosaic baseline on Device 1 (E3: 2.95 vs 5.84 % at 30 dB), is 1.86 × the baseline on Device 2 (14.39 vs 7.73 %) and worse than the exact per-pixel posterior it is centred on (11.95 %). C is 2.24 × the baseline (17.34 %; one-call point 13.91 %, single sample 20.4 %) and its samples are now under-dispersed (cov90 0.71) where on Device 1 they were over-dispersed (0.99): the residual it learned is Device 1's mosaic pattern. The variance head's mean is the centre (11.95 %) and its intervals are too narrow (cov90 0.78). Demosaic-then-MMSE, which uses Device 2's R exactly, is the best method by far (7.73 %, equal to Stage 0's 7.726 for this cell). In sequential mode the same networks did transfer (E2: D 4–19 % below L); in snapshot mode the conditioning statistic (x̂, s) is nearly uninformative (one channel per pixel, x̂ ≈ the prior mean) and the network has to read the mosaic itself, which is specific to the sensor's state responses. The zero-shot claim for the learned lines therefore holds in sequential mode only; in snapshot mode a change of sensor needs retraining (or the classical pipeline).
+- B. The first record written for this cell (2026-11-06 10:56, 1.73 GPU-h) came from the per-setting driver, which still named the FAILED v-prediction checkpoint `uncond_b64@100` (the twelve good B records came from the x₀-prior driver): mean-of-32 13.35 %, single sample 32.4 %, spread ratio 5.4, cov90 0.94 — the degenerate signature of E1's archived v-prediction records. The page's extractor flagged it (`pred_type v` → stale). It is archived in `sensor/eval/vpred_prior/e4_device2_snapshot_30_B.json` and the cell is being re-run with `uncond_x0_b64@100` (GPU 0, launched 2026-11-06 ≈ 11:05). Ruling in the ledger.
+
 ## The pre-registered verdict (`sd_verdict.py --manifest manifest__e123.json`, 2026-11-06 09:00; `sensor/verdict__e123.json`), printed verbatim
 
 ```
