@@ -1,0 +1,734 @@
+<title>Phase 3 Results</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600;700&display=swap">
+<script>
+window.MathJax={tex:{inlineMath:[['$','$']],displayMath:[['$$','$$']],tags:'none'},svg:{fontCache:'global'},options:{skipHtmlTags:['script','noscript','style','textarea','pre','code','svg']}};
+</script>
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-svg.js"></script>
+<style>
+/* Layout: one 900px reading column; each section is built around a panel-card figure with a caption (the GDN report style). */
+:root{
+  --bg:#f3f5f8; --panel:#ffffff; --panel-2:#eaeef4; --ink:#141a24; --ink-2:#475164; --muted:#5f6b7e;
+  --rule:#dbe1ea; --rule-strong:#a9b3c2;
+  --accent:#2a78d6; --accent-bg:#e2edfb; --s2:#eb6834; --s2-bg:#fde8df; --s3:#1baf7a; --s3-bg:#dcf3ea; --de:#a2aab7;
+  --good:#16733f; --good-bg:#dff2e6; --bad:#c43d3d; --bad-bg:#fbe4e4; --warn:#9a6700; --warn-bg:#fff1cc;
+  --sans:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    color-scheme:dark;
+    --bg:#0e1218; --panel:#161b23; --panel-2:#1c222c; --ink:#e8ecf2; --ink-2:#b3bccb; --muted:#8893a4;
+    --rule:#29303b; --rule-strong:#4a5565;
+    --accent:#3987e5; --accent-bg:#162840; --s2:#d95926; --s2-bg:#3a2118; --s3:#199e70; --s3-bg:#12302a; --de:#5e6778;
+    --good:#46b676; --good-bg:#15301f; --bad:#e66767; --bad-bg:#3b1b1b; --warn:#e2b84a; --warn-bg:#3a2f12;
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --bg:#0e1218; --panel:#161b23; --panel-2:#1c222c; --ink:#e8ecf2; --ink-2:#b3bccb; --muted:#8893a4;
+  --rule:#29303b; --rule-strong:#4a5565;
+  --accent:#3987e5; --accent-bg:#162840; --s2:#d95926; --s2-bg:#3a2118; --s3:#199e70; --s3-bg:#12302a; --de:#5e6778;
+  --good:#46b676; --good-bg:#15301f; --bad:#e66767; --bad-bg:#3b1b1b; --warn:#e2b84a; --warn-bg:#3a2f12;
+}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:16px;line-height:1.7;padding-left:max(20px,env(safe-area-inset-left,0px));padding-right:max(20px,env(safe-area-inset-right,0px));padding-block:0 72px;margin:0}
+main{max-width:900px;margin:0 auto}
+a{color:var(--accent)}
+a:focus-visible,summary:focus-visible,button:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
+header{padding-block:52px 12px}
+.eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.08em;color:var(--muted)}
+h1{font-size:clamp(30px,5vw,44px);font-weight:700;line-height:1.15;letter-spacing:-.015em;margin:.25em 0 .35em;text-wrap:balance}
+.lede{font-size:17px;color:var(--ink-2);max-width:44em;margin:0}
+nav.toc{display:flex;flex-wrap:wrap;gap:8px;margin:22px 0 4px}
+nav.toc a{font-size:13px;color:var(--ink-2);text-decoration:none;border:1px solid var(--rule-strong);border-radius:999px;padding:3px 12px;background:var(--panel)}
+nav.toc a:hover{border-color:var(--accent);color:var(--accent)}
+nav.toc b{font-family:var(--mono);font-weight:600;color:var(--accent);margin-right:6px}
+section{padding-block:36px 4px;border-top:1px solid var(--rule);margin-top:28px}
+h2{font-size:27px;font-weight:700;line-height:1.25;margin:0 0 8px;text-wrap:balance;display:flex;align-items:baseline;gap:12px}
+h2 .no{font-family:var(--mono);font-size:15px;font-weight:700;color:var(--accent);letter-spacing:.04em}
+h3{font-size:19px;font-weight:600;margin:30px 0 4px;text-wrap:balance}
+p{margin:6px 0}
+.lead{color:var(--ink-2);max-width:44em}
+figure{margin:18px 0 26px;background:var(--panel);border:1px solid var(--rule);border-radius:12px;padding:18px 18px 14px;min-width:0}
+figcaption{font-size:14px;color:var(--ink-2);margin-top:10px;max-width:48em;line-height:1.65}
+.charthead{font-size:15px;font-weight:600;margin:0 0 8px}
+.scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+.scroll>svg{display:block;width:100%;height:auto}
+.legend{display:flex;flex-wrap:wrap;gap:6px 18px;font-size:13px;color:var(--ink-2);margin:0 0 8px}
+.legend span{display:inline}
+.legend i{display:inline-block;width:16px;height:3px;border-radius:2px;vertical-align:middle;margin-right:7px}
+.legend i.sq{width:11px;height:11px;border-radius:3px}
+.legend i.dash{height:0;border-top:2px dashed var(--muted);border-radius:0;background:none}
+.legend i.dot{width:10px;height:10px;border-radius:50%}
+.kv{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:16px 0 4px}
+.kv div{background:var(--panel);border:1px solid var(--rule);border-radius:10px;padding:10px 14px;min-width:0;display:flex;flex-direction:column;justify-content:space-between;gap:4px}
+.kv small{display:block;font-size:12px;color:var(--muted)}
+.kv b{font-family:var(--mono);font-size:15px;font-weight:600}
+.kv b.hi{font-size:22px}
+.tbl{overflow-x:auto}
+table.t{border-collapse:collapse;width:100%;font-size:14px;min-width:560px}
+table.t th{font-size:12.5px;font-weight:500;color:var(--muted);text-align:left;padding:6px 10px;border-bottom:1px solid var(--rule-strong)}
+table.t td{padding:9px 10px;border-bottom:1px solid var(--rule);vertical-align:top}
+table.t td.num{font-family:var(--mono);font-variant-numeric:tabular-nums;white-space:nowrap}
+table.t tr:last-child td{border-bottom:0}
+table.t tr.hi td{background:var(--accent-bg)}
+.pill{display:inline-flex;align-items:center;gap:4px;padding:1px 10px;border-radius:999px;font-size:12.5px;font-weight:700;white-space:nowrap}
+.pill.ok{background:var(--good-bg);color:var(--good)}
+.pill.no{background:var(--bad-bg);color:var(--bad)}
+.pill.wn{background:var(--warn-bg);color:var(--warn)}
+.pill.nt{background:var(--panel-2);color:var(--ink-2);font-weight:600}
+.seg{display:inline-flex;flex-wrap:wrap;gap:6px;margin:0 0 10px}
+.seg button{font:inherit;font-size:13px;color:var(--ink-2);background:var(--panel);border:1px solid var(--rule-strong);border-radius:999px;padding:3px 12px;cursor:pointer}
+.seg button[aria-pressed="true"]{background:var(--accent-bg);border-color:var(--accent);color:var(--ink)}
+.thm{background:var(--panel);border:1px solid var(--rule);border-left:4px solid var(--accent);border-radius:0 12px 12px 0;padding:12px 18px;margin:18px 0}
+.thm.warn{border-left-color:var(--warn)}
+.thm.warn .lbl{color:var(--warn)}
+.thm .lbl{font-family:var(--mono);font-size:12.5px;font-weight:700;letter-spacing:.04em;color:var(--accent);display:block;margin-bottom:2px}
+.thm .pf{color:var(--ink-2);font-size:15px;margin-top:6px}
+.thm .pf b{color:var(--ink)}
+.remark{border-left:3px solid var(--rule-strong);padding:2px 16px;margin:14px 0;color:var(--ink-2);font-size:15px}
+.remark b{color:var(--ink)}
+.gloss{display:grid;grid-template-columns:repeat(auto-fit,minmax(270px,1fr));gap:6px 22px;margin:22px 0 4px;padding:16px 18px;background:var(--panel);border:1px solid var(--rule);border-radius:12px}
+.gloss h3{grid-column:1/-1;margin:0 0 4px;font-size:16px}
+.gloss div{font-size:14px;color:var(--ink-2);line-height:1.6;min-width:0}
+.gloss b{color:var(--ink);margin-right:8px;font-weight:600}
+ul.concl{padding-left:0;list-style:none;display:grid;gap:12px;margin:14px 0}
+ul.concl li{background:var(--panel);border:1px solid var(--rule);border-radius:12px;padding:12px 16px;min-width:0}
+ul.concl b{display:block;margin-bottom:2px}
+ul.concl .cost{display:block;margin-top:6px;font-size:13.5px;color:var(--muted)}
+ul.concl .cost b{display:inline;color:var(--ink-2);font-weight:600;margin-right:6px}
+ol.steps{padding-left:1.3em;margin:10px 0}
+ol.steps li{margin:6px 0}
+ul.plain{margin:8px 0;padding-left:1.2em}
+ul.plain li{margin:4px 0}
+code{font-family:var(--mono);font-size:.86em;background:var(--panel-2);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
+pre.gate{font-family:var(--mono);font-size:12.5px;line-height:1.55;background:var(--panel-2);border-radius:8px;padding:12px 14px;overflow-x:auto;white-space:pre-wrap;overflow-wrap:anywhere;margin:10px 0 0;color:var(--ink)}
+footer{margin-top:40px;padding-top:18px;border-top:1px solid var(--rule);font-size:13px;color:var(--muted)}
+footer code{font-size:12.5px}
+details.data{margin-top:8px;font-size:13px}
+details.data summary{cursor:pointer;color:var(--muted)}
+table.dt{border-collapse:collapse;margin-top:6px;font-size:12.5px}
+table.dt th,table.dt td{padding:3px 12px 3px 0;border-bottom:1px solid var(--rule);text-align:right;font-family:var(--mono);font-variant-numeric:tabular-nums;font-weight:400}
+table.dt th{color:var(--muted);font-family:var(--sans)}
+table.dt td:first-child,table.dt th:first-child{text-align:left;font-family:var(--sans)}
+mjx-container[display="true"]{overflow-x:auto;overflow-y:hidden;padding:4px 0;margin:10px 0!important}
+.eq{overflow-x:auto;overflow-y:hidden;max-width:100%}
+#tip{position:fixed;z-index:20;left:0;top:0;background:var(--panel);color:var(--ink);border:1px solid var(--rule-strong);border-radius:8px;padding:7px 10px;font-size:12.5px;line-height:1.55;box-shadow:0 8px 24px rgb(0 0 0 / .14);pointer-events:none;max-width:320px}
+#tip .tr{display:flex;align-items:center;gap:7px}
+#tip i{width:12px;height:3px;border-radius:2px;flex:none}
+#tip b{margin-left:auto;padding-left:12px;font-family:var(--mono);font-weight:600;white-space:nowrap}
+#tip .sub{color:var(--muted);font-size:12px}
+.twocol{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px}
+.twocol>div{min-width:0}
+/* SVG */
+svg text{font-family:var(--sans);font-size:12.5px;fill:var(--ink)}
+svg .bt{font-weight:600;font-size:13px}
+svg .bs{font-size:11.5px;fill:var(--ink-2)}
+svg .sm{font-size:11px;fill:var(--muted)}
+svg .mono{font-family:var(--mono)}
+svg .tag{font-family:var(--mono);font-size:11px;fill:var(--muted);letter-spacing:.06em;paint-order:stroke;stroke:var(--panel);stroke-width:4px;stroke-linejoin:round}
+svg .vl{font-family:var(--mono);font-size:11.5px;fill:var(--ink-2)}
+svg .box{fill:var(--bg);stroke:var(--rule-strong);stroke-width:1.2}
+svg .box-acc{fill:var(--accent-bg);stroke:var(--accent)}
+svg .box-s2{fill:var(--s2-bg);stroke:var(--s2)}
+svg .box-s3{fill:var(--s3-bg);stroke:var(--s3)}
+svg .pane{fill:none;stroke:var(--rule);stroke-width:1}
+svg .ar{fill:none;stroke:var(--ink-2);stroke-width:1.4;stroke-linejoin:round}
+svg .ar-acc{stroke:var(--accent)}
+svg .ar-s2{stroke:var(--s2)}
+svg .mk{fill:var(--ink-2)}
+svg .mk-acc{fill:var(--accent)}
+svg .mk-s2{fill:var(--s2)}
+svg .grid{stroke:var(--rule);stroke-width:1}
+svg .axis{stroke:var(--rule-strong);stroke-width:1}
+svg .tick{font-family:var(--mono);font-size:11px;fill:var(--muted)}
+svg .axt{font-size:11.5px;fill:var(--muted)}
+svg .ln{fill:none;stroke-width:2;stroke-linejoin:round;stroke-linecap:round}
+svg .dot{stroke:var(--panel);stroke-width:2}
+svg .cross{stroke:var(--rule-strong);stroke-width:1}
+svg .hit{fill:transparent;cursor:crosshair}
+svg .ref{stroke:var(--muted);stroke-width:1;stroke-dasharray:4 4}
+svg .refacc{stroke:var(--accent);stroke-width:1.2;stroke-dasharray:5 4}
+svg .reflbl{font-size:11.5px;fill:var(--muted);paint-order:stroke;stroke:var(--panel);stroke-width:4px;stroke-linejoin:round}
+svg .endlbl{font-family:var(--mono);font-size:12px;fill:var(--ink-2);font-weight:600}
+svg .vlbl{font-family:var(--mono);font-size:11.5px;fill:var(--ink-2);paint-order:stroke;stroke:var(--panel);stroke-width:3px;stroke-linejoin:round}
+svg .barhit{cursor:default}
+svg .wire{fill:none;stroke:var(--ink-2);stroke-width:1.4}
+svg .okt{fill:var(--good);font-weight:700}
+svg .badt{fill:var(--bad);font-weight:700}
+svg .pt{stroke:var(--panel);stroke-width:1;fill-opacity:.85}
+svg .diag{stroke:var(--rule-strong);stroke-width:1;stroke-dasharray:3 3}
+svg .err{stroke:var(--ink-2);stroke-width:1.4}
+@media (max-width:520px){ body{font-size:15px} h2{font-size:23px} figure{padding:14px 12px 12px} }
+@media (prefers-reduced-motion: reduce){ *{scroll-behavior:auto} }
+</style>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <defs>
+    <marker id="mI" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="mk"/></marker>
+    <marker id="mA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="mk-acc"/></marker>
+    <marker id="mS" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" class="mk-s2"/></marker>
+  </defs>
+</svg>
+<div id="tip" hidden></div>
+
+<style>
+/* Phase 3 additions to the shared tokens: a fifth series colour for line B (the guided unconditional prior). */
+:root{--s4:#7c4dd6;--s4-bg:#ece5fb}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--s4:#a585ee;--s4-bg:#2a2140}}
+:root[data-theme="dark"]{--s4:#a585ee;--s4-bg:#2a2140}
+svg .box-s4{fill:var(--s4-bg);stroke:var(--s4)}
+.status{font-size:14px;color:var(--ink-2);background:var(--panel);border:1px solid var(--rule);border-radius:10px;padding:10px 14px;margin:14px 0 4px}
+.status b{color:var(--ink)}
+.marks{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:13px;color:var(--ink-2);margin:8px 0 0}
+.marks span{white-space:nowrap}
+</style>
+<main>
+<header>
+  <div class="eyebrow">Diffu_HSI · sensor degradation · Phase 3 · data as of <span data-v="generated"></span></div>
+  <h1>Phase 3 — Reconstruction from a poor EC sensor</h1>
+  <p class="lede">The paper's claim is that a diffusion model is the most suitable way to recover the spectrum seen by a poor electrochromic (EC) sensor: 30 voltage states with broad, overlapping responses, of which only about <span data-v="facts.d1_informative:0"></span> carry independent information about the 31 bands. Phase 3 tests that claim where the sensor's poorness matters. <b>E1</b> adds measurement noise to Device 1 in sequential mode and sweeps the SNR from the 60 dB floor down to 20 dB. <b>E2</b> applies models trained on Device 1, without retraining, to Device 2 and to PH5. <b>E3</b> runs Device 1 in snapshot (mosaic) mode, where each pixel measures one state. Two diffusion lines compete against the noise-aware linear MMSE (L), a one-call regressor (D) and a variance head (V): <b>B</b>, an unconditional spectral–spatial prior guided by the measurement (ΠGDM), and <b>C</b>, a conditional residual diffusion around the MMSE estimate, trained over the whole noise and mode family.</p>
+  <p class="lede" style="margin-top:10px">The test was fixed in advance. The user approved the spec on 4 November 2026, and the thresholds of clauses T1–T4 were written into <code>scripts/sensor/sd_verdict.py</code> before any record existed. Every number on this page is read from the evaluation records at build time.</p>
+  <div class="status" data-slot="status"></div>
+  <div class="kv">
+    <div><small>MMSE at the 60 dB floor (sanity reference)</small><b class="hi"><span data-v="facts.L_floor:3"></span> %</b><small>Device 1, sequential, 200 cubes</small></div>
+    <div><small>regressor D at 20 dB</small><b class="hi"><span data-v="facts.D_20:2"></span> %</b><small>MMSE <span data-v="facts.L_20:2"></span> %: <span data-v="facts.D_below_L_20:0"></span> % lower</small></div>
+    <div><small>C's CRPS at 20 dB vs the MMSE posterior</small><b class="hi">−<span data-v="facts.C_crps_below_L_20:0"></span> %</b><small>and −<span data-v="facts.C_crps_below_V_20:0"></span> % vs the variance head</small></div>
+    <div><small>line C, clauses passed</small><b class="hi" data-slot="countC"></b><small>pre-registered T1–T4</small></div>
+    <div><small>line B, the guided prior</small><b class="hi" data-slot="countB"></b><small data-slot="countBsub"></small></div>
+  </div>
+  <figure>
+    <div class="scroll" data-fig="pipeline" data-aria="The scene is measured by the sensor response R in sequential or snapshot mode with Gaussian noise. The closed-form MMSE turns the measurement into an estimate and a posterior standard deviation; the regressor D, the variance head V and the conditional diffusion C take those two maps as input. The guided prior B uses the measurement and the forward operator directly."></div>
+    <figcaption>What was compared. L, D, V and C share one interface: the forward model reaches the networks only through the MMSE estimate $\hat x$ and its posterior standard deviation $s$, which have the same meaning for every sensor, noise level and mode. That is what makes zero-shot transfer possible in principle. B never sees $\hat x$: it combines a prior trained on spectra alone with the exact operator $H$ and the known noise level at sampling time. D, V and C were trained on Device 1 only, over SNRs drawn from 20 to 50 dB plus the 60 dB floor, half in sequential and half in snapshot mode.</figcaption>
+  </figure>
+  <nav class="toc" aria-label="Contents">
+    <a href="#s1"><b>1</b>The sensor</a><a href="#s2"><b>2</b>Error vs SNR</a><a href="#s3"><b>3</b>Calibration</a><a href="#s4"><b>4</b>Transfer</a><a href="#s5"><b>5</b>Snapshot</a><a href="#s6"><b>6</b>Line B</a><a href="#s7"><b>7</b>Clauses</a><a href="#s8"><b>8</b>Runs</a><a href="#s9"><b>9</b>Rulings</a>
+  </nav>
+  <div class="gloss">
+    <h3>Terms used below</h3>
+    <div><b>L</b>the noise-aware linear MMSE with its Gaussian posterior: closed form, no training; the classical point and probabilistic baseline</div>
+    <div><b>D / V</b>the one-call regressor and the heteroscedastic variance head, trained over the same family as C (selected epochs <span data-v="runs.2.selected:0"></span> and <span data-v="runs.3.selected:0"></span>)</div>
+    <div><b>C</b>the family-conditioned residual diffusion around $\hat x$, residual whitened by $s$; 32 DDIM-10 samples per cube. C1 is the same network called once</div>
+    <div><b>B</b>an unconditional prior on 64-band cubes plus ΠGDM guidance with the exact operator, 50 steps, 32 samples, on the 50-cube subset</div>
+    <div><b>RMSE</b>per cube in % of the [0, 1] range, averaged over cubes; for samplers it is the error of the mean of 32 samples (“mean-of-32”) unless “single” is stated</div>
+    <div><b>CRPS, cov50 / cov90, AUSE</b>continuous ranked probability score in % of range (lower is better), share of elements inside the central 50 % / 90 % interval, and the area between the sparsification curve and the oracle's; a calibrated model covers 0.50 / 0.90; AUSE 0 means the spread ranks the errors perfectly</div>
+    <div><b>SNR</b>in dB against one global signal power $P_y$ = <span data-v="config.P_y:3"></span> (Device 1, sequential), so a given SNR means the same detector noise for every device and mode; 60 dB is the noise-free end</div>
+    <div><b>± values</b>standard errors over cubes, clustered by source image (113 images for the 200 gate cubes, 45 for B's 50); B's comparisons are paired on the files the two records share</div>
+  </div>
+</header>
+
+<!-- ============================================================ -->
+<section id="s1">
+  <h2><span class="no">01</span>The sensor, and what the linear inverse can do with it</h2>
+  <p class="lead">The 30 normalised columns of Device 1's response overlap heavily. <span data-v="facts.d1_n_below:0"></span> of its 30 singular values are below 1 % of the largest (condition number <span data-v="facts.d1_cond:e"></span>), so noise in those directions is amplified without bound and only a spectral prior can fill them in. Device 2 has <span data-v="facts.d2_n_below:0"></span> such directions; PH5 under its legacy wavelength axis has <span data-v="facts.ph5_n_below:0"></span>.</p>
+  <div class="twocol">
+    <figure>
+      <p class="charthead">Device 1: the 30 selected response columns R (normalised)</p>
+      <div class="scroll" data-chart="sensorR" data-aria="Thirty broad, overlapping response curves over the 31 bands from 451 to 855 nm."></div>
+      <figcaption>Columns are coloured from the first voltage state (light) to the last (dark), on the legacy stretched wavelength axis the user kept for comparability with Phases 0–2a.</figcaption>
+    </figure>
+    <figure>
+      <p class="charthead">Singular values of R, relative to the largest (log scale)</p>
+      <div class="scroll" data-chart="sensorSV" data-aria="Singular values of the three sensors on a log scale. Most fall below one percent of the largest; PH5 collapses fastest."></div>
+      <figcaption>The dashed line is 1 % of the largest singular value. Values below it carry almost no signal at the SNRs tested here.</figcaption>
+    </figure>
+  </div>
+  <figure>
+    <p class="charthead">Stage 0: the MMSE error against SNR for the three sensors (sequential mode, 200 gate cubes)</p>
+    <div class="scroll" data-chart="stage0" data-aria="MMSE RMSE against SNR on a log scale for Device 1, Device 2 and PH5, plus Device 1 with the raw response. Error rises steadily as SNR falls; PH5 is far worse at every SNR."></div>
+    <figcaption>At the 60 dB floor the MMSE error on Device 1 is <span data-v="facts.L_floor:3"></span> %, and it grows by about <span data-v="facts.L_growth_per10:2"></span>× per 10 dB. This is the poorness the paper is about, and it is invisible without noise. Device 2 is harder at every SNR (<span data-v="facts.d2_L_floor:2"></span> → <span data-v="facts.d2_L_20:2"></span> %). PH5 reaches only <span data-v="facts.ph5_L_floor:2"></span> % even at the floor. <span data-slot="normcheck"></span></figcaption>
+  </figure>
+  <div class="remark" data-slot="angles"></div>
+</section>
+
+<!-- ============================================================ -->
+<section id="s2">
+  <h2><span class="no">02</span>Figure (i): error against SNR on Device 1</h2>
+  <p class="lead">The paper's main figure. The regressor is the most accurate method at every SNR, and its lead grows as the noise rises. Clause T1 asked whether the better diffusion line's mean-of-32 RMSE stays within 5 % of the regressor's, by 2 clustered SE.</p>
+  <figure>
+    <p class="charthead">Point error: RMSE of each method's estimate (log scale)</p>
+    <div class="legend" data-legend="e1"></div>
+    <div class="scroll" data-chart="e1rmse" data-aria="RMSE against SNR on a log scale for L, D, C, C1 and B. D is lowest at every SNR; C's mean-of-32 lies between D and L."></div>
+    <div class="marks" data-slot="t1marks"></div>
+    <figcaption>L, D, C and C1 are on the 200 gate cubes, B on its 50-cube subset (the like-for-like numbers are in section 6). T1 markers give the ratio of mean RMSE to D's. <span data-slot="t1text"></span></figcaption>
+  </figure>
+  <figure>
+    <p class="charthead">Predictive distribution: CRPS of each probabilistic method (log scale)</p>
+    <div class="legend" data-legend="e1c"></div>
+    <div class="scroll" data-chart="e1crps" data-aria="CRPS against SNR for L, V, C and B. From 40 dB down, C has the lowest CRPS."></div>
+    <figcaption>At 60 dB the three 200-cube methods are level. From 40 dB down, C's CRPS is <span data-v="facts.C_crps_gain_lo_min:0"></span>–<span data-v="facts.C_crps_gain_lo_max:0"></span> % below both the MMSE posterior's and the variance head's.</figcaption>
+  </figure>
+  <h3>Reading</h3>
+  <ul class="plain">
+    <li><b>For the point estimate, the regressor is the right tool.</b> D is <span data-slot="dbest"></span> and halves the MMSE error at 20 dB (<span data-v="facts.D_20:2"></span> against <span data-v="facts.L_20:2"></span> %). C's posterior mean is level with D only at the high-SNR end. The spec predicted C would pass T1 everywhere, and that prediction was wrong at low SNR.</li>
+    <li><b>C's samples are rough, and their mean is not.</b> A single sample's log high-frequency energy ratio is +<span data-v="facts.C_hf_single_60:1"></span> to +<span data-v="facts.C_hf_single_20:1"></span> against the truth; the mean of 32 is +<span data-v="facts.C_hf_mean_60:1"></span> to +<span data-v="facts.C_hf_mean_20:1"></span>. A single sample's RMSE is <span data-v="facts.Csingle_30:2"></span> % at 30 dB and <span data-v="facts.Csingle_20:2"></span> % at 20 dB, the √2 cost of a calibrated draw.</li>
+    <li data-slot="e1B"></li>
+  </ul>
+</section>
+
+<!-- ============================================================ -->
+<section id="s3">
+  <h2><span class="no">03</span>Figure (ii): calibrated uncertainty at low SNR</h2>
+  <p class="lead">Clause T2: at 30 and 20 dB, the diffusion line's CRPS must be below both the MMSE posterior's and the variance head's by 2 clustered SE, with 90 % coverage in [0.85, 0.95]. The MMSE posterior is a strong baseline: it is close to calibrated and slightly over-dispersed at every SNR (cov90 <span data-v="facts.L_cov90_min:3"></span>–<span data-v="facts.L_cov90_max:3"></span>).</p>
+  <figure>
+    <p class="charthead">CRPS at 30 and 20 dB (lower is better)</p>
+    <div class="scroll" data-chart="t2crps" data-aria="Grouped bars of CRPS at 30 and 20 dB for L, V, C and B. C is lowest at both SNRs."></div>
+    <div class="marks" data-slot="t2marks"></div>
+    <figcaption data-slot="t2text"></figcaption>
+  </figure>
+  <div class="twocol">
+    <figure>
+      <p class="charthead">Coverage of the central 50 % and 90 % intervals</p>
+      <div class="scroll" data-chart="t2cov" data-aria="Coverage dots for each method at 30 and 20 dB against the nominal 0.5 and 0.9, with the T2 band from 0.85 to 0.95 shaded."></div>
+      <figcaption>Circles are cov90, squares cov50. The shaded band is T2's [0.85, 0.95]. <span data-slot="covtext"></span></figcaption>
+    </figure>
+    <figure>
+      <p class="charthead">Error ranking: AUSE (lower is better)</p>
+      <div class="scroll" data-chart="t2ause" data-aria="Grouped bars of AUSE at 30 and 20 dB. The variance head ranks errors best."></div>
+      <figcaption>The variance head still ranks the errors best (AUSE <span data-v="facts.V_ause_min:2"></span>–<span data-v="facts.V_ause_max:2"></span> over E1 against C's <span data-v="facts.C_ause_min:2"></span>–<span data-v="facts.C_ause_max:2"></span>), so C's advantage is in the shape of its marginals, not in where it puts the uncertainty. This is the opposite of Phase 2a, where the variance head won on CRPS.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section id="s4">
+  <h2><span class="no">04</span>Transfer to Device 2 and PH5 without retraining (E2)</h2>
+  <p class="lead">D, V and C were trained on Device 1 only. Clause T3 asked whether a line's error ratio to the MMSE on Device 2 at 30 dB stays within 10 % of its ratio on Device 1. PH5 is report-only.</p>
+  <figure>
+    <p class="charthead">RMSE by sensor (sequential mode)</p>
+    <div class="seg" role="group" aria-label="SNR"><button type="button" data-e2="40" aria-pressed="false">40 dB</button><button type="button" data-e2="30" aria-pressed="true">30 dB</button><button type="button" data-e2="20" aria-pressed="false">20 dB</button></div>
+    <div class="scroll" data-chart="e2" data-aria="Grouped bars of RMSE for L, D, C and B on Device 1, Device 2 and PH5. On Device 2 the learned methods keep part of their advantage; on PH5 they fall behind the MMSE."></div>
+    <figcaption><span data-slot="t3text"></span></figcaption>
+  </figure>
+  <ul class="plain">
+    <li><b>Device 2: the conditioning transfers only in part.</b> C stays below the MMSE at 40 and 30 dB (ratio <span data-v="facts.device2_C_vs_L_40:3"></span> and <span data-v="facts.device2_C_vs_L_30:3"></span>), with cov90 <span data-v="facts.device2_C_cov90_40:2"></span>–<span data-v="facts.device2_C_cov90_30:2"></span>, but falls behind it at 20 dB (ratio <span data-v="facts.device2_C_vs_L_20:3"></span>, cov90 <span data-v="facts.device2_C_cov90_20:3"></span>). The regressor transfers better: <span data-slot="d2D"></span></li>
+    <li><b>PH5: nothing learned on Device 1 transfers.</b> D is <span data-v="facts.ph5_D_worse_min:0"></span>–<span data-v="facts.ph5_D_worse_max:0"></span> % worse than the MMSE, C's mean <span data-v="facts.ph5_C_ratio_min:2"></span>–<span data-v="facts.ph5_C_ratio_max:2"></span>× worse, and C is badly under-dispersed (cov50 ≤ <span data-v="facts.ph5_C_cov50_max:2"></span>, cov90 ≤ <span data-v="facts.ph5_C_cov90_max:2"></span>). PH5's response has rank <span data-v="facts.ph5_rank:0"></span> and a very different posterior-std structure, so its $(\hat x, s)$ maps lie outside every family model's training distribution. On this sensor the paper's “no retraining” claim is false for the conditional networks. B's PH5 rows were dropped for cost.</li>
+    <li data-slot="e2B"></li>
+  </ul>
+</section>
+
+<!-- ============================================================ -->
+<section id="s5">
+  <h2><span class="no">05</span>Snapshot mode (E3)</h2>
+  <p class="lead">In snapshot mode each pixel measures one of the 30 states in a 5 × 6 tile. The exact per-pixel posterior from one channel is essentially the prior mean (<span data-v="facts.e3_Lexact_min:1"></span>–<span data-v="facts.e3_Lexact_max:1"></span> %). The classical baseline demosaics the 30 channels first and then runs the sequential MMSE. Clause T4 asks for a 15 % improvement over that baseline at 30 dB, i.e. RMSE at most <span data-v="facts.Ldem_target_30:3"></span> % against <span data-v="facts.Ldem_30:3"></span> %.</p>
+  <figure>
+    <p class="charthead">RMSE against SNR, Device 1 snapshot (log scale)</p>
+    <div class="legend" data-legend="e3"></div>
+    <div class="scroll" data-chart="e3rmse" data-aria="RMSE against SNR in snapshot mode. The exact per-pixel MMSE is near 12 percent, demosaic-then-MMSE near 6, D near 3; C's mean lies above the demosaic baseline."></div>
+    <figcaption><span data-slot="t4text"></span></figcaption>
+  </figure>
+  <figure>
+    <p class="charthead">Snapshot uncertainty: CRPS · cov50 / cov90 · AUSE</p>
+    <div class="tbl" data-table="e3unc"></div>
+  </figure>
+  <div class="remark"><b>Why C loses here.</b> In snapshot mode the centre $\hat x$ is the one-channel posterior, so the whitened residual is large and highly structured: modelling it <i>is</i> the demosaicing problem. The one-call regressor learns it (<span data-v="facts.e3_D_min:1"></span>–<span data-v="facts.e3_D_max:1"></span> %). The diffusion trained on the same target does not: C1 is <span data-v="facts.e3_C1_min:1"></span>–<span data-v="facts.e3_C1_max:1"></span> %, and its samples are heavily over-dispersed (cov50 <span data-v="facts.e3_C_cov50_min:2"></span>–<span data-v="facts.e3_C_cov50_max:2"></span>, cov90 ≥ <span data-v="facts.e3_C_cov90_min:2"></span>). The variance head inherits the poor centre and cannot shrink enough to be calibrated (cov50 <span data-v="facts.e3_V_cov50_30:2"></span> at 30 dB). A diffusion centred on D's prediction, Phase 2a's construction, would have been the fairer snapshot test. That is out of scope here and is recorded for the write-up.</div>
+  <p data-slot="e3B"></p>
+</section>
+
+<!-- ============================================================ -->
+<section id="s6">
+  <h2><span class="no">06</span>Line B: a prior that first had to learn to be one</h2>
+  <p class="lead">The first B records were degenerate, and the cause was the prior, not the sampler. On the isotropic Gaussian toy the ΠGDM code reproduces the exact posterior at 50 steps. With a per-pixel Wiener filter as the denoiser the same code reconstructs real cubes close to the MMSE. The learned v-prediction prior, though, did not read its input at low and medium noise.</p>
+  <figure>
+    <p class="charthead">x̂₀-estimate error of each prior against the diffusion timestep (16 gate cubes, 60 dB; log scale)</p>
+    <div class="legend" data-legend="probe"></div>
+    <div class="scroll" data-chart="bprobe" data-aria="x0-estimate error against timestep. The v-prediction prior and two recipe variants follow an input-blind predictor up to t of about 300 and exceed the mean-cube error; the x0-prediction pilot and prior are monotone and far lower."></div>
+    <figcaption data-slot="probetext"></figcaption>
+  </figure>
+  <div class="thm"><span class="lbl">THE SAMPLER WAS LICENSED FIRST</span><span data-slot="toytext"></span></div>
+  <div class="tbl" data-table="toy"></div>
+  <h3>B's records: archived v-prediction prior and the x₀-prediction prior</h3>
+  <p>B is scored on the 50-cube subset. The other methods are shown on the same 50 cubes, and the paired differences use the files both records share. These differences come from the page's extractor, not from the verdict.</p>
+  <div class="tbl" data-table="brec"></div>
+  <p data-slot="bnow"></p>
+</section>
+
+<!-- ============================================================ -->
+<section id="s7">
+  <h2><span class="no">07</span>The pre-registered clauses</h2>
+  <p class="lead">One row per clause and setting, for both diffusion lines, as the verdict file reports them. The main-line rule names the line that passes more of T1–T4, with T2 at 20 dB breaking a tie.</p>
+  <div class="tbl" data-table="clauses"></div>
+  <p data-slot="verdictnote" style="font-size:14px;color:var(--muted)"></p>
+</section>
+
+<!-- ============================================================ -->
+<section id="s8">
+  <h2><span class="no">08</span>Runs and budget</h2>
+  <p class="lead">Five 100-epoch-class trainings at base 64 on one RTX A4500 each, and three 10-epoch prior pilots. Selection followed the pre-registered rule: the lowest monitoring loss for D and V, and the fixed epoch 100 for the diffusions.</p>
+  <div class="tbl" data-table="runs"></div>
+  <p data-slot="budget"></p>
+</section>
+
+<!-- ============================================================ -->
+<section id="s9">
+  <h2><span class="no">09</span>Deviations and rulings</h2>
+  <ul class="plain">
+    <li><b>ΠGDM's correction coefficient.</b> The draft's $\sqrt{\bar\alpha_t}$ diverged on the isotropic toy. The correction is now $\hat x_0 + (1-\bar\alpha_t)/\sqrt{\bar\alpha_t}\cdot g$, the score correction in $x_0$ coordinates.</li>
+    <li><b>Noise seeds per file.</b> Each cube's noise seed is the crc32 of its path relative to the data root, not its list position. Records on the 50 and the 200 cubes therefore see identical noise and pair by file.</li>
+    <li><b>K = 32 everywhere; B on the 50-cube subset.</b> Coverage verdicts need K ≥ 19, so the draft's K = 16 was withdrawn. B's ΠGDM cost limits it to the 50-cube subset, paired against the 200-cube records on the common files.</li>
+    <li><b>B's prior retrained with x₀-prediction.</b> This amends spec §5.5's “v-prediction” for the prior only (section 6). The pilot met the pre-registered decision rule (monotone, and at least 30 % below the current prior at t ≤ 300). C stays v-prediction, and the harness builds B's sampler from the checkpoint's own prediction type.</li>
+    <li><b>B's cost.</b> A B record costs ≈ <span data-v="budget.b_hours_mean:1"></span> GPU-h, not the plan's 0.63. The 12 GPU-h cap was exceeded with the user's GPUs otherwise idle.</li>
+    <li><b>PH5's B rows dropped.</b> First in the spec's drop order once B's cost was known; PH5 is report-only anyway.</li>
+  </ul>
+</section>
+
+<footer>
+  Sources, under <code>results/residual_warmstart/</code> (git-ignored): <code>sensor/eval/*.json</code> (sd_eval records) and <code>sensor/eval/vpred_prior/</code> (archived B records), <code>sensor/stage0/</code>, <code>sensor/config.json</code>, <code>sensor/<span data-v="status.verdict_file"></span></code>, the toy record <code data-v="toy.path"></code>, and <code>runs/*/train_log.jsonl</code>. The B-prior probe curves are quoted from the results note <code>docs/superpowers/plans/2026-11-03-sensor-degradation-diffusion-RESULTS.md</code>. Spec <code>docs/superpowers/specs/2026-11-03-sensor-degradation-diffusion-design.md</code>. Page data built by <code>docs/analysis/phase3_page/extract_page_data.py</code>; branch <code>worktree-phase1-plan</code>.
+</footer>
+</main>
+
+<script>
+const D={"b_prior_probe":{"mean_cube":17.15,"saturation_pct":{"vpred":29.7,"x0":0.0},"series":[{"err":[4.7,8.6,15.4,20.9,24.6,26.8,24.7,21.5,18.6,18.3],"key":"blind","name":"input-blind predictor E[v | t]"},{"err":[4.4,8.0,14.2,19.1,22.1,22.8,18.6,13.1,8.2,14.6],"key":"vpred","name":"v-prediction prior (epoch 100)"},{"err":[4.7,8.5,15.3,20.6,23.9,24.9,20.7,15.3,10.6,14.9],"key":"g0","name":"uniform-weighting pilot (epoch 10)"},{"err":[4.7,8.5,15.3,20.5,23.8,24.6,20.1,14.2,8.9,15.0],"key":"tt","name":"time-token pilot (epoch 10)"},{"err":[3.3,3.4,3.4,3.5,3.6,4.0,4.6,5.7,10.6,23.5],"key":"x0pilot","name":"x₀-prediction pilot (epoch 10)"},{"err":[2.3,2.3,2.5,2.6,2.8,3.2,3.8,4.6,7.9,15.3],"key":"x0","name":"x₀-prediction prior (epoch 100)"}],"t":[25,50,100,150,200,299,400,500,700,900]},"b_vpred":{"50":{"K":32,"created":"2026-11-05T08:41:55","hours":1.852,"means":{"ause":0.428306,"cov50":0.830614,"cov90":0.922999,"crps":6.80945,"mean_hf":3.87364,"mean_rmse_pct":6.25386,"mean_sam_deg":10.1877,"single_hf":6.87397,"single_rmse_pct":25.444,"spread_ratio":16.0575},"n":50,"on_subset":{"C":{"ause":0.398234,"cov50":0.550357,"cov90":0.926994,"crps":0.750058,"mean_hf":0.517648,"mean_rmse_pct":1.40214,"mean_sam_deg":2.25977,"single_hf":1.5464,"single_rmse_pct":2.03265,"spread_ratio":1.20872},"C1":{"hf":0.533956,"rmse_pct":1.38857,"sam_deg":2.23272,"w1":0.000716779},"D":{"hf":0.446876,"rmse_pct":1.35403,"sam_deg":2.19065,"w1":0.000513199},"L":{"ause":0.352282,"cov50":0.56239,"cov90":0.930594,"crps":0.825357,"mean_hf":0.873899,"mean_rmse_pct":1.52575,"mean_sam_deg":2.47921,"spread_ratio":1.3227},"V":{"ause":0.324891,"cov50":0.494034,"cov90":0.890937,"crps":0.817284,"mean_hf":0.873899,"mean_rmse_pct":1.52575,"mean_sam_deg":2.47921,"spread_ratio":1.11705}},"paired":{"crps_vs_C":{"a":6.80945,"b":0.750058,"clusters":45,"diff":6.05939,"n":50,"ratio":9.07856,"se_cluster":0.110868},"crps_vs_L":{"a":6.80945,"b":0.825357,"clusters":45,"diff":5.98409,"n":50,"ratio":8.2503,"se_cluster":0.107476},"crps_vs_V":{"a":6.80945,"b":0.817284,"clusters":45,"diff":5.99216,"n":50,"ratio":8.3318,"se_cluster":0.108105},"rmse_vs_C":{"a":6.25386,"b":1.40214,"clusters":45,"diff":4.85172,"n":50,"ratio":4.46023,"se_cluster":0.0508803},"rmse_vs_C1":{"a":6.25386,"b":1.38857,"clusters":45,"diff":4.86529,"n":50,"ratio":4.50381,"se_cluster":0.0410211},"rmse_vs_D":{"a":6.25386,"b":1.35403,"clusters":45,"diff":4.89983,"limit":1.05,"n":50,"passed":false,"ratio":4.6187,"ratio_2se":4.72448,"se_cluster":0.0701511},"rmse_vs_L":{"a":6.25386,"b":1.52575,"clusters":45,"diff":4.7281,"n":50,"ratio":4.09886,"se_cluster":0.0424927},"rmse_vs_V":{"a":6.25386,"b":1.52575,"clusters":45,"diff":4.7281,"n":50,"ratio":4.09886,"se_cluster":0.0424927}},"pred_type":"v","status":"archived","steps":50},"60":{"K":32,"created":"2026-11-05T06:12:01","hours":1.865,"means":{"ause":0.418603,"cov50":0.836012,"cov90":0.931333,"crps":6.62208,"mean_hf":3.90489,"mean_rmse_pct":6.21332,"mean_sam_deg":10.0629,"single_hf":6.82786,"single_rmse_pct":24.8452,"spread_ratio":15.4873},"n":50,"on_subset":{"C":{"ause":0.40667,"cov50":0.560525,"cov90":0.925139,"crps":0.571135,"mean_hf":0.259857,"mean_rmse_pct":1.07865,"mean_sam_deg":1.73943,"single_hf":1.09615,"single_rmse_pct":1.53598,"spread_ratio":1.13321},"C1":{"hf":0.24776,"rmse_pct":1.06019,"sam_deg":1.69753,"w1":0.000291274},"D":{"hf":0.213048,"rmse_pct":1.05488,"sam_deg":1.71969,"w1":0.000243735},"L":{"ause":0.330317,"cov50":0.568585,"cov90":0.931939,"crps":0.575871,"mean_hf":0.322667,"mean_rmse_pct":1.074,"mean_sam_deg":1.72913,"spread_ratio":1.38013},"V":{"ause":0.305209,"cov50":0.501553,"cov90":0.896453,"crps":0.569649,"mean_hf":0.322667,"mean_rmse_pct":1.074,"mean_sam_deg":1.72913,"spread_ratio":1.17521}},"paired":{"crps_vs_C":{"a":6.62208,"b":0.571135,"clusters":45,"diff":6.05094,"n":50,"ratio":11.5946,"se_cluster":0.1087},"crps_vs_L":{"a":6.62208,"b":0.575871,"clusters":45,"diff":6.0462,"n":50,"ratio":11.4992,"se_cluster":0.107392},"crps_vs_V":{"a":6.62208,"b":0.569649,"clusters":45,"diff":6.05243,"n":50,"ratio":11.6248,"se_cluster":0.10794},"rmse_vs_C":{"a":6.21332,"b":1.07865,"clusters":45,"diff":5.13467,"n":50,"ratio":5.76026,"se_cluster":0.0561672},"rmse_vs_C1":{"a":6.21332,"b":1.06019,"clusters":45,"diff":5.15313,"n":50,"ratio":5.86055,"se_cluster":0.0493828},"rmse_vs_D":{"a":6.21332,"b":1.05488,"clusters":45,"diff":5.15844,"limit":1.05,"n":50,"passed":false,"ratio":5.89007,"ratio_2se":6.02689,"se_cluster":0.0713489},"rmse_vs_L":{"a":6.21332,"b":1.074,"clusters":45,"diff":5.13933,"n":50,"ratio":5.78524,"se_cluster":0.0523783},"rmse_vs_V":{"a":6.21332,"b":1.074,"clusters":45,"diff":5.13933,"n":50,"ratio":5.78524,"se_cluster":0.0523783}},"pred_type":"v","status":"archived","steps":50}},"budget":{"b_expected":12,"b_hours_mean":1.764,"b_hours_projected":21.16,"b_records":2,"eval_hours":{"B":3.527,"B_vpred":3.718,"C":9.056,"main":0.1767},"pilot_hours":2.642,"train_hours":34.75},"config":{"P_y":32.9481,"e2_demosaic":{"max":0.567604,"median":0.134038,"min":0.00616677,"n":30},"family":{"p_floor":0.1,"p_snapshot":0.5,"snr_high_db":50.0,"snr_low_db":20.0},"n_files_P_y":9000,"s_floor01":0.01,"sha":"d62dea69278c6d8f3f58b6e1d7dbf04721bec360ad56581caf7b1839bad05126","snr_floor_db":60.0,"tile":[5,6]},"facts":{"C1_20":5.15922,"C1_30":3.49531,"C1_40":2.04413,"C1_50":1.41398,"C1_60":1.09125,"C_20":4.84498,"C_30":3.24517,"C_40":1.93262,"C_50":1.42251,"C_60":1.10672,"C_ause_max":0.410795,"C_ause_min":0.383882,"C_crps_below_L_20":25.6,"C_crps_below_L_30":22.24,"C_crps_below_L_40":25.04,"C_crps_below_L_50":9.627,"C_crps_below_L_60":1.114,"C_crps_below_V_20":24.18,"C_crps_below_V_30":19.91,"C_crps_below_V_40":23.86,"C_crps_below_V_50":8.779,"C_crps_below_V_60":0.1235,"C_crps_gain_lo_max":25.6,"C_crps_gain_lo_min":19.91,"C_hf_mean_20":2.03503,"C_hf_mean_30":1.71959,"C_hf_mean_40":1.01917,"C_hf_mean_50":0.552576,"C_hf_mean_60":0.282458,"C_hf_single_20":4.01407,"C_hf_single_30":3.23988,"C_hf_single_40":2.38693,"C_hf_single_50":1.59442,"C_hf_single_60":1.13879,"Csingle_20":7.53999,"Csingle_30":5.0227,"Csingle_40":3.05455,"Csingle_50":2.05156,"Csingle_60":1.55795,"D_20":3.23831,"D_30":2.51846,"D_40":1.81997,"D_50":1.3519,"D_60":1.05169,"D_below_L_20":49.59,"D_below_L_30":39.22,"D_below_L_40":30.59,"D_below_L_50":13.13,"D_below_L_60":4.824,"D_best_every_snr":true,"D_over_L_20":0.5041,"L_20":6.42453,"L_30":4.14323,"L_40":2.62217,"L_50":1.55632,"L_60":1.105,"L_cov90_max":0.926271,"L_cov90_min":0.920293,"L_floor":1.105,"L_growth_per10":1.553,"Ldem_30":5.83462,"Ldem_target_30":4.95943,"Lexact_30":12.2176,"V_ause_max":0.354613,"V_ause_min":0.301596,"ang_d1d2_max":68.14,"ang_d1d2_nonzero":1,"ang_d1d2_shared":29,"ang_d1ph5_max":2.765,"d1_cond":2292000000.0,"d1_informative":11,"d1_n_below":19,"d2_L_20":7.682072005271912,"d2_L_floor":1.4298780822753907,"d2_n_below":18,"device2_C_cov50_20":0.443423,"device2_C_cov50_30":0.489786,"device2_C_cov50_40":0.473275,"device2_C_cov90_20":0.843186,"device2_C_cov90_30":0.903567,"device2_C_cov90_40":0.889361,"device2_C_vs_L_20":1.088,"device2_C_vs_L_30":0.9438,"device2_C_vs_L_40":0.9801,"device2_D_vs_L_20":-10.85,"device2_D_vs_L_30":-19.3,"device2_D_vs_L_40":-3.704,"e3_C1_max":8.78063,"e3_C1_min":7.58549,"e3_C_30":6.84071,"e3_C_cov50_max":0.776344,"e3_C_cov50_min":0.731888,"e3_C_cov90_min":0.985245,"e3_D_30":2.94954,"e3_D_max":3.97054,"e3_D_min":2.69627,"e3_D_over_dem_30":0.5055,"e3_Lexact_max":12.877,"e3_Lexact_min":12.1066,"e3_V_cov50_30":0.255594,"norm_maxdev_seq":0.08285253947312854,"norm_maxdev_snap":0.0034014289215253957,"ph5_C_cov50_20":0.220191,"ph5_C_cov50_30":0.242858,"ph5_C_cov50_40":0.246576,"ph5_C_cov50_max":0.246576,"ph5_C_cov90_20":0.597877,"ph5_C_cov90_30":0.62744,"ph5_C_cov90_40":0.628545,"ph5_C_cov90_max":0.628545,"ph5_C_ratio_max":1.907,"ph5_C_ratio_min":1.815,"ph5_C_vs_L_20":1.907,"ph5_C_vs_L_30":1.874,"ph5_C_vs_L_40":1.815,"ph5_D_vs_L_20":36.1,"ph5_D_vs_L_30":16.65,"ph5_D_vs_L_40":12.5,"ph5_D_worse_max":36.1,"ph5_D_worse_min":12.5,"ph5_L_floor":6.069685368537903,"ph5_n_below":26,"ph5_rank":16},"generated":"2026-11-05 23:51","pilots":[{"done":true,"epochs":10,"hours":0.8636,"loss_type":"l1","mode":"uncond","planned":10,"prediction_type":"v","run":"uncond_g0pilot_b64","sec_per_epoch":307.9,"skipped":0,"snr_gamma":0.0},{"done":true,"epochs":10,"hours":0.9038,"loss_type":"l1","mode":"uncond_tt","planned":10,"prediction_type":"v","run":"uncond_tt_pilot_b64","sec_per_epoch":323.0,"skipped":0,"snr_gamma":5.0},{"done":true,"epochs":10,"hours":0.8741,"loss_type":"l1","mode":"uncond","planned":10,"prediction_type":"x0","run":"uncond_x0pilot_b64","sec_per_epoch":311.9,"skipped":0,"snr_gamma":5.0}],"runs":[{"done":true,"epochs":100,"failed":false,"hours":8.065,"loss_type":"l1","mode":"uncond","planned":100,"prediction_type":"x0","role":"B prior (x₀-prediction)","run":"uncond_x0_b64","sec_per_epoch":288.4,"selected":100,"skipped":0,"snr_gamma":5.0,"val_at_sel":0.0397437,"vals":{"10":0.0703999,"100":0.0397437,"15":0.0633528,"20":0.0592271,"25":0.0597426,"30":0.051285,"35":0.0481656,"40":0.0465984,"45":0.0483364,"5":0.0827266,"50":0.0440653,"55":0.0430834,"60":0.0424531,"65":0.0414535,"70":0.0421539,"75":0.0401209,"80":0.0398107,"85":0.0395914,"90":0.0398846,"95":0.0396983}},{"done":true,"epochs":100,"failed":false,"hours":7.023,"loss_type":"l1","mode":"cond_fam","planned":100,"prediction_type":"v","role":"C, conditional diffusion","run":"cond_fam_b64","sec_per_epoch":250.8,"selected":100,"skipped":0,"snr_gamma":5.0,"val_at_sel":0.118243,"vals":{"10":0.129394,"100":0.118243,"15":0.128162,"20":0.126718,"25":0.12595,"30":0.124043,"35":0.122607,"40":0.121947,"45":0.121652,"5":0.13178,"50":0.121211,"55":0.120767,"60":0.120315,"65":0.119695,"70":0.119055,"75":0.118977,"80":0.118559,"85":0.118399,"90":0.118302,"95":0.118253}},{"done":true,"epochs":100,"failed":false,"hours":9.206,"loss_type":"l1","mode":"regress_fam","planned":100,"prediction_type":"direct","role":"D, regressor","run":"regress_fam_b64","sec_per_epoch":319.1,"selected":85,"skipped":0,"snr_gamma":5.0,"val_at_sel":0.334818,"vals":{"1":0.644785,"10":0.453343,"100":0.33583,"11":0.439741,"12":0.430836,"13":0.437187,"14":0.435461,"15":0.439935,"16":0.424978,"17":0.429533,"18":0.430515,"19":0.426642,"2":0.54373,"20":0.421123,"21":0.416724,"22":0.406806,"23":0.405261,"24":0.4093,"25":0.397144,"26":0.392516,"27":0.399359,"28":0.388345,"29":0.387733,"3":0.502211,"30":0.386368,"31":0.377256,"32":0.387987,"33":0.392731,"34":0.38758,"35":0.384705,"36":0.376474,"37":0.379706,"38":0.375294,"39":0.371183,"4":0.47527,"40":0.376905,"41":0.374159,"42":0.373003,"43":0.365063,"44":0.372837,"45":0.365993,"46":0.357966,"47":0.356386,"48":0.353674,"49":0.354641,"5":0.472396,"50":0.354973,"51":0.361867,"52":0.350577,"53":0.354766,"54":0.348065,"55":0.346691,"56":0.347346,"57":0.348848,"58":0.345656,"59":0.355494,"6":0.4756,"60":0.34077,"61":0.350075,"62":0.35474,"63":0.345494,"64":0.345972,"65":0.345842,"66":0.344761,"67":0.343436,"68":0.338612,"69":0.345034,"7":0.47446,"70":0.34124,"71":0.345684,"72":0.343154,"73":0.340697,"74":0.336987,"75":0.33913,"76":0.337387,"77":0.343088,"78":0.342372,"79":0.337118,"8":0.455906,"80":0.34222,"81":0.343092,"82":0.337799,"83":0.33768,"84":0.337974,"85":0.334818,"86":0.34151,"87":0.337617,"88":0.338537,"89":0.335137,"9":0.455882,"90":0.336403,"91":0.338341,"92":0.33763,"93":0.339926,"94":0.335216,"95":0.336595,"96":0.335587,"97":0.335702,"98":0.335026,"99":0.334906}},{"done":true,"epochs":40,"failed":false,"hours":3.487,"loss_type":"nll","mode":"varhead_fam","planned":40,"prediction_type":"direct","role":"V, variance head","run":"varhead_fam_b64","sec_per_epoch":298.6,"selected":38,"skipped":0,"snr_gamma":5.0,"val_at_sel":0.202569,"vals":{"1":0.372639,"10":0.246062,"11":0.243,"12":0.23551,"13":0.231365,"14":0.231604,"15":0.228388,"16":0.227728,"17":0.220585,"18":0.221629,"19":0.219052,"2":0.348089,"20":0.221771,"21":0.216447,"22":0.214757,"23":0.214369,"24":0.212645,"25":0.211821,"26":0.217907,"27":0.207826,"28":0.207777,"29":0.206274,"3":0.318148,"30":0.206932,"31":0.205504,"32":0.205945,"33":0.203874,"34":0.204371,"35":0.204109,"36":0.202976,"37":0.202821,"38":0.202569,"39":0.202734,"4":0.302662,"40":0.20282,"5":0.290757,"6":0.282147,"7":0.268449,"8":0.260174,"9":0.254078}},{"done":true,"epochs":100,"failed":true,"hours":6.974,"loss_type":"l1","mode":"uncond","planned":100,"prediction_type":"v","role":"B prior (v-prediction, failed)","run":"uncond_b64","sec_per_epoch":248.6,"selected":100,"skipped":0,"snr_gamma":5.0,"val_at_sel":0.0978327,"vals":{"10":0.110603,"100":0.0978327,"15":0.110534,"20":0.109293,"25":0.107564,"30":0.105178,"35":0.104156,"40":0.103367,"45":0.102918,"5":0.110697,"50":0.102146,"55":0.10135,"60":0.100214,"65":0.0998803,"70":0.0994388,"75":0.0991914,"80":0.0984631,"85":0.0980021,"90":0.0978938,"95":0.0978591}}],"sensor":{"R_device1":[[0.881,0.932,0.9562,0.9999,1.0,1.0,0.9196,0.8709,1.0,0.7044,0.0998,0.7889,1.0,1.0,1.0,1.0,1.0,1.0,0.9301,0.225,0.0,0.0758,0.008416,0.009995,0.0,0.02068,0.01265,0.01892,0.001237,0.1912],[0.8788,0.9317,0.9553,0.9963,0.9961,0.9974,0.932,0.8892,0.8419,0.5254,0.0,0.8108,0.7129,0.8619,0.8573,0.8629,0.8677,0.882,0.8683,0.2853,0.001398,0.06807,0.0,0.0,0.0008329,0.00806,0.005226,0.004976,0.0,0.1696],[0.91,0.9666,0.9781,0.9904,0.9845,0.9936,0.9816,0.9859,0.4044,0.1967,0.1035,0.9406,0.3886,0.6574,0.6562,0.6676,0.6763,0.703,0.7639,0.3527,0.06415,0.07598,0.01084,0.003122,0.003384,0.0,0.001345,0.001395,0.007746,0.1744],[0.9385,0.9962,0.9978,0.9879,0.9778,0.9911,1.0,1.0,0.05358,0.0,0.2987,1.0,0.1484,0.425,0.4409,0.4574,0.4698,0.5093,0.6524,0.4352,0.1451,0.1072,0.04662,0.02367,0.006492,0.01236,0.007485,0.01736,0.01117,0.2181],[0.9421,0.9973,1.0,0.9944,0.986,0.9927,0.9347,0.7996,0.01504,0.1633,0.6129,0.8954,0.03131,0.2073,0.255,0.2762,0.2928,0.3469,0.5731,0.5309,0.2558,0.1773,0.0989,0.03771,0.009236,0.01603,0.006616,0.02269,0.009682,0.2356],[0.9447,0.991,0.996,1.0,0.9941,0.9917,0.8593,0.5864,0.06517,0.3864,0.8974,0.7217,0.0,0.0525,0.1392,0.1663,0.1882,0.2605,0.5628,0.6393,0.3954,0.296,0.1684,0.04195,0.0115,0.008635,0.0,0.01444,0.0001755,0.2124],[0.9687,0.9863,0.9862,0.9931,0.9856,0.9761,0.8398,0.5651,0.09703,0.4267,0.928,0.4987,0.07924,0.03704,0.09057,0.1387,0.1666,0.26,0.6265,0.7533,0.5548,0.4561,0.2494,0.03622,0.01321,0.006006,0.01563,0.0,0.008605,0.1402],[0.9961,0.9823,0.9753,0.9817,0.9715,0.9563,0.8409,0.6119,0.1223,0.394,0.8483,0.268,0.07248,0.04794,0.1074,0.1701,0.2043,0.3189,0.735,0.8602,0.7153,0.6332,0.3329,0.02577,0.01496,0.01646,0.02972,0.01143,0.02004,0.1666],[1.0,0.9823,0.9747,0.9808,0.9728,0.9606,0.8272,0.5546,0.08449,0.3765,0.8544,0.1073,0.03568,0.04676,0.1675,0.2329,0.2727,0.4057,0.855,0.946,0.8564,0.8008,0.41,0.0157,0.02161,0.02125,0.02699,0.02028,0.01013,0.2713],[0.9839,0.9855,0.9816,0.986,0.9824,0.9772,0.7998,0.4252,0.0058,0.3724,0.9211,0.01896,0.02534,0.08334,0.2307,0.3009,0.3448,0.4903,0.9541,0.9971,0.958,0.9319,0.4706,0.01078,0.03788,0.009778,0.01427,0.007818,0.01303,0.1413],[0.9626,0.9917,0.989,0.9831,0.9759,0.9652,0.7565,0.3183,0.0,0.4088,0.9577,0.0,0.02117,0.1352,0.2721,0.3475,0.3931,0.5421,1.0,1.0,1.0,1.0,0.5038,0.01747,0.06199,0.0317,0.04386,0.03536,0.06443,0.0],[0.9395,1.0,0.995,0.9702,0.9509,0.9213,0.6991,0.2493,0.0864,0.4959,0.9606,0.04915,0.02933,0.158,0.2875,0.3608,0.4054,0.5482,0.9803,0.9518,0.9769,0.9964,0.5066,0.03831,0.09224,0.1092,0.1336,0.1282,0.1554,0.1021],[0.8945,0.9999,0.9952,0.9521,0.9137,0.8485,0.6264,0.1941,0.1584,0.5635,0.956,0.1452,0.04459,0.1632,0.2793,0.346,0.3875,0.5163,0.9068,0.8627,0.9008,0.9341,0.486,0.07028,0.1301,0.2047,0.2416,0.2426,0.2693,0.2031],[0.8069,0.9818,0.9836,0.9258,0.8572,0.7276,0.5227,0.1403,0.1632,0.5711,0.9469,0.2939,0.06835,0.1524,0.2533,0.3096,0.3464,0.4557,0.793,0.7437,0.785,0.8273,0.4491,0.111,0.1733,0.318,0.3668,0.3761,0.3988,0.3416],[0.7538,0.9619,0.9678,0.9048,0.8198,0.6557,0.4799,0.1726,0.2198,0.6043,0.9391,0.386,0.08304,0.1312,0.2142,0.2579,0.289,0.3752,0.652,0.6058,0.6426,0.6899,0.4008,0.1578,0.2207,0.4404,0.4994,0.5172,0.5346,0.4928],[0.8685,0.9819,0.9753,0.9251,0.8701,0.7806,0.6491,0.4531,0.4733,0.758,0.9456,0.2533,0.06186,0.1052,0.1668,0.1974,0.2221,0.2837,0.4969,0.4597,0.4869,0.5355,0.3459,0.2082,0.2704,0.5651,0.6312,0.6563,0.6677,0.6449],[0.9713,0.9682,0.952,0.9272,0.9158,0.9264,0.8405,0.7542,0.7447,0.9232,0.9541,0.07633,0.03361,0.07665,0.1168,0.1345,0.1527,0.19,0.3411,0.3166,0.3309,0.3788,0.2924,0.2595,0.3211,0.6852,0.7541,0.7837,0.7895,0.7849],[0.7374,0.7632,0.7846,0.8165,0.826,0.8507,0.7854,0.7346,0.7752,0.9488,0.9538,0.1035,0.03795,0.0469,0.07022,0.07632,0.08854,0.1052,0.1991,0.1881,0.1893,0.2339,0.2478,0.3092,0.3713,0.7935,0.8598,0.8899,0.8913,0.8994],[0.3249,0.4539,0.5341,0.6316,0.6468,0.6356,0.5755,0.5137,0.6567,0.8875,0.9458,0.2473,0.0609,0.0206,0.0322,0.02605,0.03329,0.03055,0.08071,0.08391,0.07022,0.1173,0.2184,0.3549,0.4193,0.8831,0.9401,0.9651,0.9643,0.9753],[0.07051,0.2206,0.3109,0.4016,0.4145,0.3939,0.3545,0.3078,0.5663,0.8352,0.9201,0.3402,0.07573,0.004728,0.006554,0.003444,0.007053,0.006335,0.01407,0.02074,0.008852,0.03416,0.2136,0.3937,0.464,0.9471,0.9871,1.0,1.0,1.0],[0.0,0.08406,0.1349,0.149,0.1537,0.155,0.1503,0.1439,0.5189,0.8015,0.8804,0.3711,0.08066,0.0,0.0,0.007424,0.01022,0.02099,0.01067,0.01162,0.01163,0.0,0.2342,0.4274,0.506,0.9845,1.0,0.9949,0.9985,0.9759],[0.03136,0.006834,0.02273,0.0,0.0,0.006165,0.01773,0.02964,0.4984,0.7894,0.8542,0.3471,0.07684,1.847e-05,0.003272,0.00951,0.0141,0.02114,0.02255,0.01982,0.02037,0.005341,0.2733,0.4612,0.548,1.0,0.9853,0.9596,0.968,0.9195],[0.1804,0.0,0.0,0.02018,0.02254,0.0,0.0,0.0,0.5238,0.8143,0.8518,0.2477,0.06097,0.002909,0.001261,0.002067,0.006102,0.00871,0.007527,0.008721,0.004668,0.02084,0.3296,0.4997,0.5933,0.9984,0.9497,0.9043,0.9171,0.8483],[0.3465,0.0402,0.02499,0.07257,0.09671,0.1074,0.08486,0.03956,0.5601,0.8478,0.8686,0.1488,0.04518,0.01062,0.005874,0.0,0.0,0.0,0.0,0.01554,0.002365,0.05256,0.4063,0.548,0.6449,0.9848,0.8999,0.8393,0.8547,0.7799],[0.4463,0.1278,0.0921,0.08413,0.1718,0.3807,0.3238,0.1647,0.5833,0.8751,0.9165,0.105,0.03818,0.01565,0.01302,0.0116,0.0115,0.01558,0.02361,0.03322,0.03392,0.08777,0.5072,0.6108,0.706,0.9639,0.8427,0.7747,0.7893,0.7319],[0.5286,0.2173,0.1694,0.1157,0.2703,0.682,0.5968,0.3388,0.6178,0.9043,0.9684,0.0791,0.03405,0.01725,0.01643,0.01853,0.01766,0.02352,0.03917,0.03734,0.1126,0.2115,0.6125,0.6944,0.7767,0.9402,0.7843,0.7194,0.7287,0.7172],[0.6396,0.2362,0.1988,0.2161,0.4016,0.8489,0.7793,0.565,0.7045,0.9448,0.9926,0.04683,0.0289,0.01627,0.01604,0.02031,0.01828,0.02371,0.04391,0.03389,0.15,0.2706,0.726,0.7851,0.8514,0.9148,0.7282,0.6745,0.6753,0.7286],[0.7347,0.2188,0.2084,0.3535,0.5457,0.9305,0.8948,0.7905,0.8058,0.9852,1.0,0.02298,0.02509,0.01339,0.01324,0.01893,0.01589,0.0195,0.04202,0.02577,0.1638,0.296,0.8338,0.8722,0.9201,0.8883,0.6769,0.6387,0.6297,0.7532],[0.6776,0.1948,0.238,0.5055,0.6846,0.9607,0.9283,0.8736,0.8447,1.0,0.9982,0.04494,0.02859,0.009201,0.009367,0.01556,0.01171,0.01262,0.03554,0.01509,0.1711,0.3186,0.9236,0.9451,0.9728,0.861,0.6329,0.6103,0.5927,0.778],[0.5083,0.1744,0.2869,0.6584,0.8087,0.9477,0.8936,0.8359,0.8306,0.9933,0.9895,0.1046,0.03812,0.004762,0.005599,0.01146,0.007416,0.005145,0.0272,0.005563,0.1673,0.3275,0.9839,0.9916,1.0,0.8334,0.5988,0.5882,0.5648,0.7897],[0.4248,0.2023,0.3483,0.7552,0.8802,0.9359,0.8722,0.8202,0.8221,0.9885,0.9864,0.1324,0.04256,0.001821,0.002932,0.007621,0.004335,0.0007507,0.01877,0.0,0.1553,0.3218,1.0,1.0,0.9919,0.8058,0.577,0.5711,0.547,0.7754]],"devices":{"device1":{"cond":2292000000.0,"n_below_1pct":19,"n_states_total":71,"sha256":"405b355bfdebc827fefe072b1aacc8fd116892605ff279e116eb002033956df5","sv":[15.254,7.8886,3.7812,2.6663,1.9171,1.1721,0.82722,0.63437,0.52194,0.36472,0.21572,0.13972,0.13175,0.117,0.074785,0.018819,0.015568,0.009115,0.0079818,0.0059975,0.0042231,0.0026033,0.0014935,0.0007506,9.4858e-05,4.7428e-05,5.9715e-06,3.937e-06,1.3089e-06,6.6557e-09],"sv_rel":[1.0,0.51715,0.24788,0.17479,0.12567,0.07684,0.054229,0.041586,0.034216,0.023909,0.014141,0.0091596,0.0086371,0.0076698,0.0049026,0.0012337,0.0010206,0.00059754,0.00052325,0.00039317,0.00027685,0.00017066,9.7909e-05,4.9206e-05,6.2185e-06,3.1092e-06,3.9147e-07,2.581e-07,8.5807e-08,4.3632e-10]},"device2":{"cond":629600000.0,"n_below_1pct":18,"n_states_total":42,"sha256":"a60c3c399983d144aed544f3c7226497b1150f3b767e62b0411e99bac1d623bc","sv":[16.247,5.8919,2.5708,1.5545,1.311,0.87988,0.57199,0.44467,0.34706,0.27389,0.22874,0.16944,0.13636,0.094059,0.072629,0.059053,0.050959,0.042091,0.034364,0.03067,0.024333,0.018394,0.013505,0.0088808,0.0077528,0.0041801,0.0015361,0.00071396,7.7834e-08,2.5804e-08],"sv_rel":[1.0,0.36266,0.15824,0.095679,0.080691,0.054158,0.035207,0.02737,0.021362,0.016858,0.014079,0.010429,0.0083932,0.0057894,0.0044704,0.0036348,0.0031366,0.0025908,0.0021151,0.0018878,0.0014977,0.0011322,0.00083123,0.00054662,0.0004772,0.00025729,9.4546e-05,4.3945e-05,4.7908e-09,1.5883e-09]},"ph5":{"cond":5.218e+19,"n_below_1pct":26,"n_states_total":101,"sha256":"96def0adab2bfa173d6ac245b57e9659f19b545626aebf7da719b094a38ca396","sv":[12.621,1.3174,0.29887,0.21574,0.066943,0.02231,0.0099347,0.0054594,0.0046299,0.0030126,0.0020525,0.0014603,0.00027533,0.00011741,8.801e-05,7.661e-07,3.331e-16,2.7626e-16,1.1731e-16,8.286e-17,7.2161e-17,4.2073e-17,2.8065e-17,1.5272e-17,7.134e-18,2.0277e-18,1.5053e-18,4.6871e-19,4.2275e-19,2.4186e-19],"sv_rel":[1.0,0.10438,0.023681,0.017094,0.0053043,0.0017677,0.00078718,0.00043258,0.00036685,0.00023871,0.00016264,0.00011571,2.1816e-05,9.3031e-06,6.9736e-06,6.0702e-08,2.6394e-17,2.189e-17,9.2955e-18,6.5655e-18,5.7177e-18,3.3337e-18,2.2237e-18,1.2101e-18,5.6527e-19,1.6066e-19,1.1927e-19,3.7139e-20,3.3497e-20,1.9164e-20]}},"wavelengths":[451.0,464.47,477.93,491.4,504.87,518.33,531.8,545.27,558.73,572.2,585.67,599.13,612.6,626.07,639.53,653.0,666.47,679.93,693.4,706.87,720.33,733.8,747.27,760.73,774.2,787.67,801.13,814.6,828.07,841.53,855.0]},"settings":{"device1_sequential_20":{"B":{"status":"pending"},"device":"device1","exp":"E1","methods":{"C":{"ause":0.383882,"cov50":0.631364,"cov90":0.956204,"crps":2.64856,"mean_hf":2.03503,"mean_rmse_pct":4.84498,"mean_sam_deg":7.26289,"single_hf":4.01407,"single_rmse_pct":7.53999,"spread_ratio":1.68367},"C1":{"hf":2.23907,"rmse_pct":5.15922,"sam_deg":7.82034,"w1":0.00590642},"D":{"hf":1.95105,"rmse_pct":3.23831,"sam_deg":4.86036,"w1":0.00393166},"L":{"ause":0.408711,"cov50":0.54072,"cov90":0.921564,"crps":3.5599,"mean_hf":3.46692,"mean_rmse_pct":6.42453,"mean_sam_deg":9.78559,"spread_ratio":1.20695},"V":{"ause":0.354613,"cov50":0.46607,"cov90":0.890271,"crps":3.49322,"mean_hf":3.46692,"mean_rmse_pct":6.42453,"mean_sam_deg":9.78559,"spread_ratio":0.972764}},"mode":"sequential","n":200,"sigma":0.574005,"snr":20},"device1_sequential_30":{"B":{"status":"pending"},"device":"device1","exp":"E1","methods":{"C":{"ause":0.391415,"cov50":0.597982,"cov90":0.942025,"crps":1.75724,"mean_hf":1.71959,"mean_rmse_pct":3.24517,"mean_sam_deg":4.95798,"single_hf":3.23988,"single_rmse_pct":5.0227,"spread_ratio":1.59272},"C1":{"hf":1.75014,"rmse_pct":3.49531,"sam_deg":5.34165,"w1":0.00352064},"D":{"hf":1.56896,"rmse_pct":2.51846,"sam_deg":3.97402,"w1":0.00266912},"L":{"ause":0.363193,"cov50":0.548522,"cov90":0.921572,"crps":2.25976,"mean_hf":2.44656,"mean_rmse_pct":4.14323,"mean_sam_deg":6.4273,"spread_ratio":1.27721},"V":{"ause":0.319214,"cov50":0.47921,"cov90":0.903794,"crps":2.19411,"mean_hf":2.44656,"mean_rmse_pct":4.14323,"mean_sam_deg":6.4273,"spread_ratio":1.03773}},"mode":"sequential","n":200,"sigma":0.181516,"snr":30},"device1_sequential_40":{"B":{"status":"pending"},"device":"device1","exp":"E1","methods":{"C":{"ause":0.410795,"cov50":0.596608,"cov90":0.943754,"crps":1.0533,"mean_hf":1.01917,"mean_rmse_pct":1.93262,"mean_sam_deg":3.04537,"single_hf":2.38693,"single_rmse_pct":3.05455,"spread_ratio":1.65782},"C1":{"hf":1.06651,"rmse_pct":2.04413,"sam_deg":3.21761,"w1":0.00172207},"D":{"hf":0.952864,"rmse_pct":1.81997,"sam_deg":2.89753,"w1":0.00126604},"L":{"ause":0.339644,"cov50":0.546203,"cov90":0.920293,"crps":1.4051,"mean_hf":1.87875,"mean_rmse_pct":2.62217,"mean_sam_deg":4.13877,"spread_ratio":1.21083},"V":{"ause":0.308565,"cov50":0.49048,"cov90":0.895937,"crps":1.38335,"mean_hf":1.87875,"mean_rmse_pct":2.62217,"mean_sam_deg":4.13877,"spread_ratio":1.0579}},"mode":"sequential","n":200,"sigma":0.0574005,"snr":40},"device1_sequential_50":{"B":{"status":"pending"},"device":"device1","exp":"E1","methods":{"C":{"ause":0.398464,"cov50":0.548172,"cov90":0.924905,"crps":0.759245,"mean_hf":0.552576,"mean_rmse_pct":1.42251,"mean_sam_deg":2.26439,"single_hf":1.59442,"single_rmse_pct":2.05156,"spread_ratio":1.18599},"C1":{"hf":0.568019,"rmse_pct":1.41398,"sam_deg":2.24926,"w1":0.000693505},"D":{"hf":0.477242,"rmse_pct":1.3519,"sam_deg":2.16051,"w1":0.000494315},"L":{"ause":0.355151,"cov50":0.556632,"cov90":0.92607,"crps":0.840126,"mean_hf":0.911335,"mean_rmse_pct":1.55632,"mean_sam_deg":2.50525,"spread_ratio":1.28068},"V":{"ause":0.322795,"cov50":0.497897,"cov90":0.892963,"crps":0.832316,"mean_hf":0.911335,"mean_rmse_pct":1.55632,"mean_sam_deg":2.50525,"spread_ratio":1.13869}},"mode":"sequential","n":200,"sigma":0.0181516,"snr":50},"device1_sequential_60":{"B":{"K":32,"created":"2026-11-05T23:47:51","hours":1.733,"means":{"ause":0.428242,"cov50":0.238277,"cov90":0.486814,"crps":1.3709,"mean_hf":-0.998929,"mean_rmse_pct":2.39094,"mean_sam_deg":3.42516,"single_hf":-0.463029,"single_rmse_pct":3.23571,"spread_ratio":0.985561},"n":50,"on_subset":{"C":{"ause":0.40667,"cov50":0.560525,"cov90":0.925139,"crps":0.571135,"mean_hf":0.259857,"mean_rmse_pct":1.07865,"mean_sam_deg":1.73943,"single_hf":1.09615,"single_rmse_pct":1.53598,"spread_ratio":1.13321},"C1":{"hf":0.24776,"rmse_pct":1.06019,"sam_deg":1.69753,"w1":0.000291274},"D":{"hf":0.213048,"rmse_pct":1.05488,"sam_deg":1.71969,"w1":0.000243735},"L":{"ause":0.330317,"cov50":0.568585,"cov90":0.931939,"crps":0.575871,"mean_hf":0.322667,"mean_rmse_pct":1.074,"mean_sam_deg":1.72913,"spread_ratio":1.38013},"V":{"ause":0.305209,"cov50":0.501553,"cov90":0.896453,"crps":0.569649,"mean_hf":0.322667,"mean_rmse_pct":1.074,"mean_sam_deg":1.72913,"spread_ratio":1.17521}},"paired":{"crps_vs_C":{"a":1.3709,"b":0.571135,"clusters":45,"diff":0.799767,"n":50,"ratio":2.40031,"se_cluster":0.0598744},"crps_vs_L":{"a":1.3709,"b":0.575871,"clusters":45,"diff":0.79503,"n":50,"ratio":2.38057,"se_cluster":0.0613991},"crps_vs_V":{"a":1.3709,"b":0.569649,"clusters":45,"diff":0.801252,"n":50,"ratio":2.40657,"se_cluster":0.0612456},"rmse_vs_C":{"a":2.39094,"b":1.07865,"clusters":45,"diff":1.31229,"n":50,"ratio":2.2166,"se_cluster":0.0992728},"rmse_vs_C1":{"a":2.39094,"b":1.06019,"clusters":45,"diff":1.33075,"n":50,"ratio":2.25519,"se_cluster":0.101553},"rmse_vs_D":{"a":2.39094,"b":1.05488,"clusters":45,"diff":1.33606,"limit":1.05,"n":50,"passed":false,"ratio":2.26655,"ratio_2se":2.45971,"se_cluster":0.102055},"rmse_vs_L":{"a":2.39094,"b":1.074,"clusters":45,"diff":1.31695,"n":50,"ratio":2.22621,"se_cluster":0.102697},"rmse_vs_V":{"a":2.39094,"b":1.074,"clusters":45,"diff":1.31695,"n":50,"ratio":2.22621,"se_cluster":0.102697}},"pred_type":"x0","status":"final","steps":50},"device":"device1","exp":"E1","methods":{"C":{"ause":0.400584,"cov50":0.555342,"cov90":0.921312,"crps":0.583228,"mean_hf":0.282458,"mean_rmse_pct":1.10672,"mean_sam_deg":1.76203,"single_hf":1.13879,"single_rmse_pct":1.55795,"spread_ratio":1.08902},"C1":{"hf":0.269028,"rmse_pct":1.09125,"sam_deg":1.72769,"w1":0.000275603},"D":{"hf":0.231693,"rmse_pct":1.05169,"sam_deg":1.69333,"w1":0.000229159},"L":{"ause":0.330187,"cov50":0.558921,"cov90":0.926271,"crps":0.589796,"mean_hf":0.343585,"mean_rmse_pct":1.105,"mean_sam_deg":1.7581,"spread_ratio":1.30938},"V":{"ause":0.301596,"cov50":0.502678,"cov90":0.89724,"crps":0.583949,"mean_hf":0.343585,"mean_rmse_pct":1.105,"mean_sam_deg":1.7581,"spread_ratio":1.16122}},"mode":"sequential","n":200,"sigma":0.00574005,"snr":60},"device1_snapshot_20":{"B":{"status":"pending"},"device":"device1","exp":"E3","methods":{"C":{"ause":0.383956,"cov50":0.731888,"cov90":0.985245,"crps":4.46717,"mean_hf":2.39274,"mean_rmse_pct":7.71902,"mean_sam_deg":11.4269,"single_hf":5.42864,"single_rmse_pct":14.1423,"spread_ratio":2.92805},"C1":{"hf":2.16791,"rmse_pct":8.78063,"sam_deg":12.591,"w1":0.00681865},"D":{"hf":0.711488,"rmse_pct":3.97054,"sam_deg":5.41648,"w1":0.00289506},"L":{"ause":0.355778,"cov50":0.545962,"cov90":0.939305,"crps":7.27758,"mean_hf":3.86888,"mean_rmse_pct":12.877,"mean_sam_deg":16.3088,"spread_ratio":1.60393},"L_demosaic":{"ause":0.40107,"cov50":0.576702,"cov90":0.92898,"crps":3.7449,"mean_hf":-1.5428,"mean_rmse_pct":6.8666,"mean_sam_deg":9.78453,"spread_ratio":1.27037},"V":{"ause":0.149745,"cov50":0.320124,"cov90":0.939915,"crps":6.63547,"mean_hf":3.86888,"mean_rmse_pct":12.877,"mean_sam_deg":16.3088,"spread_ratio":1.05776}},"mode":"snapshot","n":200,"sigma":0.574005,"snr":20},"device1_snapshot_30":{"B":{"status":"pending"},"device":"device1","exp":"E3","methods":{"C":{"ause":0.362837,"cov50":0.757723,"cov90":0.991591,"crps":4.01144,"mean_hf":2.07318,"mean_rmse_pct":6.84071,"mean_sam_deg":10.3563,"single_hf":5.34256,"single_rmse_pct":13.2865,"spread_ratio":3.39413},"C1":{"hf":1.52874,"rmse_pct":7.82624,"sam_deg":11.5353,"w1":0.00379844},"D":{"hf":-0.340547,"rmse_pct":2.94954,"sam_deg":4.26376,"w1":0.00118978},"L":{"ause":0.340038,"cov50":0.550133,"cov90":0.94243,"crps":6.91213,"mean_hf":3.432,"mean_rmse_pct":12.2176,"mean_sam_deg":16.019,"spread_ratio":1.69357},"L_demosaic":{"ause":0.380156,"cov50":0.588838,"cov90":0.921279,"crps":3.06317,"mean_hf":-1.75809,"mean_rmse_pct":5.83462,"mean_sam_deg":8.05469,"spread_ratio":1.17316},"V":{"ause":0.0987883,"cov50":0.255594,"cov90":0.950267,"crps":6.16995,"mean_hf":3.432,"mean_rmse_pct":12.2176,"mean_sam_deg":16.019,"spread_ratio":1.07771}},"mode":"snapshot","n":200,"sigma":0.181516,"snr":30},"device1_snapshot_40":{"B":{"K":32,"created":"2026-11-05T23:51:32","hours":1.794,"means":{"ause":0.340722,"cov50":0.246497,"cov90":0.574632,"crps":3.58959,"mean_hf":-1.65426,"mean_rmse_pct":5.95852,"mean_sam_deg":8.90103,"single_hf":-1.43108,"single_rmse_pct":6.57278,"spread_ratio":0.411781},"n":50,"on_subset":{"C":{"ause":0.35419,"cov50":0.790083,"cov90":0.993823,"crps":3.7932,"mean_hf":1.94348,"mean_rmse_pct":6.44279,"mean_sam_deg":9.92178,"single_hf":5.26219,"single_rmse_pct":12.9041,"spread_ratio":3.61286},"C1":{"hf":1.28686,"rmse_pct":7.41766,"sam_deg":11.107,"w1":0.00327151},"D":{"hf":-0.629052,"rmse_pct":2.68283,"sam_deg":3.95757,"w1":0.00126609},"L":{"ause":0.323846,"cov50":0.575729,"cov90":0.950771,"crps":6.64435,"mean_hf":3.20758,"mean_rmse_pct":11.8119,"mean_sam_deg":15.5993,"spread_ratio":1.76618},"L_demosaic":{"ause":0.369706,"cov50":0.610626,"cov90":0.919563,"crps":2.86971,"mean_hf":-1.79047,"mean_rmse_pct":5.60007,"mean_sam_deg":7.60195,"spread_ratio":1.11761},"V":{"ause":0.0803122,"cov50":0.239586,"cov90":0.960229,"crps":5.88152,"mean_hf":3.20758,"mean_rmse_pct":11.8119,"mean_sam_deg":15.5993,"spread_ratio":1.07632}},"paired":{"crps_vs_C":{"a":3.58959,"b":3.7932,"clusters":45,"diff":-0.203609,"n":50,"ratio":0.946323,"se_cluster":0.244332},"crps_vs_L":{"a":3.58959,"b":6.64435,"clusters":45,"diff":-3.05475,"n":50,"ratio":0.540248,"se_cluster":0.345898},"crps_vs_L_demosaic":{"a":3.58959,"b":2.86971,"clusters":45,"diff":0.719889,"n":50,"ratio":1.25086,"se_cluster":0.274376},"crps_vs_V":{"a":3.58959,"b":5.88152,"clusters":45,"diff":-2.29192,"n":50,"ratio":0.610318,"se_cluster":0.331636},"rmse_vs_C":{"a":5.95852,"b":6.44279,"clusters":45,"diff":-0.484269,"n":50,"ratio":0.924836,"se_cluster":0.380529},"rmse_vs_C1":{"a":5.95852,"b":7.41766,"clusters":45,"diff":-1.45914,"n":50,"ratio":0.803288,"se_cluster":0.473374},"rmse_vs_D":{"a":5.95852,"b":2.68283,"clusters":45,"diff":3.2757,"n":50,"ratio":2.22099,"se_cluster":0.261565},"rmse_vs_L":{"a":5.95852,"b":11.8119,"clusters":45,"diff":-5.85339,"n":50,"ratio":0.50445,"se_cluster":0.565344},"rmse_vs_L_demosaic":{"a":5.95852,"b":5.60007,"clusters":45,"diff":0.358455,"n":50,"ratio":1.06401,"se_cluster":0.424621},"rmse_vs_V":{"a":5.95852,"b":11.8119,"clusters":45,"diff":-5.85339,"n":50,"ratio":0.50445,"se_cluster":0.565344}},"pred_type":"x0","status":"final","steps":50},"device":"device1","exp":"E3","methods":{"C":{"ause":0.360081,"cov50":0.774164,"cov90":0.993314,"crps":3.87771,"mean_hf":2.01005,"mean_rmse_pct":6.56596,"mean_sam_deg":9.99345,"single_hf":5.32862,"single_rmse_pct":13.0937,"spread_ratio":3.59415},"C1":{"hf":1.37138,"rmse_pct":7.61394,"sam_deg":11.2666,"w1":0.00327618},"D":{"hf":-0.588555,"rmse_pct":2.72737,"sam_deg":3.99248,"w1":0.00123947},"L":{"ause":0.333655,"cov50":0.551057,"cov90":0.942946,"crps":6.85441,"mean_hf":3.29866,"mean_rmse_pct":12.1182,"mean_sam_deg":15.9528,"spread_ratio":1.71149},"L_demosaic":{"ause":0.364641,"cov50":0.599951,"cov90":0.918035,"crps":2.89864,"mean_hf":-1.84569,"mean_rmse_pct":5.61338,"mean_sam_deg":7.61563,"spread_ratio":1.15636},"V":{"ause":0.0874636,"cov50":0.238469,"cov90":0.955022,"crps":6.09319,"mean_hf":3.29866,"mean_rmse_pct":12.1182,"mean_sam_deg":15.9528,"spread_ratio":1.07275}},"mode":"snapshot","n":200,"sigma":0.0574005,"snr":40},"device1_snapshot_60":{"B":{"status":"pending"},"device":"device1","exp":"E3","methods":{"C":{"ause":0.359691,"cov50":0.776344,"cov90":0.993478,"crps":3.86105,"mean_hf":2.00199,"mean_rmse_pct":6.53108,"mean_sam_deg":9.94676,"single_hf":5.32693,"single_rmse_pct":13.0694,"spread_ratio":3.62175},"C1":{"hf":1.34894,"rmse_pct":7.58549,"sam_deg":11.2293,"w1":0.00321122},"D":{"hf":-0.625775,"rmse_pct":2.69627,"sam_deg":3.95113,"w1":0.00128121},"L":{"ause":0.332624,"cov50":0.551183,"cov90":0.943022,"crps":6.84743,"mean_hf":3.28027,"mean_rmse_pct":12.1066,"mean_sam_deg":15.9439,"spread_ratio":1.71366},"L_demosaic":{"ause":0.360693,"cov50":0.604183,"cov90":0.917418,"crps":2.86771,"mean_hf":-1.86385,"mean_rmse_pct":5.57432,"mean_sam_deg":7.53076,"spread_ratio":1.15508},"V":{"ause":0.0858265,"cov50":0.236189,"cov90":0.95602,"crps":6.08367,"mean_hf":3.28027,"mean_rmse_pct":12.1066,"mean_sam_deg":15.9439,"spread_ratio":1.07198}},"mode":"snapshot","n":200,"sigma":0.00574005,"snr":60},"device2_sequential_20":{"B":{"status":"pending"},"device":"device2","exp":"E2","methods":{"C":{"ause":0.432075,"cov50":0.443423,"cov90":0.843186,"crps":4.72799,"mean_hf":2.59206,"mean_rmse_pct":8.35479,"mean_sam_deg":12.2794,"single_hf":4.37645,"single_rmse_pct":10.8941,"spread_ratio":0.850408},"C1":{"hf":2.6683,"rmse_pct":7.42087,"sam_deg":10.8817,"w1":0.00782725},"D":{"hf":2.95795,"rmse_pct":6.84854,"sam_deg":9.7834,"w1":0.0084113},"L":{"ause":0.360788,"cov50":0.5598,"cov90":0.91871,"crps":4.28786,"mean_hf":3.47886,"mean_rmse_pct":7.68207,"mean_sam_deg":11.2946,"spread_ratio":1.37267},"V":{"ause":0.33866,"cov50":0.48797,"cov90":0.885446,"crps":4.23355,"mean_hf":3.47886,"mean_rmse_pct":7.68207,"mean_sam_deg":11.2946,"spread_ratio":1.08295}},"mode":"sequential","n":200,"sigma":0.574005,"snr":20},"device2_sequential_30":{"B":{"status":"pending"},"device":"device2","exp":"E2","methods":{"C":{"ause":0.379994,"cov50":0.489786,"cov90":0.903567,"crps":2.61879,"mean_hf":2.43001,"mean_rmse_pct":4.83388,"mean_sam_deg":7.33272,"single_hf":3.73897,"single_rmse_pct":6.68554,"spread_ratio":1.00233},"C1":{"hf":2.32344,"rmse_pct":4.52347,"sam_deg":6.83917,"w1":0.0062125},"D":{"hf":2.29619,"rmse_pct":4.1333,"sam_deg":6.20157,"w1":0.00509164},"L":{"ause":0.336633,"cov50":0.568311,"cov90":0.930388,"crps":2.77915,"mean_hf":3.05631,"mean_rmse_pct":5.12155,"mean_sam_deg":7.76778,"spread_ratio":1.27314},"V":{"ause":0.318849,"cov50":0.495307,"cov90":0.897106,"crps":2.73875,"mean_hf":3.05631,"mean_rmse_pct":5.12155,"mean_sam_deg":7.76778,"spread_ratio":1.03017}},"mode":"sequential","n":200,"sigma":0.181516,"snr":30},"device2_sequential_40":{"B":{"status":"pending"},"device":"device2","exp":"E2","methods":{"C":{"ause":0.406172,"cov50":0.473275,"cov90":0.889361,"crps":1.70012,"mean_hf":1.96688,"mean_rmse_pct":3.12173,"mean_sam_deg":4.87511,"single_hf":2.92772,"single_rmse_pct":4.24078,"spread_ratio":0.877413},"C1":{"hf":1.88883,"rmse_pct":2.97247,"sam_deg":4.61498,"w1":0.00339673},"D":{"hf":2.13401,"rmse_pct":3.06708,"sam_deg":4.72813,"w1":0.00379889},"L":{"ause":0.364337,"cov50":0.546567,"cov90":0.924212,"crps":1.75074,"mean_hf":2.14442,"mean_rmse_pct":3.18507,"mean_sam_deg":4.97164,"spread_ratio":1.20692},"V":{"ause":0.346631,"cov50":0.487666,"cov90":0.892736,"crps":1.73542,"mean_hf":2.14442,"mean_rmse_pct":3.18507,"mean_sam_deg":4.97164,"spread_ratio":1.01604}},"mode":"sequential","n":200,"sigma":0.0574005,"snr":40},"ph5_sequential_20":{"B":{"status":"dropped"},"device":"ph5","exp":"E2","methods":{"C":{"ause":0.364625,"cov50":0.220191,"cov90":0.597877,"crps":13.4035,"mean_hf":2.73698,"mean_rmse_pct":22.2444,"mean_sam_deg":24.3592,"single_hf":5.09941,"single_rmse_pct":24.5382,"spread_ratio":0.24853},"C1":{"hf":2.91245,"rmse_pct":15.8229,"sam_deg":17.5358,"w1":0.00729038},"D":{"hf":3.60042,"rmse_pct":15.8778,"sam_deg":20.5913,"w1":0.0166878},"L":{"ause":0.31897,"cov50":0.564404,"cov90":0.93822,"crps":6.42576,"mean_hf":3.04813,"mean_rmse_pct":11.6662,"mean_sam_deg":13.1616,"spread_ratio":1.60915},"V":{"ause":0.387008,"cov50":0.464031,"cov90":0.811538,"crps":6.63355,"mean_hf":3.04813,"mean_rmse_pct":11.6662,"mean_sam_deg":13.1616,"spread_ratio":1.3697}},"mode":"sequential","n":200,"sigma":0.574005,"snr":20},"ph5_sequential_30":{"B":{"status":"dropped"},"device":"ph5","exp":"E2","methods":{"C":{"ause":0.248769,"cov50":0.242858,"cov90":0.62744,"crps":11.1276,"mean_hf":2.86426,"mean_rmse_pct":19.5163,"mean_sam_deg":21.8131,"single_hf":5.03304,"single_rmse_pct":21.8724,"spread_ratio":0.277431},"C1":{"hf":2.82839,"rmse_pct":14.1647,"sam_deg":16.3725,"w1":0.00676017},"D":{"hf":3.2396,"rmse_pct":12.1469,"sam_deg":15.3493,"w1":0.0120762},"L":{"ause":0.275049,"cov50":0.556412,"cov90":0.941364,"crps":5.58868,"mean_hf":3.38786,"mean_rmse_pct":10.4127,"mean_sam_deg":11.8766,"spread_ratio":1.64048},"V":{"ause":0.296492,"cov50":0.509113,"cov90":0.890303,"crps":5.63793,"mean_hf":3.38786,"mean_rmse_pct":10.4127,"mean_sam_deg":11.8766,"spread_ratio":1.54504}},"mode":"sequential","n":200,"sigma":0.181516,"snr":30},"ph5_sequential_40":{"B":{"status":"dropped"},"device":"ph5","exp":"E2","methods":{"C":{"ause":0.23103,"cov50":0.246576,"cov90":0.628545,"crps":9.13457,"mean_hf":2.94676,"mean_rmse_pct":16.2668,"mean_sam_deg":20.8291,"single_hf":4.79632,"single_rmse_pct":18.4167,"spread_ratio":0.291893},"C1":{"hf":3.00229,"rmse_pct":12.5334,"sam_deg":16.087,"w1":0.00827559},"D":{"hf":3.36873,"rmse_pct":10.084,"sam_deg":12.0947,"w1":0.0111819},"L":{"ause":0.244918,"cov50":0.522214,"cov90":0.927796,"crps":4.72168,"mean_hf":3.57254,"mean_rmse_pct":8.96339,"mean_sam_deg":10.1288,"spread_ratio":1.51354},"V":{"ause":0.250819,"cov50":0.50208,"cov90":0.907572,"crps":4.73739,"mean_hf":3.57254,"mean_rmse_pct":8.96339,"mean_sam_deg":10.1288,"spread_ratio":1.48906}},"mode":"sequential","n":200,"sigma":0.0574005,"snr":40}},"stage0":{"L_curves":{"device1":{"sequential":{"20.0":6.424532432556152,"30.0":4.143228064775467,"40.0":2.622172393798828,"50.0":1.5563165599107742,"60.0":1.105004588663578},"snapshot":{"20.0":12.877007746696473,"30.0":12.217580125331878,"40.0":12.118167235851288,"50.0":12.107659156322478,"60.0":12.106631648540496}},"device2":{"sequential":{"20.0":7.682072005271912,"30.0":5.1215545320510865,"40.0":3.185065315961838,"50.0":2.095155801177025,"60.0":1.4298780822753907},"snapshot":{"20.0":12.470141851902008,"30.0":11.946236863136292,"40.0":11.885272786617278,"50.0":11.879029648303986,"60.0":11.878389356136323}},"ph5":{"sequential":{"20.0":11.666246447563172,"30.0":10.412652938365936,"40.0":8.9633913397789,"50.0":7.304154064655304,"60.0":6.069685368537903},"snapshot":{"20.0":13.366454577445984,"30.0":12.600360736846923,"40.0":12.500420196056366,"50.0":12.489890623092652,"60.0":12.488761074543}}},"P_y":32.9481,"P_y_raw":9.62405,"created":"2026-11-04T17:41:43","curves_raw_device1":{"sequential":{"20.0":5.656183619499206,"30.0":3.686806502342224,"40.0":2.525824529528618,"50.0":1.6063907146453857,"60.0":1.1360134667158126},"snapshot":{"20.0":13.335176439285279,"30.0":12.695335822105408,"40.0":12.556781072616577,"50.0":12.539933166503907,"60.0":12.53826869726181}},"normalisation_check_passed":true,"principal_angles":{"device1_device2":{"max":68.14,"n":30,"nonzero":[68.14]},"device1_ph5":{"max":2.765,"n":16,"nonzero":[2.765]}},"sanity_reference_rmse_pct":1.105,"shape_check":{"sequential":{"max_dev":0.08285253947312854,"monotone_norm":true,"monotone_raw":true,"passed":true,"ratios":[0.8804039327183784,0.8898391410519715,0.9632564721915069,1.0321747875878686,1.0280622165467543]},"snapshot":{"max_dev":0.0034014289215253957,"monotone_norm":true,"monotone_raw":true,"passed":true,"ratios":[1.0355803694151187,1.0391039544551832,1.036194733760371,1.0357025255336578,1.03565294305236]}},"snrs":[60.0,50.0,40.0,30.0,20.0],"table":{"device1":{"sequential":{"20":{"L":{"ause":0.408711,"cov50":0.54072,"cov90":0.921564,"crps":3.5599,"mean_rmse_pct":6.42453}},"30":{"L":{"ause":0.363193,"cov50":0.548522,"cov90":0.921572,"crps":2.25976,"mean_rmse_pct":4.14323}},"40":{"L":{"ause":0.339644,"cov50":0.546203,"cov90":0.920293,"crps":1.4051,"mean_rmse_pct":2.62217}},"50":{"L":{"ause":0.355151,"cov50":0.556632,"cov90":0.92607,"crps":0.840126,"mean_rmse_pct":1.55632}},"60":{"L":{"ause":0.330187,"cov50":0.558921,"cov90":0.926271,"crps":0.589796,"mean_rmse_pct":1.105}}},"snapshot":{"20":{"L":{"ause":0.355778,"cov50":0.545962,"cov90":0.939305,"crps":7.27758,"mean_rmse_pct":12.877},"L_demosaic":{"ause":0.40107,"cov50":0.576702,"cov90":0.92898,"crps":3.7449,"mean_rmse_pct":6.8666}},"30":{"L":{"ause":0.340038,"cov50":0.550133,"cov90":0.94243,"crps":6.91213,"mean_rmse_pct":12.2176},"L_demosaic":{"ause":0.380156,"cov50":0.588838,"cov90":0.921279,"crps":3.06317,"mean_rmse_pct":5.83462}},"40":{"L":{"ause":0.333655,"cov50":0.551057,"cov90":0.942946,"crps":6.85441,"mean_rmse_pct":12.1182},"L_demosaic":{"ause":0.364641,"cov50":0.599951,"cov90":0.918035,"crps":2.89864,"mean_rmse_pct":5.61338}},"50":{"L":{"ause":0.332727,"cov50":0.551167,"cov90":0.943014,"crps":6.84807,"mean_rmse_pct":12.1077},"L_demosaic":{"ause":0.361068,"cov50":0.603618,"cov90":0.917489,"crps":2.87097,"mean_rmse_pct":5.57832}},"60":{"L":{"ause":0.332624,"cov50":0.551183,"cov90":0.943022,"crps":6.84743,"mean_rmse_pct":12.1066},"L_demosaic":{"ause":0.360693,"cov50":0.604183,"cov90":0.917418,"crps":2.86771,"mean_rmse_pct":5.57432}}}},"device2":{"sequential":{"20":{"L":{"ause":0.360788,"cov50":0.5598,"cov90":0.91871,"crps":4.28786,"mean_rmse_pct":7.68207}},"30":{"L":{"ause":0.336633,"cov50":0.568311,"cov90":0.930388,"crps":2.77915,"mean_rmse_pct":5.12155}},"40":{"L":{"ause":0.364337,"cov50":0.546567,"cov90":0.924212,"crps":1.75074,"mean_rmse_pct":3.18507}},"50":{"L":{"ause":0.384887,"cov50":0.540165,"cov90":0.917224,"crps":1.16065,"mean_rmse_pct":2.09516}},"60":{"L":{"ause":0.385694,"cov50":0.54066,"cov90":0.913271,"crps":0.783692,"mean_rmse_pct":1.42988}}},"snapshot":{"20":{"L":{"ause":0.344412,"cov50":0.55759,"cov90":0.942991,"crps":7.11393,"mean_rmse_pct":12.4701},"L_demosaic":{"ause":0.376101,"cov50":0.587358,"cov90":0.915812,"crps":4.5647,"mean_rmse_pct":8.24796}},"30":{"L":{"ause":0.33017,"cov50":0.562689,"cov90":0.946655,"crps":6.83966,"mean_rmse_pct":11.9462},"L_demosaic":{"ause":0.397638,"cov50":0.589629,"cov90":0.898619,"crps":4.12296,"mean_rmse_pct":7.72631}},"40":{"L":{"ause":0.327794,"cov50":0.563113,"cov90":0.947253,"crps":6.80787,"mean_rmse_pct":11.8853},"L_demosaic":{"ause":0.409843,"cov50":0.582025,"cov90":0.886519,"crps":4.10939,"mean_rmse_pct":7.81863}},"50":{"L":{"ause":0.327577,"cov50":0.56312,"cov90":0.947327,"crps":6.80461,"mean_rmse_pct":11.879},"L_demosaic":{"ause":0.414376,"cov50":0.579066,"cov90":0.883041,"crps":4.13032,"mean_rmse_pct":7.88185}},"60":{"L":{"ause":0.327557,"cov50":0.563124,"cov90":0.947333,"crps":6.80428,"mean_rmse_pct":11.8784},"L_demosaic":{"ause":0.415056,"cov50":0.578713,"cov90":0.882641,"crps":4.13316,"mean_rmse_pct":7.89013}}}},"ph5":{"sequential":{"20":{"L":{"ause":0.31897,"cov50":0.564404,"cov90":0.93822,"crps":6.42576,"mean_rmse_pct":11.6662}},"30":{"L":{"ause":0.275049,"cov50":0.556412,"cov90":0.941364,"crps":5.58868,"mean_rmse_pct":10.4127}},"40":{"L":{"ause":0.244918,"cov50":0.522214,"cov90":0.927796,"crps":4.72168,"mean_rmse_pct":8.96339}},"50":{"L":{"ause":0.207693,"cov50":0.513738,"cov90":0.92142,"crps":3.7263,"mean_rmse_pct":7.30415}},"60":{"L":{"ause":0.184456,"cov50":0.51817,"cov90":0.91596,"crps":2.93068,"mean_rmse_pct":6.06969}}},"snapshot":{"20":{"L":{"ause":0.367237,"cov50":0.554389,"cov90":0.9295,"crps":7.50277,"mean_rmse_pct":13.3665},"L_demosaic":{"ause":0.321258,"cov50":0.573776,"cov90":0.934963,"crps":6.57391,"mean_rmse_pct":11.9237}},"30":{"L":{"ause":0.321014,"cov50":0.566171,"cov90":0.930826,"crps":7.00896,"mean_rmse_pct":12.6004},"L_demosaic":{"ause":0.320165,"cov50":0.580094,"cov90":0.935885,"crps":6.24754,"mean_rmse_pct":11.4739}},"40":{"L":{"ause":0.309247,"cov50":0.569776,"cov90":0.931331,"crps":6.93674,"mean_rmse_pct":12.5004},"L_demosaic":{"ause":0.334042,"cov50":0.579687,"cov90":0.930772,"crps":6.21579,"mean_rmse_pct":11.4858}},"50":{"L":{"ause":0.308096,"cov50":0.570061,"cov90":0.931375,"crps":6.92902,"mean_rmse_pct":12.4899},"L_demosaic":{"ause":0.337383,"cov50":0.579507,"cov90":0.929098,"crps":6.22189,"mean_rmse_pct":11.5123}},"60":{"L":{"ause":0.307973,"cov50":0.570065,"cov90":0.931378,"crps":6.92822,"mean_rmse_pct":12.4888},"L_demosaic":{"ause":0.337766,"cov50":0.579458,"cov90":0.928877,"crps":6.22335,"mean_rmse_pct":11.5168}}}}}},"status":{"b_expected":["device1_sequential_60","device1_sequential_50","device1_sequential_40","device1_sequential_30","device1_sequential_20","device2_sequential_40","device2_sequential_30","device2_sequential_20","device1_snapshot_60","device1_snapshot_40","device1_snapshot_30","device1_snapshot_20"],"b_have":["device1_sequential_60","device1_snapshot_40"],"b_pending":["device1_sequential_50","device1_sequential_40","device1_sequential_30","device1_sequential_20","device2_sequential_40","device2_sequential_30","device2_sequential_20","device1_snapshot_60","device1_snapshot_30","device1_snapshot_20"],"final":["e1_dev1_seq_20_C","e1_dev1_seq_20_main","e1_dev1_seq_30_C","e1_dev1_seq_30_main","e1_dev1_seq_40_C","e1_dev1_seq_40_main","e1_dev1_seq_50_C","e1_dev1_seq_50_main","e1_dev1_seq_60_B","e1_dev1_seq_60_C","e1_dev1_seq_60_main","e2_device2_sequential_20_C","e2_device2_sequential_20_main","e2_device2_sequential_30_C","e2_device2_sequential_30_main","e2_device2_sequential_40_C","e2_device2_sequential_40_main","e2_ph5_sequential_20_C","e2_ph5_sequential_20_main","e2_ph5_sequential_30_C","e2_ph5_sequential_30_main","e2_ph5_sequential_40_C","e2_ph5_sequential_40_main","e3_device1_snapshot_20_C","e3_device1_snapshot_20_main","e3_device1_snapshot_30_C","e3_device1_snapshot_30_main","e3_device1_snapshot_40_B","e3_device1_snapshot_40_C","e3_device1_snapshot_40_main","e3_device1_snapshot_60_C","e3_device1_snapshot_60_main"],"pending":["e1_dev1_seq_20_B","e1_dev1_seq_30_B","e1_dev1_seq_40_B","e1_dev1_seq_50_B","e2_device2_sequential_20_B","e2_device2_sequential_30_B","e2_device2_sequential_40_B","e3_device1_snapshot_20_B","e3_device1_snapshot_30_B","e3_device1_snapshot_60_B"],"verdict_b_valid":false,"verdict_file":"verdict__e123_noB__report.json","verdict_final":false},"toy":{"gate":{"cov50":[0.45,0.55],"cov90":[0.85,0.95],"rmse_excess":0.02,"var_tol":0.1},"path":"results/residual_warmstart/sensor/toy_guidance.json","rows":[{"C_kind":"isotropic","cov50":0.490051,"cov90":0.888367,"crps_ratio":1.00086,"method":"pigdm","mode":"sequential","n_steps":50,"nfe":50,"rmse_excess":0.00257896,"var_ratio":0.925944},{"C_kind":"isotropic","cov50":0.497925,"cov90":0.895203,"crps_ratio":1.00065,"method":"pigdm","mode":"sequential","n_steps":100,"nfe":100,"rmse_excess":0.0026634,"var_ratio":0.961534},{"C_kind":"isotropic","cov50":0.486145,"cov90":0.888489,"crps_ratio":1.00082,"method":"pigdm","mode":"snapshot","n_steps":50,"nfe":50,"rmse_excess":0.00253912,"var_ratio":0.92742},{"C_kind":"isotropic","cov50":0.494507,"cov90":0.895325,"crps_ratio":1.0006,"method":"pigdm","mode":"snapshot","n_steps":100,"nfe":100,"rmse_excess":0.00262206,"var_ratio":0.962512},{"C_kind":"isotropic","cov50":0.487976,"cov90":0.888611,"crps_ratio":1.02695,"method":"dps","mode":"sequential","n_steps":50,"nfe":50,"rmse_excess":0.0286733,"var_ratio":0.97503},{"C_kind":"isotropic","cov50":0.497314,"cov90":0.894165,"crps_ratio":1.01539,"method":"dps","mode":"sequential","n_steps":100,"nfe":100,"rmse_excess":0.0174486,"var_ratio":0.987851},{"C_kind":"isotropic","cov50":0.485107,"cov90":0.888428,"crps_ratio":1.00089,"method":"dps","mode":"snapshot","n_steps":50,"nfe":50,"rmse_excess":0.00259115,"var_ratio":0.926737},{"C_kind":"isotropic","cov50":0.493164,"cov90":0.894958,"crps_ratio":1.00065,"method":"dps","mode":"snapshot","n_steps":100,"nfe":100,"rmse_excess":0.00268801,"var_ratio":0.961777},{"C_kind":"hfd","cov50":0.44635,"cov90":0.843079,"crps_ratio":1.04742,"method":"pigdm","mode":"sequential","n_steps":50,"nfe":50,"rmse_excess":0.0430561,"var_ratio":0.820867},{"C_kind":"hfd","cov50":0.469849,"cov90":0.866028,"crps_ratio":1.04657,"method":"pigdm","mode":"sequential","n_steps":100,"nfe":100,"rmse_excess":0.0451858,"var_ratio":0.915463},{"C_kind":"hfd","cov50":0.499634,"cov90":0.883728,"crps_ratio":1.0056,"method":"pigdm","mode":"snapshot","n_steps":50,"nfe":50,"rmse_excess":0.00732265,"var_ratio":0.924085},{"C_kind":"hfd","cov50":0.506531,"cov90":0.890137,"crps_ratio":1.00568,"method":"pigdm","mode":"snapshot","n_steps":100,"nfe":100,"rmse_excess":0.00750287,"var_ratio":0.960763},{"C_kind":"hfd","cov50":0.492615,"cov90":0.885071,"crps_ratio":1.32637,"method":"dps","mode":"sequential","n_steps":50,"nfe":50,"rmse_excess":0.329231,"var_ratio":1.65441},{"C_kind":"hfd","cov50":0.482239,"cov90":0.883301,"crps_ratio":1.12836,"method":"dps","mode":"sequential","n_steps":100,"nfe":100,"rmse_excess":0.12825,"var_ratio":1.19177},{"C_kind":"hfd","cov50":0.496338,"cov90":0.881409,"crps_ratio":1.00695,"method":"dps","mode":"snapshot","n_steps":50,"nfe":50,"rmse_excess":0.00944253,"var_ratio":0.913643},{"C_kind":"hfd","cov50":0.495972,"cov90":0.883301,"crps_ratio":1.0082,"method":"dps","mode":"snapshot","n_steps":100,"nfe":100,"rmse_excess":0.00833919,"var_ratio":0.924635}],"steps_for_B":50,"verdict":"steps_for_B = 50"},"verdict":{"T1":{"B":{"50.0":{"mean":4.83212449491024,"n":50,"passed":false,"ratio":4.618700511656565,"ratio_2se":4.724481447208974,"se_cluster":0.07161523474829867},"60.0":{"mean":5.10569768244028,"n":50,"passed":false,"ratio":5.890074343085689,"ratio_2se":6.026892177074277,"se_cluster":0.07216319919857747}},"C":{"20.0":{"mean":1.4447541438937186,"n":200,"passed":false,"ratio":1.4961448742374983,"ratio_2se":1.5977213233030731,"se_cluster":0.16446787151854242},"30.0":{"mean":0.6007950762212275,"n":200,"passed":false,"ratio":1.2885569791581604,"ratio_2se":1.3797538501052735,"se_cluster":0.11483761914063072},"40.0":{"mean":0.021656862407922667,"n":200,"passed":false,"ratio":1.0618995981321508,"ratio_2se":1.102004614820298,"se_cluster":0.036494880694161985},"50.0":{"mean":0.0030053290128707333,"n":200,"passed":false,"ratio":1.0522230330533697,"ratio_2se":1.0812487672512252,"se_cluster":0.019620014415094672},"60.0":{"mean":0.0024550387412309144,"n":200,"passed":false,"ratio":1.0523343849045197,"ratio_2se":1.0815921307735725,"se_cluster":0.01538497345714984}}},"T2":{"B":{},"C":{"20.0":{"K":32,"cov90":0.9562039947509766,"cov90_passed":false,"crps_vs_L":{"clusters":113,"mean":-0.9113354989112622,"n":200,"passed":true,"ratio_of_means":0.7439995247242717,"se":0.0212221701150337,"se_cluster":0.027436349140259688},"crps_vs_V":{"clusters":113,"mean":-0.8446531391501756,"n":200,"passed":true,"ratio_of_means":0.7582018109768444,"se":0.025969196203910888,"se_cluster":0.034034868754031236},"passed":false},"30.0":{"K":32,"cov90":0.9420252418518067,"cov90_passed":true,"crps_vs_L":{"clusters":113,"mean":-0.5025242040633175,"n":200,"passed":true,"ratio_of_means":0.7776208698160143,"se":0.010813356024479389,"se_cluster":0.015203975722227212},"crps_vs_V":{"clusters":113,"mean":-0.4368703669067935,"n":200,"passed":true,"ratio_of_means":0.8008894414574234,"se":0.010326544752882826,"se_cluster":0.012850858909832917},"passed":true}}},"T3":{"B":null,"C":{"passed":false,"ph5":1.874289062811938,"ratio_dev1":0.7832475148645996,"ratio_dev2":0.9438307076555221}},"T4":{"B":null,"C":{"D":{"mean":-2.0098856896162034,"n":200,"passed":true,"ratio":0.5055241517771072,"ratio_2se":0.5533716225132584,"se_cluster":0.13958590596850087},"mean":1.8812808179855347,"n":200,"passed":false,"ratio":1.1724341607431286,"ratio_2se":1.2110956444037506,"se_cluster":0.11278753379908364}},"b_invalid_reason":"e1_dev1_seq_50_B is not in eval/ (archived with the v-prediction prior or not yet written)","b_valid":false,"counts":{"B":0,"C":1},"created":"2026-11-05T18:15:36","file":"verdict__e123_noB__report.json","main_line":null,"min_common":45,"missing":["T1 B: method B at device1/sequential/20","T1 B: method B at device1/sequential/30","T1 B: method B at device1/sequential/40","T2 B: method B at device1/sequential/20","T2 B: method B at device1/sequential/30","T3 B: method B at device1/sequential/30","T4 B: method B at device1/snapshot/30"],"name":"e123_noB","report_only":true,"sanity":{"floor_pass":{"B":false,"C":true,"C1":true,"D":true,"V":true},"floor_reference_rmse_pct":1.1050045931339263,"monotone":{"B":true,"C":true,"C1":true,"D":true,"L":true,"V":true}},"thresholds":{"MIN_COMMON":45,"T1_RATIO":1.05,"T2_COV90":[0.85,0.95],"T2_SNRS":[30.0,20.0],"T3_RATIO":1.1,"T3_SNR":30.0,"T4_RATIO":0.85,"T4_SNR":30.0}}};
+(function(){
+const NS='http://www.w3.org/2000/svg';
+function el(tag,attrs,parent){const e=document.createElementNS(NS,tag);if(attrs)for(const k in attrs)e.setAttribute(k,attrs[k]);if(parent)parent.appendChild(e);return e;}
+function tx(p,x,y,s,cls,anchor){const t=el('text',{x:x,y:y},p);if(cls)t.setAttribute('class',cls);if(anchor)t.setAttribute('text-anchor',anchor);t.textContent=s;return t;}
+function box(p,x,y,w,h,lines,cls){el('rect',{x:x,y:y,width:w,height:h,rx:7,class:cls||'box'},p);const n=lines.length;lines.forEach(function(s,i){tx(p,x+w/2,y+h/2+(i-(n-1)/2)*17+4.5,s,i===0?'bt':'bs','middle');});}
+function arr(p,pts,cls){const k=cls||'';const m=k.indexOf('acc')>=0?'mA':(k.indexOf('s2')>=0?'mS':'mI');return el('path',{d:'M'+pts.map(function(q){return q[0]+' '+q[1];}).join(' L'),class:'ar '+k,'marker-end':'url(#'+m+')'},p);}
+function line(p,x1,y1,x2,y2,cls){return el('line',{x1:x1,y1:y1,x2:x2,y2:y2,class:cls||'wire'},p);}
+function mk(host,W,H,minW){const s=el('svg',{viewBox:'0 0 '+W+' '+H,role:'img','aria-label':host.dataset.aria||''});s.style.minWidth=(minW||Math.min(W,640))+'px';host.appendChild(s);return s;}
+function f4(v){return (v>=0?'':'')+v.toFixed(4);}
+function f3(v){return v.toFixed(3);}
+function pm(v){return (v>0?'+':'')+v.toFixed(4);}
+function rrect(x,y,w,h,r){if(w<=r)return 'M'+x+' '+y+'h'+w+'v'+h+'h'+(-w)+'z';return 'M'+x+' '+y+'h'+(w-r)+'a'+r+' '+r+' 0 0 1 '+r+' '+r+'v'+(h-2*r)+'a'+r+' '+r+' 0 0 1 '+(-r)+' '+r+'h'+(-(w-r))+'z';}
+function cpath(x,base,w,h,r){if(h<=r)return 'M'+x+' '+base+'v'+(-h)+'h'+w+'v'+h+'z';return 'M'+x+' '+base+'v'+(-(h-r))+'a'+r+' '+r+' 0 0 1 '+r+' '+(-r)+'h'+(w-2*r)+'a'+r+' '+r+' 0 0 1 '+r+' '+r+'v'+(h-r)+'z';}
+/* tooltip */
+const tip=document.getElementById('tip');
+function showTip(e,html){tip.innerHTML=html;tip.hidden=false;const r=tip.getBoundingClientRect();let x=e.clientX+14,y=e.clientY+14;if(x+r.width>innerWidth-8)x=e.clientX-r.width-14;if(y+r.height>innerHeight-8)y=e.clientY-r.height-14;tip.style.left=Math.max(4,x)+'px';tip.style.top=Math.max(4,y)+'px';}
+function hideTip(){tip.hidden=true;}
+function svgPt(svg,e){const p=svg.createSVGPoint();p.x=e.clientX;p.y=e.clientY;return p.matrixTransform(svg.getScreenCTM().inverse());}
+function dataTable(host,head,rows){const d=document.createElement('details');d.className='data';const sm=document.createElement('summary');sm.textContent='Show the data';d.appendChild(sm);const w=document.createElement('div');w.className='tbl';const t=document.createElement('table');t.className='dt';let h='<tr>'+head.map(function(x){return '<th>'+x+'</th>';}).join('')+'</tr>';rows.forEach(function(r){h+='<tr>'+r.map(function(x){return '<td>'+x+'</td>';}).join('')+'</tr>';});t.innerHTML=h;w.appendChild(t);d.appendChild(w);host.parentNode.insertBefore(d,host.nextSibling);}
+function hover(node,fn){node.addEventListener('pointermove',function(e){showTip(e,fn());});node.addEventListener('pointerleave',hideTip);}
+function clear(host){while(host.firstChild)host.removeChild(host.firstChild);const n=host.nextSibling;if(n&&n.classList&&n.classList.contains('data'))n.parentNode.removeChild(n);}
+
+/* ---------- line chart ---------- */
+function lineChart(host,o){
+  const W=o.w||720,H=o.h||300,m={l:o.ml||54,r:(o.mr==null?110:o.mr),t:26,b:44};
+  const svg=mk(host,W,H,o.minW||520);
+  const pw=W-m.l-m.r,ph=H-m.t-m.b;
+  const X=function(v){return m.l+(v-o.x[0])/(o.x[1]-o.x[0])*pw;},Y=function(v){return m.t+ph-(v-o.y[0])/(o.y[1]-o.y[0])*ph;};
+  o.yTicks.forEach(function(t){line(svg,m.l,Y(t),m.l+pw,Y(t),'grid');tx(svg,m.l-8,Y(t)+4,(o.yFmt||String)(t),'tick','end');});
+  line(svg,m.l,m.t+ph,m.l+pw,m.t+ph,'axis');
+  o.xTicks.forEach(function(t){tx(svg,X(t),m.t+ph+18,(o.xFmt||String)(t),'tick','middle');});
+  if(o.yTitle)tx(svg,4,14,o.yTitle,'axt','start');
+  if(o.xTitle)tx(svg,m.l+pw,m.t+ph+38,o.xTitle,'axt','end');
+  (o.refs||[]).forEach(function(r){line(svg,m.l,Y(r.y),m.l+pw,Y(r.y),'ref');tx(svg,r.left?m.l+8:m.l+pw+8,Y(r.y)+(r.dy==null?4:r.dy),r.label,'reflbl','start');});
+  (o.vrefs||[]).forEach(function(r){line(svg,X(r.x),m.t,X(r.x),m.t+ph,'ref');tx(svg,X(r.x)+6,m.t+12,r.label,'reflbl','start');});
+  o.series.forEach(function(s){
+    const d=s.data.map(function(p,i){return (i?'L':'M')+X(p[0]).toFixed(1)+' '+Y(p[1]).toFixed(1);}).join(' ');
+    el('path',{d:d,class:'ln',style:'stroke:var('+s.c+');'+(s.faint?'opacity:.5;':'')+(s.dash?'stroke-dasharray:3 3;':'')},svg);
+    if(s.marks)s.data.forEach(function(p){el('circle',{cx:X(p[0]),cy:Y(p[1]),r:3,class:'dot',style:'fill:var('+s.c+');'+(s.faint?'opacity:.6':'')},svg);});
+    const L=s.data[s.data.length-1];
+    el('circle',{cx:X(L[0]),cy:Y(L[1]),r:4.5,class:'dot',style:'fill:var('+s.c+')'},svg);
+    if(s.label)tx(svg,X(L[0])+(s.ldx==null?10:s.ldx),Y(L[1])+(s.ldy==null?4:s.ldy),s.label,'endlbl',s.lanchor||'start');
+    if(s.min){const mn=s.data.reduce(function(a,b){return b[1]<a[1]?b:a;});el('circle',{cx:X(mn[0]),cy:Y(mn[1]),r:6,fill:'none',style:'stroke:var('+s.c+');stroke-width:1.6'},svg);tx(svg,X(mn[0])+10,Y(mn[1])-11,'min '+mn[1].toFixed(4)+' @ '+mn[0],'vlbl','start');}
+  });
+  const cross=el('line',{y1:m.t,y2:m.t+ph,class:'cross',visibility:'hidden'},svg);
+  const hd=o.series.map(function(s){return el('circle',{r:5,class:'dot',style:'fill:var('+s.c+')',visibility:'hidden'},svg);});
+  const hit=el('rect',{x:m.l,y:m.t,width:pw,height:ph,class:'hit'},svg);
+  function off(){cross.setAttribute('visibility','hidden');hd.forEach(function(c){c.setAttribute('visibility','hidden');});hideTip();}
+  hit.addEventListener('pointermove',function(e){
+    const p=svgPt(svg,e);const xv=o.x[0]+(p.x-m.l)/pw*(o.x[1]-o.x[0]);const tol=(o.x[1]-o.x[0])*0.03;const rows=[];
+    o.series.forEach(function(s,i){
+      const f=s.data[0][0],l=s.data[s.data.length-1][0];
+      if(xv<f-tol||xv>l+tol){hd[i].setAttribute('visibility','hidden');return;}
+      let bi=0;s.data.forEach(function(q,j){if(Math.abs(q[0]-xv)<Math.abs(s.data[bi][0]-xv))bi=j;});
+      const b=s.data[bi];hd[i].setAttribute('cx',X(b[0]));hd[i].setAttribute('cy',Y(b[1]));hd[i].setAttribute('visibility','visible');
+      rows.push('<div class="tr"><i style="background:var('+s.c+')"></i>'+s.name+'<b>'+(o.tipY||f4)(b[1])+'</b></div><div class="sub">'+(o.tipX||String)(b[0])+'</div>');
+    });
+    if(!rows.length){off();return;}
+    cross.setAttribute('x1',p.x);cross.setAttribute('x2',p.x);cross.setAttribute('visibility','visible');
+    showTip(e,rows.join(''));
+  });
+  hit.addEventListener('pointerleave',off);
+  if(o.table)dataTable(host,o.table.head,o.table.rows);
+}
+
+/* ---------- Phase 3 figures, charts, tables and slots (helpers el, tx, box, arr, line, mk, rrect, cpath, hover, showTip, hideTip, svgPt, dataTable, clear come from the shared block) ---------- */
+function fx(v,n){return v==null||isNaN(v)?'—':Number(v).toFixed(n);}
+function sg(v,n){return v==null?'—':(v>0?'+':(v<0?'−':''))+Math.abs(Number(v)).toFixed(n);}
+function pill(ok,txt){return '<span class="pill '+(ok?'ok':'no')+'">'+(txt||(ok?'PASS':'FAIL'))+'</span>';}
+function pend(txt){return '<span class="pill nt">'+(txt||'pending')+'</span>';}
+function prev(ok){return '<span class="pill wn">'+(ok?'preview: pass':'preview: fail')+'</span>';}
+function seg(attr,draw){const bs=document.querySelectorAll('[data-'+attr+']');bs.forEach(function(b){b.addEventListener('click',function(){bs.forEach(function(x){x.setAttribute('aria-pressed','false');});b.setAttribute('aria-pressed','true');draw(b.getAttribute('data-'+attr));});});}
+function tbl(host,head,rows,hiRow){const w=document.createElement('table');w.className='t';let h='<thead><tr>'+head.map(function(x){return '<th>'+x+'</th>';}).join('')+'</tr></thead><tbody>';rows.forEach(function(r,i){h+='<tr'+(hiRow&&hiRow(i)?' class="hi"':'')+'>'+r.map(function(c){return typeof c==='object'&&c!==null?'<td class="'+(c.cls||'')+'">'+c.v+'</td>':'<td>'+c+'</td>';}).join('')+'</tr>';});w.innerHTML=h+'</tbody>';host.appendChild(w);}
+function num(v){return {v:v,cls:'num'};}
+function sci(v){if(v==null)return '—';const e=Math.floor(Math.log10(v));return (v/Math.pow(10,e)).toFixed(1)+' × 10'+String(e).split('').map(function(c){return '⁰¹²³⁴⁵⁶⁷⁸⁹'['0123456789'.indexOf(c)]||(c==='-'?'⁻':c);}).join('');}
+
+const S=D.settings,V=D.verdict,ST=D.status,F0=D.facts;
+const MC={L:'--ink-2',L_demosaic:'--de',D:'--accent',V:'--s3',C:'--s2',C1:'--s2',B:'--s4',Bv:'--s4'};
+const MN={L:'L, MMSE',L_demosaic:'L, demosaic-then-MMSE',D:'D, regressor',V:'V, variance head',C:'C, mean of 32',C1:'C1, one call',B:'B, mean of 32 (50 cubes)',Bv:'B, v-prediction prior (archived)'};
+const DEVN={device1:'Device 1',device2:'Device 2',ph5:'PH5'};
+function set(dev,mode,snr){return S[dev+'_'+mode+'_'+snr];}
+function bOk(s){return s&&s.B&&s.B.status==='final';}
+function rmse(s,m){if(!s)return null;if(m==='B')return bOk(s)?s.B.means.mean_rmse_pct:null;const x=s.methods[m];if(!x)return null;return (m==='D'||m==='C1')?x.rmse_pct:x.mean_rmse_pct;}
+function met(s,m,k){if(!s)return null;if(m==='B')return bOk(s)?s.B.means[k]:null;const x=s.methods[m];return x?x[k]:null;}
+function vk(snr){return Number(snr).toFixed(1);}
+function bStatusTxt(s){if(!s||!s.B)return 'pending';return s.B.status==='dropped'?'dropped':(s.B.status==='final'?'':'pending');}
+function legendInto(name,items){const h=document.querySelector('[data-legend="'+name+'"]');if(!h)return;h.innerHTML=items.map(function(q){return '<span><i'+(q.dash?' class="dash" style="border-top-color:var('+q.c+')"':' style="background:var('+q.c+')'+(q.faint?';opacity:.5':'')+'"')+'></i>'+q.n+'</span>';}).join('');}
+
+/* ---------- generic x-y chart with optional log y ---------- */
+function xy(host,o){
+  const W=o.w||720,H=o.h||320,m={l:o.ml||56,r:(o.mr==null?120:o.mr),t:22,b:44};
+  const svg=mk(host,W,H,o.minW||520);const pw=W-m.l-m.r,ph=H-m.t-m.b;
+  const X=function(v){return m.l+(v-o.x[0])/(o.x[1]-o.x[0])*pw;};
+  let Y;if(o.log){const a=Math.log10(o.y[0]),b=Math.log10(o.y[1]);Y=function(v){return m.t+ph-(Math.log10(Math.max(v,o.y[0]))-a)/(b-a)*ph;};}else{Y=function(v){return m.t+ph-(v-o.y[0])/(o.y[1]-o.y[0])*ph;};}
+  o.yTicks.forEach(function(t){line(svg,m.l,Y(t),m.l+pw,Y(t),'grid');tx(svg,m.l-8,Y(t)+4,(o.yFmt||String)(t),'tick','end');});
+  line(svg,m.l,m.t+ph,m.l+pw,m.t+ph,'axis');
+  o.xTicks.forEach(function(t){tx(svg,X(t),m.t+ph+18,(o.xFmt||String)(t),'tick','middle');});
+  if(o.yTitle)tx(svg,4,13,o.yTitle,'axt','start');if(o.xTitle)tx(svg,m.l+pw,m.t+ph+38,o.xTitle,'axt','end');
+  (o.refs||[]).forEach(function(r){const x1=r.x0==null?m.l:X(r.x0),x2=r.x1==null?m.l+pw:X(r.x1);line(svg,x1,Y(r.y),x2,Y(r.y),r.cls||'ref');tx(svg,r.lx==null?x2+6:X(r.lx),Y(r.y)+(r.dy==null?4:r.dy),r.label,'reflbl',r.anchor||'start');});
+  const live=o.series.filter(function(s){return s.data.length;});
+  live.forEach(function(s){
+    const d=s.data.map(function(p,i){return (i?'L':'M')+X(p[0]).toFixed(1)+' '+Y(p[1]).toFixed(1);}).join(' ');
+    if(s.data.length>1)el('path',{d:d,class:'ln',style:'stroke:var('+s.c+');'+(s.faint?'opacity:.55;':'')+(s.dash?'stroke-dasharray:5 4;':'')+(s.thin?'stroke-width:1.3;':'')},svg);
+    if(s.marks!==false)s.data.forEach(function(p){el('circle',{cx:X(p[0]),cy:Y(p[1]),r:s.r||3.2,class:'dot',style:'fill:var('+s.c+');'+(s.faint?'opacity:.6':'')},svg);});
+    if(s.label){const L=s.data[o.labelAt==='first'?0:s.data.length-1];tx(svg,X(L[0])+(o.labelAt==='first'?-8:8),Y(L[1])+(s.ldy||4),s.label,'endlbl',o.labelAt==='first'?'end':'start');}
+  });
+  const cross=el('line',{y1:m.t,y2:m.t+ph,class:'cross',visibility:'hidden'},svg);
+  const hit=el('rect',{x:m.l,y:m.t,width:pw,height:ph,class:'hit'},svg);
+  hit.addEventListener('pointermove',function(e){const p=svgPt(svg,e);const xv=o.x[0]+(p.x-m.l)/pw*(o.x[1]-o.x[0]);
+    let best=null;live.forEach(function(s){s.data.forEach(function(q){if(best==null||Math.abs(q[0]-xv)<Math.abs(best-xv))best=q[0];});});if(best==null)return;
+    const rows=[];live.forEach(function(s){s.data.forEach(function(q){if(q[0]===best)rows.push('<div class="tr"><i style="background:var('+s.c+')"></i>'+s.name+'<b>'+(o.tipY||function(v){return v.toFixed(3);})(q[1])+'</b></div>');});});
+    cross.setAttribute('x1',X(best));cross.setAttribute('x2',X(best));cross.setAttribute('visibility','visible');
+    showTip(e,'<div class="sub">'+(o.tipX||String)(best)+'</div>'+rows.join(''));});
+  hit.addEventListener('pointerleave',function(){cross.setAttribute('visibility','hidden');hideTip();});
+  if(o.table)dataTable(host,o.table.head,o.table.rows);
+  return {svg:svg,X:X,Y:Y,m:m,pw:pw,ph:ph};
+}
+/* grouped bars; a null value draws a 'pending' / 'dropped' tag at the base */
+function bars(h,o){const W=o.w||720,H=o.h||300,m={l:56,r:16,t:22,b:50};const svg=mk(h,W,H,o.minW||560);const pw=W-m.l-m.r,ph=H-m.t-m.b;const Y=function(v){return m.t+ph-(v-o.y[0])/(o.y[1]-o.y[0])*ph;};
+  o.ticks.forEach(function(t){line(svg,m.l,Y(t),m.l+pw,Y(t),'grid');tx(svg,m.l-8,Y(t)+4,o.fmt(t),'tick','end');});line(svg,m.l,Y(o.y[0]),m.l+pw,Y(o.y[0]),'axis');tx(svg,4,13,o.yTitle,'axt');
+  const band=pw/o.groups.length;const nb=o.series.length;const bw=Math.min(44,band/(nb+1.4));
+  (o.hrefs||[]).forEach(function(r){line(svg,m.l,Y(r.y),m.l+pw,Y(r.y),'refacc');tx(svg,m.l+pw-4,Y(r.y)-6,r.label,'reflbl','end');});
+  o.groups.forEach(function(g,gi){const cx=m.l+band*gi+band/2;tx(svg,cx,H-m.b+22,g.label,'bs','middle');
+    o.series.forEach(function(s,si){const v=g.values[si];const x=cx+(si-(nb-1)/2)*(bw+5)-bw/2;
+      if(v==null){const t=(g.tags&&g.tags[si])||'pending';const tt=tx(svg,x+bw/2,Y(o.y[0])-6,t,'sm','middle');tt.setAttribute('transform','rotate(-90 '+(x+bw/2)+' '+(Y(o.y[0])-6)+')');tt.setAttribute('text-anchor','start');return;}
+      const vv=Math.min(v,o.y[1]);el('path',{d:cpath(x,Y(o.y[0]),bw,Y(o.y[0])-Y(vv),4),style:'fill:var('+s.c+')'+(s.faint?';opacity:.55':'')},svg);
+      tx(svg,x+bw/2,Y(vv)-6,o.vfmt(v),'vlbl','middle');
+      const hit=el('rect',{x:x,y:m.t,width:bw+5,height:ph,fill:'transparent',class:'barhit'},svg);hover(hit,function(){return '<div><b style="margin:0;padding:0">'+g.label+' · '+s.name+'</b></div><div class="sub">'+o.vfmt(v)+(g.notes&&g.notes[si]?' · '+g.notes[si]:'')+'</div>';});});});
+  const lg=document.createElement('div');lg.className='legend';lg.innerHTML=o.series.map(function(s){return '<span><i class="sq" style="background:var('+s.c+')"></i>'+s.name+'</span>';}).join('');h.parentNode.insertBefore(lg,h);
+  dataTable(h,[o.gname||'group'].concat(o.series.map(function(s){return s.name;})),o.groups.map(function(g){return [g.label].concat(g.values.map(function(v,i){return v==null?((g.tags&&g.tags[i])||'pending'):o.vfmt(v);}));}));}
+
+/* ---------- figures ---------- */
+const F={};
+F.pipeline=function(h){
+  const s=mk(h,960,280,760);
+  tx(s,10,20,'MEASUREMENT','tag');
+  box(s,10,32,170,62,['Scene x (31 bands)','HFD gate cubes'],'box');
+  arr(s,[[184,63],[222,63]]);
+  box(s,226,32,232,62,['Sensor Rᵀ, 30 states','sequential or 5 × 6 snapshot'],'box');
+  arr(s,[[462,63],[500,63]]);
+  box(s,504,32,170,62,['y = Rᵀx + n','σ from SNR, global P_y'],'box');
+  tx(s,288,128,'THROUGH THE SUFFICIENT STATISTIC','tag');
+  box(s,10,140,232,62,['L: closed-form MMSE','x̂ and posterior std s'],'box');
+  arr(s,[[588,98],[588,118],[126,118],[126,136]]);
+  arr(s,[[246,171],[284,171]]);
+  box(s,288,140,120,62,['D','one call'],'box box-acc');
+  box(s,418,140,120,62,['V','Gaussian width'],'box box-s3');
+  box(s,548,140,126,62,['C','32 samples'],'box box-s2');
+  tx(s,10,236,'FROM THE MEASUREMENT DIRECTLY','tag');
+  box(s,10,206+42,664,26,['B: unconditional prior (spectra only) + ΠGDM with the exact H, σ and mask; 32 samples'],'box box-s4');
+  arr(s,[[678,63],[730,63],[730,261],[678,261]],'ar');
+  tx(s,750,20,'SCORED','tag');
+  box(s,750,32,200,170,['E1 Device 1, 5 SNRs','E2 Device 2, PH5','E3 snapshot','RMSE · CRPS','coverage · AUSE','clauses T1–T4'],'box');
+  arr(s,[[678,171],[746,171]]);
+};
+
+const CH={};
+CH.sensorR=function(h){const R=D.sensor.R_device1,wl=D.sensor.wavelengths;const n=R[0].length;
+  const series=[];for(let j=0;j<n;j++){series.push({name:'state '+(j+1),c:'--accent',data:wl.map(function(w,i){return [w,R[i][j]];}),marks:false,thin:true});}
+  const o=xy(h,{w:520,h:300,mr:20,minW:380,x:[451,855],y:[0,1],xTicks:[451,550,650,750,855],yTicks:[0,0.25,0.5,0.75,1],yFmt:function(v){return v.toFixed(2);},yTitle:'normalised response',xTitle:'wavelength (nm, legacy axis)',series:series,tipX:function(v){return v.toFixed(0)+' nm';},tipY:function(v){return v.toFixed(3);}});
+  o.svg.querySelectorAll('path.ln').forEach(function(p,j){p.style.opacity=(0.25+0.75*j/(n-1)).toFixed(2);});
+  dataTable(h,['band (nm)'].concat(R[0].map(function(_,j){return 's'+(j+1);})),wl.map(function(w,i){return [w.toFixed(1)].concat(R[i].map(function(v){return v.toFixed(3);}));}));};
+CH.sensorSV=function(h){const dv=D.sensor.devices;const cs={device1:'--accent',device2:'--s3',ph5:'--s2'};
+  const ser=['device1','device2','ph5'].map(function(k){return {name:DEVN[k],c:cs[k],label:DEVN[k],marks:false,data:dv[k].sv_rel.map(function(v,i){return [i+1,Math.max(v,1e-12)];})};});
+  xy(h,{w:520,h:300,mr:70,minW:380,log:true,x:[1,30],y:[1e-12,1],xTicks:[1,5,10,15,20,25,30],yTicks:[1e-12,1e-9,1e-6,1e-3,1],yFmt:function(v){return '1e'+Math.round(Math.log10(v));},yTitle:'σᵢ / σ₁ (log)',xTitle:'index i',series:ser,refs:[{y:0.01,label:'1 %',lx:30,anchor:'end',dy:-6}],tipX:function(v){return 'singular value '+v;},tipY:function(v){return v.toExponential(2);},
+    table:{head:['i','Device 1','Device 2','PH5'],rows:dv.device1.sv_rel.map(function(_,i){return [i+1,dv.device1.sv_rel[i].toExponential(2),dv.device2.sv_rel[i].toExponential(2),dv.ph5.sv_rel[i].toExponential(2)];})}});};
+CH.stage0=function(h){const L=D.stage0.L_curves,raw=D.stage0.curves_raw_device1;const snr=[20,30,40,50,60];
+  const g=function(o,dev){return snr.map(function(x){return [x,o[vk(x)]];});};
+  const ser=[{name:'Device 1',c:'--accent',label:'Device 1',data:g(L.device1.sequential)},{name:'Device 1, raw response',c:'--accent',dash:true,faint:true,data:g(raw.sequential)},
+    {name:'Device 2',c:'--s3',label:'Device 2',data:g(L.device2.sequential)},{name:'PH5',c:'--s2',label:'PH5',data:g(L.ph5.sequential)}];
+  xy(h,{log:true,x:[11,62],y:[0.8,15],xTicks:snr,xFmt:function(v){return v===60?'60 (floor)':String(v);},yTicks:[1,2,5,10],yTitle:'MMSE RMSE % (log)',xTitle:'SNR (dB)',labelAt:'first',ml:56,mr:20,series:ser,tipX:function(v){return v+' dB';},
+    table:{head:['SNR (dB)','Device 1','Device 1 raw R','Device 2','PH5'],rows:snr.slice().reverse().map(function(x){return [x,fx(L.device1.sequential[vk(x)],3),fx(raw.sequential[vk(x)],3),fx(L.device2.sequential[vk(x)],3),fx(L.ph5.sequential[vk(x)],3)];})}});
+  const svg=h.querySelector('svg');};
+function e1series(metric){const snrs=[20,30,40,50,60];const out={};
+  ['L','D','V','C','C1','B'].forEach(function(m){out[m]=[];snrs.forEach(function(x){const s=set('device1','sequential',x);const v=metric==='rmse'?rmse(s,m):met(s,m,'crps');if(v!=null)out[m].push([x,v]);});});
+  out.Bv=[];snrs.forEach(function(x){const b=D.b_vpred[String(x)];if(b){const v=metric==='rmse'?b.means.mean_rmse_pct:b.means.crps;out.Bv.push([x,v]);}});return out;}
+CH.e1rmse=function(h){const d=e1series('rmse');const ms=['L','D','C','C1','B','Bv'];
+  legendInto('e1',ms.map(function(m){return {n:MN[m]+(m==='B'&&!d.B.length?' — pending':''),c:MC[m],dash:m==='C1'||m==='Bv',faint:m==='Bv'};}));
+  const ser=ms.map(function(m){return {name:MN[m],c:MC[m],data:d[m],dash:m==='C1'||m==='Bv',faint:m==='Bv',label:{L:'L',D:'D',C:'C',B:'B'}[m]};});
+  const snrs=[60,50,40,30,20];
+  xy(h,{log:true,x:[12,62],y:[0.8,10],xTicks:[20,30,40,50,60],xFmt:function(v){return v===60?'60 (floor)':String(v);},yTicks:[1,2,3,5,10],yTitle:'RMSE % of range (log)',xTitle:'SNR (dB)',labelAt:'first',mr:20,series:ser,tipX:function(v){return v+' dB';},
+    refs:[{y:D.stage0.sanity_reference_rmse_pct,x0:55,lx:54,anchor:'end',dy:4,label:'floor reference '+fx(D.stage0.sanity_reference_rmse_pct,3)}],
+    table:{head:['SNR (dB)','L','D','C mean-of-32','C1','C single','B mean-of-32 (50)','B v-pred (archived)'],rows:snrs.map(function(x){const s=set('device1','sequential',x);const bv=D.b_vpred[String(x)];return [x,fx(rmse(s,'L'),3),fx(rmse(s,'D'),3),fx(rmse(s,'C'),3),fx(rmse(s,'C1'),3),fx(met(s,'C','single_rmse_pct'),3),bOk(s)?fx(rmse(s,'B'),3):bStatusTxt(s),bv?fx(bv.means.mean_rmse_pct,3):'—'];})}});};
+CH.e1crps=function(h){const d=e1series('crps');const ms=['L','V','C','B','Bv'];
+  legendInto('e1c',ms.map(function(m){return {n:(m==='C'?'C, 32 samples':(m==='B'?'B, 32 samples (50 cubes)':MN[m]))+(m==='B'&&!d.B.length?' — pending':''),c:MC[m],dash:m==='Bv',faint:m==='Bv'};}));
+  const ser=ms.map(function(m){return {name:MN[m],c:MC[m],data:d[m],dash:m==='Bv',faint:m==='Bv',label:{L:'L',V:'V',C:'C',B:'B'}[m],ldy:{L:-3,V:12}[m]};});
+  xy(h,{log:true,x:[12,62],y:[0.4,8],xTicks:[20,30,40,50,60],xFmt:function(v){return v===60?'60 (floor)':String(v);},yTicks:[0.5,1,2,4,8],yTitle:'CRPS % (log)',xTitle:'SNR (dB)',labelAt:'first',mr:20,series:ser,tipX:function(v){return v+' dB';},
+    table:{head:['SNR (dB)','L','V','C','B (50)','B v-pred (archived)'],rows:[60,50,40,30,20].map(function(x){const s=set('device1','sequential',x);const bv=D.b_vpred[String(x)];return [x,fx(met(s,'L','crps'),3),fx(met(s,'V','crps'),3),fx(met(s,'C','crps'),3),bOk(s)?fx(met(s,'B','crps'),3):bStatusTxt(s),bv?fx(bv.means.crps,3):'—'];})}});};
+const T2S=[30,20];
+CH.t2crps=function(h){const ms=['L','V','C','B'];
+  bars(h,{y:[0,4],ticks:[0,1,2,3,4],fmt:function(v){return v.toFixed(0);},vfmt:function(v){return v.toFixed(3);},yTitle:'mean CRPS %',gname:'SNR',
+    series:ms.map(function(m){return {name:{L:'L posterior',V:'V variance head',C:'C diffusion',B:'B guided prior (50 cubes)'}[m],c:MC[m]};}),
+    groups:T2S.map(function(x){const s=set('device1','sequential',x);return {label:x+' dB',values:ms.map(function(m){return met(s,m,'crps');}),tags:ms.map(function(m){return m==='B'?bStatusTxt(s)||'pending':null;})};})});};
+CH.t2ause=function(h){const ms=['L','V','C','B'];
+  bars(h,{w:520,minW:380,h:300,y:[0,0.5],ticks:[0,0.1,0.2,0.3,0.4,0.5],fmt:function(v){return v.toFixed(1);},vfmt:function(v){return v.toFixed(3);},yTitle:'AUSE',gname:'SNR',
+    series:ms.map(function(m){return {name:m,c:MC[m]};}),
+    groups:T2S.map(function(x){const s=set('device1','sequential',x);return {label:x+' dB',values:ms.map(function(m){return met(s,m,'ause');})};})});};
+CH.t2cov=function(h){const ms=['L','V','C','B'];const W=520,H=300,m={l:46,r:12,t:16,b:50};const svg=mk(h,W,H,380);const pw=W-m.l-m.r,ph=H-m.t-m.b;
+  const Y=function(v){return m.t+ph-(v-0.2)/(1.0-0.2)*ph;};
+  el('rect',{x:m.l,y:Y(0.95),width:pw,height:Y(0.85)-Y(0.95),style:'fill:var(--good-bg)'},svg);
+  [0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1.0].forEach(function(t){line(svg,m.l,Y(t),m.l+pw,Y(t),'grid');tx(svg,m.l-8,Y(t)+4,t.toFixed(1),'tick','end');});
+  line(svg,m.l,Y(0.9),m.l+pw,Y(0.9),'refacc');line(svg,m.l,Y(0.5),m.l+pw,Y(0.5),'refacc');
+  tx(svg,4,12,'coverage','axt');
+  const slots=[];T2S.forEach(function(x){ms.forEach(function(mm){slots.push([x,mm]);});});const sw=pw/slots.length;
+  T2S.forEach(function(x,gi){tx(svg,m.l+sw*(gi*ms.length+ms.length/2),H-m.b+36,x+' dB','bs','middle');if(gi)line(svg,m.l+sw*gi*ms.length,m.t,m.l+sw*gi*ms.length,m.t+ph,'axis');});
+  const rows=[];
+  slots.forEach(function(q,i){const s=set('device1','sequential',q[0]);const cx=m.l+sw*(i+0.5);tx(svg,cx,H-m.b+18,q[1],'tick','middle');
+    const c50=met(s,q[1],'cov50'),c90=met(s,q[1],'cov90');
+    if(c90==null){tx(svg,cx,Y(0.62),'pending','sm','middle').setAttribute('transform','rotate(-90 '+cx+' '+Y(0.62)+')');rows.push([q[0],q[1],'pending','pending']);return;}
+    const a=el('circle',{cx:cx,cy:Y(c90),r:5.5,class:'dot',style:'fill:var('+MC[q[1]]+')'},svg);
+    const b=el('rect',{x:cx-4.5,y:Y(c50)-4.5,width:9,height:9,rx:1.5,class:'dot',style:'fill:var('+MC[q[1]]+')'},svg);
+    [a,b].forEach(function(n){hover(n,function(){return '<div><b style="margin:0;padding:0">'+q[1]+' · '+q[0]+' dB</b></div><div class="sub">cov50 '+c50.toFixed(3)+' · cov90 '+c90.toFixed(3)+'</div>';});});
+    rows.push([q[0],q[1],c50.toFixed(3),c90.toFixed(3)]);});
+  dataTable(h,['SNR','method','cov50','cov90'],rows);};
+CH.e2=function(h){const ms=['L','D','C','B'];
+  function draw(x){clear(h);const prevLg=h.parentNode.querySelector('.legend');if(prevLg)prevLg.remove();
+    bars(h,{y:[0,25],ticks:[0,5,10,15,20,25],fmt:function(v){return v.toFixed(0);},vfmt:function(v){return v.toFixed(2);},yTitle:'RMSE % ('+x+' dB)',gname:'sensor',
+      series:ms.map(function(m){return {name:{L:'L, MMSE',D:'D, regressor',C:'C, mean of 32',B:'B, mean of 32 (50 cubes)'}[m],c:MC[m]};}),
+      groups:['device1','device2','ph5'].map(function(dev){const s=set(dev,'sequential',x);return {label:DEVN[dev]+(dev==='device1'?' (trained)':''),values:ms.map(function(m){return rmse(s,m);}),tags:ms.map(function(m){return m==='B'?(bStatusTxt(s)||'pending'):null;})};})});}
+  draw('30');seg('e2',draw);};
+CH.e3rmse=function(h){const snrs=[20,30,40,60];const ms=['L','L_demosaic','D','C','C1','B'];
+  legendInto('e3',ms.map(function(m){const has=snrs.some(function(x){return rmse(set('device1','snapshot',x),m)!=null;});return {n:(m==='L'?'L, exact per-pixel posterior':MN[m])+(m==='B'&&!has?' — pending':''),c:MC[m],dash:m==='C1'};}));
+  const ser=ms.map(function(m){return {name:m==='L'?'L exact':MN[m],c:MC[m],dash:m==='C1',label:{L:'L exact',L_demosaic:'L demosaic',D:'D',C:'C',B:'B'}[m],data:snrs.map(function(x){const v=rmse(set('device1','snapshot',x),m);return v==null?null:[x,v];}).filter(Boolean)};});
+  const t=D.facts.Ldem_target_30;
+  xy(h,{log:true,x:[9,62],y:[2,16],xTicks:[20,30,40,60],xFmt:function(v){return v===60?'60 (floor)':String(v);},yTicks:[2,3,5,8,12,16],yTitle:'RMSE % (log)',xTitle:'SNR (dB)',labelAt:'first',mr:20,ml:56,series:ser,tipX:function(v){return v+' dB';},
+    refs:[{y:t,x0:26,x1:34,lx:35,label:'T4 target '+fx(t,2),cls:'refacc'}],
+    table:{head:['SNR (dB)','L exact','L demosaic','D','C mean-of-32','C1','C single','B (50)'],rows:[60,40,30,20].map(function(x){const s=set('device1','snapshot',x);return [x,fx(rmse(s,'L'),3),fx(rmse(s,'L_demosaic'),3),fx(rmse(s,'D'),3),fx(rmse(s,'C'),3),fx(rmse(s,'C1'),3),fx(met(s,'C','single_rmse_pct'),3),bOk(s)?fx(rmse(s,'B'),3):bStatusTxt(s)];})}});};
+CH.bprobe=function(h){const P=D.b_prior_probe;const cs={blind:['--ink-2',true,false],vpred:['--s2',false,false],g0:['--de',false,true],tt:['--de',true,true],x0pilot:['--accent',false,true],x0:['--s4',false,false]};
+  legendInto('probe',P.series.map(function(s){return {n:s.name,c:cs[s.key][0],dash:cs[s.key][1],faint:cs[s.key][2]};}).concat([{n:'mean-cube predictor',c:'--muted',dash:true}]));
+  xy(h,{log:true,x:[0,920],y:[2,32],xTicks:[25,100,200,300,400,500,700,900],yTicks:[2,3,5,10,20,30],yTitle:'x̂₀ error % (log)',xTitle:'diffusion timestep t',mr:20,
+    series:P.series.map(function(s){return {name:s.name,c:cs[s.key][0],dash:cs[s.key][1],faint:cs[s.key][2],data:P.t.map(function(t,i){return [t,s.err[i]];})};}),
+    refs:[{y:P.mean_cube,label:'mean cube '+fx(P.mean_cube,2),lx:560,anchor:'start',dy:-6}],tipX:function(v){return 't = '+v;},tipY:function(v){return v.toFixed(1)+' %';},
+    table:{head:['t'].concat(P.series.map(function(s){return s.name;})),rows:P.t.map(function(t,i){return [t].concat(P.series.map(function(s){return s.err[i].toFixed(1);}));})}});};
+
+/* ---------- tables ---------- */
+const T={};
+T.e3unc=function(h){const ms=['L','L_demosaic','V','C','B'];const nm={L:'L exact',L_demosaic:'L demosaic',V:'V',C:'C',B:'B (50 cubes)'};
+  tbl(h,['SNR'].concat(ms.map(function(m){return nm[m];})),[60,40,30,20].map(function(x){const s=set('device1','snapshot',x);return [x+' dB'].concat(ms.map(function(m){const c=met(s,m,'crps');if(c==null)return pend(bStatusTxt(s)||'pending');return num('CRPS '+fx(c,2)+'<br>'+fx(met(s,m,'cov50'),2)+' / '+fx(met(s,m,'cov90'),2)+' · '+fx(met(s,m,'ause'),2));}));}),function(i){return i===2;});
+  const p=document.createElement('p');p.style.fontSize='14px';p.style.color='var(--muted)';p.textContent='Each cell: CRPS %, then cov50 / cov90 · AUSE. The 30 dB row (highlighted) is T4’s setting.';h.appendChild(p);};
+T.toy=function(h){const t=D.toy;if(!t){h.innerHTML=pend('toy record not found');return;}const g=t.gate;
+  const inb=function(r){return r.rmse_excess<=g.rmse_excess&&Math.abs(r.var_ratio-1)<=g.var_tol&&r.cov90>=g.cov90[0]&&r.cov90<=g.cov90[1]&&r.cov50>=g.cov50[0]&&r.cov50<=g.cov50[1];};
+  const rk=function(r){return (r.C_kind==='isotropic'?0:2)+(r.method==='pigdm'?0:1);};const rows=t.rows.slice().sort(function(a,b){return rk(a)-rk(b)||(a.mode>b.mode)-(a.mode<b.mode)||a.n_steps-b.n_steps;});
+  tbl(h,['prior','method','mode','steps','RMSE excess','variance ratio','cov50','cov90','CRPS ratio','toy gate'],rows.map(function(r){return [r.C_kind==='isotropic'?'isotropic N(0, I)':'HFD covariance (report only)',r.method==='pigdm'?'ΠGDM':'DPS',r.mode,num(r.n_steps),num(fx(r.rmse_excess,4)),num(fx(r.var_ratio,3)),num(fx(r.cov50,3)),num(fx(r.cov90,3)),num(fx(r.crps_ratio,4)),r.C_kind==='isotropic'&&r.method==='pigdm'?pill(inb(r),inb(r)?'met':'missed'):'—'];}),function(i){const r=rows[i];return r.C_kind==='isotropic'&&r.method==='pigdm'&&r.n_steps===t.steps_for_B;});};
+function bRow(label,s,b,exp){if(!b||b.status!=='final'&&b.status!=='archived'&&b.status!=='stale'){return [label,b&&b.status==='dropped'?pend('dropped'):pend(),'','','','','',''];}
+  const mm=b.means,sub=b.on_subset,p=b.paired;const ref=s.mode==='snapshot'?'L_demosaic':'D';const pr=p['rmse_vs_'+ref];const keyRef=ref==='D'?'rmse_pct':'mean_rmse_pct';
+  return [label+(b.status==='final'?' <span class="pill nt">x₀</span>':' <span class="pill nt">v-pred</span>'),num(fx(mm.mean_rmse_pct,2)+' / '+fx(mm.single_rmse_pct,1)),num(fx(mm.crps,2)),num(fx(mm.cov50,2)+' / '+fx(mm.cov90,2)),num(sg(mm.single_hf,1)),
+    num((sub.L?fx(sub.L.mean_rmse_pct,2):'—')+' / '+(sub[ref]?fx(sub[ref][keyRef],2):'—')+' / '+(sub.C?fx(sub.C.mean_rmse_pct,2):'—')),
+    num(pr?sg(pr.diff,2)+' ± '+fx(pr.se_cluster,2)+' ('+fx(pr.ratio,2)+'×)':'—'),num(fx(b.hours,2))];}
+T.brec=function(h){const rows=[];
+  [['E1','device1','sequential',[60,50,40,30,20]],['E2','device2','sequential',[40,30,20]],['E3','device1','snapshot',[60,40,30,20]]].forEach(function(e){e[3].forEach(function(x){const s=set(e[1],e[2],x);const lab=e[0]+' · '+DEVN[e[1]]+(e[2]==='snapshot'?' snapshot':'')+' · '+x+' dB';
+    if(e[0]==='E1'&&D.b_vpred[String(x)])rows.push(bRow(lab,s,D.b_vpred[String(x)],e[0]));rows.push(bRow(lab,s,s.B,e[0]));});});
+  tbl(h,['setting · prior','B RMSE mean-of-32 / single (%)','B CRPS','B cov50 / cov90','B single log HF','L / D (snapshot: L demosaic) / C on the same cubes','B − D (snapshot: − L demosaic) ± cl. SE (ratio)','GPU-h'],rows);};
+function clauseCellT1(c,limit){if(!c)return pend();return {v:pill(c.passed)+' <span class="num">ratio '+fx(c.ratio,3)+' · 2-SE bound '+fx(c.ratio_2se,3)+' (limit '+fx(limit,2)+')</span>',cls:''};}
+function previewT1(p,limit){if(!p)return null;return {v:prev(p.passed)+' <span class="num">ratio '+fx(p.ratio,3)+' · 2-SE bound '+fx(p.ratio_2se,3)+' (limit '+fx(limit,2)+', n '+p.n+')</span>',cls:''};}
+function bClause(fromVerdict,fallback){if(V.b_valid&&fromVerdict)return fromVerdict;return fallback||{v:pend(),cls:''};}
+T.clauses=function(h){const th=V.thresholds||{};const rows=[];
+  [60,50,40,30,20].forEach(function(x){const c=V.T1&&V.T1.C?V.T1.C[vk(x)]:null;const vb=V.T1&&V.T1.B?V.T1.B[vk(x)]:null;const s=set('device1','sequential',x);
+    rows.push(['<b>T1</b> · '+x+' dB','mean-of-32 RMSE ≤ '+fx(th.T1_RATIO,2)+' × D (2 cl. SE)',clauseCellT1(c,th.T1_RATIO),bClause(vb&&clauseCellT1(vb,th.T1_RATIO),bOk(s)?previewT1(s.B.paired.rmse_vs_D,th.T1_RATIO):null)]);});
+  T2S.forEach(function(x){const c=V.T2&&V.T2.C?V.T2.C[vk(x)]:null;const vb=V.T2&&V.T2.B?V.T2.B[vk(x)]:null;const s=set('device1','sequential',x);
+    const cell=function(c){if(!c)return pend();return {v:pill(c.passed)+' <span class="num">CRPS − L '+sg(c.crps_vs_L.mean,3)+' ± '+fx(c.crps_vs_L.se_cluster,3)+' · − V '+sg(c.crps_vs_V.mean,3)+' ± '+fx(c.crps_vs_V.se_cluster,3)+' · cov90 '+fx(c.cov90,3)+(c.cov90_passed?'':' (out of band)')+'</span>',cls:''};};
+    let pv=null;if(bOk(s)){const p=s.B.paired,cv=s.B.means.cov90;const ok=p.crps_vs_L.diff+2*p.crps_vs_L.se_cluster<0&&p.crps_vs_V.diff+2*p.crps_vs_V.se_cluster<0&&cv>=th.T2_COV90[0]&&cv<=th.T2_COV90[1];
+      pv={v:prev(ok)+' <span class="num">CRPS − L '+sg(p.crps_vs_L.diff,3)+' ± '+fx(p.crps_vs_L.se_cluster,3)+' · − V '+sg(p.crps_vs_V.diff,3)+' ± '+fx(p.crps_vs_V.se_cluster,3)+' · cov90 '+fx(cv,3)+'</span>',cls:''};}
+    rows.push(['<b>T2</b> · '+x+' dB','CRPS below L and V (2 cl. SE), cov90 ∈ ['+th.T2_COV90.join(', ')+']',cell(c),bClause(vb&&cell(vb),pv)]);});
+  const t3=function(c){if(!c)return null;return {v:pill(c.passed)+' <span class="num">ratio to L: Device 1 '+fx(c.ratio_dev1,3)+' · Device 2 '+fx(c.ratio_dev2,3)+' (limit '+fx(th.T3_RATIO*c.ratio_dev1,3)+') · PH5 '+fx(c.ph5,3)+' (report)</span>',cls:''};};
+  let t3p=null;const s1=set('device1','sequential',30),s2=set('device2','sequential',30);if(bOk(s1)&&bOk(s2)){const r1=s1.B.paired.rmse_vs_L.ratio,r2=s2.B.paired.rmse_vs_L.ratio;t3p={v:prev(r2<=th.T3_RATIO*r1)+' <span class="num">ratio to L: Device 1 '+fx(r1,3)+' · Device 2 '+fx(r2,3)+' (limit '+fx(th.T3_RATIO*r1,3)+')</span>',cls:''};}
+  rows.push(['<b>T3</b> · 30 dB','(B or C / L) on Device 2 ≤ '+fx(th.T3_RATIO,2)+' × the same on Device 1',t3(V.T3&&V.T3.C)||pend(),bClause(t3(V.T3&&V.T3.B),t3p)]);
+  const t4=function(c){if(!c)return null;return {v:pill(c.passed)+' <span class="num">ratio '+fx(c.ratio,3)+' · 2-SE bound '+fx(c.ratio_2se,3)+' (limit '+fx(th.T4_RATIO,2)+')'+(c.D?'; D: '+(c.D.passed?'pass':'fail')+' at '+fx(c.D.ratio,3):'')+'</span>',cls:''};};
+  const s4=set('device1','snapshot',30);rows.push(['<b>T4</b> · snapshot 30 dB','RMSE ≤ '+fx(th.T4_RATIO,2)+' × demosaic-then-MMSE (2 cl. SE)',t4(V.T4&&V.T4.C)||pend(),bClause(t4(V.T4&&V.T4.B),bOk(s4)?previewT1(s4.B.paired.rmse_vs_L_demosaic,th.T4_RATIO):null)]);
+  const sc=V.sanity||{};const fp=sc.floor_pass||{};const mo=sc.monotone||{};
+  rows.push(['<b>sanity</b>','RMSE non-increasing in SNR; at 60 dB ≤ '+fx(sc.floor_reference_rmse_pct,3)+' % + 2 SE',{v:(mo.C&&fp.C?pill(true):pill(false))+' <span class="num">C monotone '+(mo.C?'yes':'no')+' · floor '+(fp.C?'pass':'fail')+'</span>',cls:''},V.b_valid?{v:(mo.B&&fp.B?pill(true):pill(false))+' <span class="num">floor '+(fp.B?'pass':'fail')+'</span>',cls:''}:{v:pend(),cls:''}]);
+  const cnt=V.counts||{};rows.push(['<b>clauses passed</b>','of T1–T4 (a clause passes only if every setting does)',num('<b>'+(cnt.C==null?'—':cnt.C)+' of 4</b>'),V.b_valid?num('<b>'+cnt.B+' of 4</b>'):{v:pend(),cls:''}]);
+  tbl(h,['clause · setting','rule','line C (200 cubes)','line B (50 cubes)'],rows,function(i){return i>=rows.length-1;});};
+T.runs=function(h){const rows=D.runs.map(function(r){return [r.run+(r.failed?' <span class="pill no">failed prior</span>':''),r.role,(r.prediction_type||'v')+' · '+(r.loss_type||'')+(r.snr_gamma&&r.prediction_type!=='direct'?' · min-SNR γ '+r.snr_gamma:''),num(r.epochs+' / '+r.planned),num(fx(r.sec_per_epoch,0)),num(fx(r.hours,2)),num(String(r.selected)),num(fx(r.val_at_sel,5))];});
+  D.pilots.forEach(function(p){rows.push([p.run,'prior pilot',(p.prediction_type||'v')+' · '+(p.loss_type||'')+(p.snr_gamma!=null?' · min-SNR γ '+p.snr_gamma:''),num(p.epochs+' / '+p.planned),num(fx(p.sec_per_epoch,0)),num(fx(p.hours,2)),num('—'),num('—')]);});
+  tbl(h,['run','role','parameterisation · loss','epochs','s / epoch','GPU-h','selected epoch','monitoring loss there'],rows);};
+
+/* ---------- slots ---------- */
+const SL={};
+function bList(keys){return keys.map(function(k){const s=S[k];return (s.exp+' '+DEVN[s.device]+(s.mode==='snapshot'?' snapshot':'')+' '+s.snr+' dB');}).join(', ');}
+SL.status=function(h){const nf=ST.final.length,np=ST.pending.length;const nB=ST.b_have.length,eB=ST.b_expected.length;
+  h.innerHTML='<b>Status (records as of '+D.generated+').</b> '+(nf-nB)+' main and C records final (L, D, V, C, C1 on 200 cubes in every E1–E3 setting). Line B: <b>'+nB+' of '+eB+'</b> x₀-prior records present'+(nB?' ('+bList(ST.b_have)+')':'')+(ST.b_pending.length?'; <b>pending</b>: '+bList(ST.b_pending)+'.':'; none pending.')+
+  ' Verdict file <code>'+ST.verdict_file+'</code>'+(V.report_only?' (report-only)':'')+'; '+(V.b_valid?'its B clauses are current.':'its B clauses are not used here ('+V.b_invalid_reason+'). B cells show the page’s paired preview or “pending”.')+(np&&np>ST.b_pending.length?' Other pending records: '+ST.pending.filter(function(r){return r.slice(-2)!=='_B';}).join(', ')+'.':'');};
+SL.countC=function(h){h.textContent=(V.counts&&V.counts.C!=null?V.counts.C:'—')+' of 4';};
+SL.countB=function(h){h.textContent=V.b_valid&&V.counts?V.counts.B+' of 4':'pending';};
+SL.countBsub=function(h){h.textContent=ST.b_have.length+' of '+ST.b_expected.length+' x₀-prior records present';};
+SL.normcheck=function(h){const sc=D.stage0.shape_check;h.textContent='The normalisation check '+(D.stage0.normalisation_check_passed?'passed':'FAILED')+': with the raw (un-normalised) response the curve keeps its shape within the 10 % rule (largest deviation '+fx(100*sc.sequential.max_dev,1)+' % sequential, '+fx(100*sc.snapshot.max_dev,1)+' % snapshot), so the normalised R is the paper’s sensor and the raw curve (dashed) goes to the appendix.';};
+SL.angles=function(h){const a=D.stage0.principal_angles;h.innerHTML='<b>Principal angles between the sensors’ column spaces.</b> Device 1 and Device 2 share a '+F0.ang_d1d2_shared+'-dimensional subspace: only '+F0.ang_d1d2_nonzero+' of the '+a.device1_device2.n+' angles is non-zero ('+fx(F0.ang_d1d2_max,1)+'°). The transfer test is therefore about how the two sensors weight directions, not about different subspaces. PH5’s response has rank '+F0.ph5_rank+', and every angle to Device 1’s space is at most '+fx(F0.ang_d1ph5_max,1)+'°, so PH5 measures a '+F0.ph5_rank+'-dimensional part of what Device 1 measures, with far worse conditioning.';};
+SL.t1marks=function(h){const th=V.thresholds||{};h.innerHTML='<span><b>T1</b> (limit '+fx(th.T1_RATIO,2)+'):</span>'+[60,50,40,30,20].map(function(x){const c=V.T1&&V.T1.C&&V.T1.C[vk(x)];const s=set('device1','sequential',x);const vb=V.b_valid&&V.T1.B&&V.T1.B[vk(x)];
+    let b;if(vb)b=pill(vb.passed,'B '+fx(vb.ratio,2));else if(bOk(s))b='<span class="pill wn">B '+fx(s.B.paired.rmse_vs_D.ratio,2)+'*</span>';else b=pend('B pending');
+    return '<span>'+x+' dB '+(c?pill(c.passed,'C '+fx(c.ratio,2)):pend('C'))+' '+b+'</span>';}).join('');};
+SL.t1text=function(h){const c=V.T1&&V.T1.C||{};const ks=[60,50,40,30,20];const nf=ks.filter(function(x){return c[vk(x)]&&!c[vk(x)].passed;}).length;
+  h.innerHTML='C fails T1 at '+nf+' of 5 SNRs. Its ratio to D is '+ks.map(function(x){return fx(c[vk(x)]&&c[vk(x)].ratio,3);}).join(' / ')+' at 60 / 50 / 40 / 30 / 20 dB. At the high-SNR end the gap is about 5 %, partly the 1/K Monte-Carlo term of a 32-sample mean, and the one-call C1 is closer ('+fx(F0.C1_60,3)+' % against D’s '+fx(F0.D_60,3)+' % at 60 dB). From 30 dB down the gap opens to '+fx(100*(c['30.0'].ratio-1),0)+'–'+fx(100*(c['20.0'].ratio-1),0)+' %. A starred B marker is the page’s paired preview on the 50 cubes, not a verdict.';};
+SL.dbest=function(h){h.textContent=F0.D_best_every_snr?'the most accurate method at every SNR':'not the most accurate method at every SNR';};
+SL.e1B=function(h){const have=[60,50,40,30,20].filter(function(x){return bOk(set('device1','sequential',x));});
+  if(!have.length){h.innerHTML='<b>Line B:</b> its E1 records with the x₀-prediction prior are pending.';return;}
+  const parts=have.map(function(x){const b=set('device1','sequential',x).B;return x+' dB: '+fx(b.means.mean_rmse_pct,2)+' % against D’s '+fx(b.on_subset.D.rmse_pct,2)+' % on the same cubes (cov90 '+fx(b.means.cov90,2)+')';});
+  const pend_=[60,50,40,30,20].filter(function(x){return have.indexOf(x)<0;});
+  const under=have.filter(function(x){return set('device1','sequential',x).B.means.cov90<0.85;}).length;
+  h.innerHTML='<b>Line B with the retrained x₀-prediction prior</b> ('+have.length+' of 5 E1 records present): '+parts.join('; ')+'. '+(under?'Its samples are under-dispersed at '+under+' of these SNRs (cov90 below 0.85). ':'')+(pend_.length?'Pending: '+pend_.join(', ')+' dB.':'');};
+SL.t2marks=function(h){h.innerHTML=T2S.map(function(x){const c=V.T2&&V.T2.C&&V.T2.C[vk(x)];const s=set('device1','sequential',x);const vb=V.b_valid&&V.T2.B&&V.T2.B[vk(x)];
+  return '<span><b>T2</b> '+x+' dB '+(c?pill(c.passed,'C '+(c.passed?'PASS':'FAIL')):pend('C'))+' '+(vb?pill(vb.passed,'B '+(vb.passed?'PASS':'FAIL')):(bOk(s)?'<span class="pill wn">B preview</span>':pend('B pending')))+'</span>';}).join('');};
+SL.t2text=function(h){const c=V.T2&&V.T2.C||{};const a=c['30.0'],b=c['20.0'];if(!a||!b){h.textContent='T2 for C is pending.';return;}const band=V.thresholds.T2_COV90;
+  h.innerHTML='L, V and C on the 200 gate cubes; B on its 50. At 30 dB C '+(a.passed?'passes':'fails')+' T2: CRPS − L = '+sg(a.crps_vs_L.mean,3)+' ± '+fx(a.crps_vs_L.se_cluster,3)+', − V = '+sg(a.crps_vs_V.mean,3)+' ± '+fx(a.crps_vs_V.se_cluster,3)+' (clustered), cov90 '+fx(a.cov90,3)+'. At 20 dB both CRPS differences are clear ('+sg(b.crps_vs_L.mean,3)+' ± '+fx(b.crps_vs_L.se_cluster,3)+' and '+sg(b.crps_vs_V.mean,3)+' ± '+fx(b.crps_vs_V.se_cluster,3)+'; C’s CRPS is '+fx(100*(1-b.crps_vs_L.ratio_of_means),0)+' % below L’s), but cov90 = '+fx(b.cov90,3)+(b.cov90_passed?' lies inside the band':' lies '+fx(b.cov90-band[1],3)+' above the band')+', so the clause '+(b.passed?'passes':'fails')+(b.passed?'':' on coverage only')+'.';};
+SL.covtext=function(h){const c20=met(set('device1','sequential',20),'C','cov50'),c30=met(set('device1','sequential',30),'C','cov50');const b30=set('device1','sequential',30),b20=set('device1','sequential',20);
+  let t='C is slightly over-dispersed, and more so as the SNR falls (cov50 '+fx(c30,3)+' at 30 dB, '+fx(c20,3)+' at 20 dB, against 0.50 nominal). The variance head is the best calibrated of the four.';
+  if(bOk(b30)||bOk(b20)){const xs=[30,20].filter(function(x){return bOk(set('device1','sequential',x));});t+=' B: '+xs.map(function(x){const m=set('device1','sequential',x).B.means;return 'cov50 '+fx(m.cov50,2)+' / cov90 '+fx(m.cov90,2)+' at '+x+' dB';}).join('; ')+'.';}else t+=' B’s 30 and 20 dB records are pending.';
+  h.textContent=t;};
+SL.t3text=function(h){const c=V.T3&&V.T3.C;const th=V.thresholds;if(!c){h.textContent='T3 pending.';return;}
+  let t='L, D and C on the 200 gate cubes; B on its 50, where present. T3 for C '+(c.passed?'passes':'fails')+': C’s RMSE ratio to the MMSE is '+fx(c.ratio_dev1,3)+' on Device 1 and '+fx(c.ratio_dev2,3)+' on Device 2, against the limit '+fx(th.T3_RATIO,2)+' × '+fx(c.ratio_dev1,3)+' = '+fx(th.T3_RATIO*c.ratio_dev1,3)+'. On PH5 (report-only) the ratio is '+fx(c.ph5,3)+'.';
+  const s1=set('device1','sequential',30),s2=set('device2','sequential',30);
+  if(V.b_valid&&V.T3.B)t+=' T3 for B '+(V.T3.B.passed?'passes':'fails')+' (ratios '+fx(V.T3.B.ratio_dev1,3)+' and '+fx(V.T3.B.ratio_dev2,3)+').';
+  else if(bOk(s1)&&bOk(s2))t+=' B (page preview on the 50 cubes): ratio '+fx(s1.B.paired.rmse_vs_L.ratio,3)+' on Device 1, '+fx(s2.B.paired.rmse_vs_L.ratio,3)+' on Device 2.';
+  else t+=' T3 for B waits for its 30 dB records on '+[[s1,'Device 1'],[s2,'Device 2']].filter(function(q){return !bOk(q[0]);}).map(function(q){return q[1];}).join(' and ')+'.';
+  h.textContent=t;};
+SL.d2D=function(h){h.textContent=[40,30,20].map(function(x){return fx(-F0['device2_D_vs_L_'+x],0)+' %';}).join(' / ')+' below the MMSE at 40 / 30 / 20 dB (on Device 1: '+[40,30,20].map(function(x){return fx(F0['D_below_L_'+x],0)+' %';}).join(' / ')+').';};
+SL.e2B=function(h){const xs=[40,30,20].filter(function(x){return bOk(set('device2','sequential',x));});
+  if(!xs.length){h.innerHTML='<b>Line B on Device 2:</b> pending. B needs no retraining for any sensor by construction, so its transfer test is only whether its error ratio to the MMSE holds.';return;}
+  h.innerHTML='<b>Line B on Device 2</b> ('+xs.length+' of 3 records): '+xs.map(function(x){const b=set('device2','sequential',x).B;return x+' dB: '+fx(b.means.mean_rmse_pct,2)+' % against L’s '+fx(b.on_subset.L.mean_rmse_pct,2)+' % on the same cubes';}).join('; ')+'.';};
+SL.t4text=function(h){const c=V.T4&&V.T4.C;if(!c){h.textContent='T4 pending.';return;}
+  let t='L, L demosaic, D and C on the 200 gate cubes; B on its 50. The dashed segment at 30 dB is T4’s target. T4 for C '+(c.passed?'passes':'fails')+': ratio '+fx(c.ratio,3)+' (2-SE bound '+fx(c.ratio_2se,3)+'). C’s posterior mean ('+fx(F0.e3_C_30,2)+' %) is '+(c.ratio>1?'worse than':'better than')+' demosaic-then-MMSE ('+fx(F0.Ldem_30,2)+' %).'+(c.D?' The regressor passes the same clause '+(c.D.passed?'easily':'—')+': '+fx(F0.e3_D_30,2)+' %, ratio '+fx(c.D.ratio,3)+', at every SNR below the baseline.':'');
+  const s4=set('device1','snapshot',30);if(V.b_valid&&V.T4.B)t+=' T4 for B '+(V.T4.B.passed?'passes':'fails')+' (ratio '+fx(V.T4.B.ratio,3)+').';else if(bOk(s4))t+=' B (preview): ratio '+fx(s4.B.paired.rmse_vs_L_demosaic.ratio,3)+' to the demosaic baseline on its 50 cubes.';else t+=' T4 for B waits for its 30 dB snapshot record.';
+  h.textContent=t;};
+SL.e3B=function(h){const xs=[60,40,30,20].filter(function(x){return bOk(set('device1','snapshot',x));});
+  if(!xs.length){h.innerHTML='<b>Line B in snapshot mode</b> (zero-shot, masked operator): pending.';return;}
+  h.innerHTML='<b>Line B in snapshot mode</b> (zero-shot, masked operator; '+xs.length+' of 4 records): '+xs.map(function(x){const b=set('device1','snapshot',x).B;const p=b.paired.rmse_vs_L_demosaic;return x+' dB: '+fx(b.means.mean_rmse_pct,2)+' % against demosaic-then-MMSE '+fx(p.b,2)+' % on the same cubes (ratio '+fx(p.ratio,3)+'), cov50 / cov90 '+fx(b.means.cov50,2)+' / '+fx(b.means.cov90,2);}).join('; ')+'.';};
+SL.probetext=function(h){const P=D.b_prior_probe;const g=function(k){return P.series.filter(function(s){return s.key===k;})[0].err;};const i299=P.t.indexOf(299);const v=g('vpred'),bl=g('blind'),x0=g('x0');
+  const worse=P.t.filter(function(t,i){return v[i]>P.mean_cube;});
+  h.textContent='The v-prediction prior (epoch 100) tracks the input-blind predictor E[v | t] to within a point for t ≤ 200, and is worse than predicting the mean cube ('+fx(P.mean_cube,2)+' %) at t = '+worse.join(', ')+'. Neither uniform loss weighting nor a time-token path moves the curve. With x₀-prediction the low-t target is close to the identity, which forces the network to read x_t: the retrained prior’s error is '+fx(x0[0],1)+' % at t = '+P.t[0]+' and '+fx(x0[i299],1)+' % at t = 299, where the v-prediction prior had '+fx(v[i299],1)+' % and the blind predictor '+fx(bl[i299],1)+' %. Its error grows monotonically and stays below the mean cube at every t. Unguided DDIM-50 samples saturated '+fx(P.saturation_pct.vpred,1)+' % of their elements with the v-prediction prior and '+fx(P.saturation_pct.x0,1)+' % with the x₀-prediction prior.';};
+SL.toytext=function(h){const t=D.toy;if(!t){h.textContent='The toy record was not found at build time.';return;}const r=t.rows.filter(function(r){return r.C_kind==='isotropic'&&r.method==='pigdm'&&r.n_steps===t.steps_for_B;});
+  h.textContent='Before Stage 0, ΠGDM had to reproduce the exact Gaussian posterior on an isotropic toy with the real Device 1 operator (1 000 draws per cell, 30 dB). At '+t.steps_for_B+' steps it meets every gate in both modes ('+r.map(function(q){return q.mode+': mean excess '+fx(q.rmse_excess,4)+', variance ratio '+fx(q.var_ratio,3)+', cov90 '+fx(q.cov90,3);}).join('; ')+'), so B runs at '+t.steps_for_B+' steps as pre-registered. On the correlated HFD covariance (report only) the isotropic approximation costs about 4 % in RMSE and under-disperses in sequential mode. That is the first explanation to test if B’s calibration clauses fail.';};
+SL.bnow=function(h){const have=ST.b_have.length;if(!have){h.innerHTML='No x₀-prior B record yet: the B story ends at the prior.';return;}
+  const keys=ST.b_have;const under=keys.filter(function(k){return S[k].B.means.cov90<0.85;});
+  const worseD=keys.filter(function(k){const p=S[k].B.paired;const q=S[k].mode==='snapshot'?p.rmse_vs_L_demosaic:p.rmse_vs_D;return q&&q.diff-2*q.se_cluster>0;});
+  h.innerHTML='<b>Where B stands ('+have+' of '+ST.b_expected.length+' records).</b> With the x₀-prediction prior the samples are no longer degenerate (single-sample RMSE '+keys.map(function(k){return fx(S[k].B.means.single_rmse_pct,1)+' %';}).join(', ')+' against the v-prediction prior’s '+Object.keys(D.b_vpred).map(function(k){return fx(D.b_vpred[k].means.single_rmse_pct,1)+' %';}).join(', ')+'). '+
+    (worseD.length?'Its mean-of-32 is still worse than the reference method (D; in snapshot mode, demosaic-then-MMSE) by more than 2 clustered SE in '+worseD.length+' of '+have+' settings. ':'')+(under.length?'Its samples are under-dispersed (cov90 below 0.85) in '+under.length+' of '+have+'. ':'')+(ST.b_pending.length?'The remaining '+ST.b_pending.length+' records are pending, and the verdict on B waits for them.':'All B records are in.');};
+SL.verdictnote=function(h){h.innerHTML='Verdict <code>'+ST.verdict_file+'</code>, created '+(V.created||'—')+(V.report_only?', report-only':'')+'. Main line: '+(V.main_line?'<b>'+V.main_line+'</b>':'not named (the verdict needs B)')+'. '+(V.b_valid?'':'B cells marked “preview” are the page’s own paired computation on the 50-cube subset, using the verdict’s rule and thresholds; they become verdict cells when the final verdict that reads the x₀-prior records is built ('+V.b_invalid_reason+').')+(V.missing&&V.missing.length?' Settings the verdict lists as missing: '+V.missing.length+'.':'');};
+SL.budget=function(h){const b=D.budget,e=b.eval_hours;h.innerHTML='<b>Budget.</b> Training '+fx(b.train_hours,1)+' GPU-h for the five runs (the failed v-prediction prior included), plus '+fx(b.pilot_hours,1)+' GPU-h for the three prior pilots. Evaluation so far: '+fx(e.main,2)+' GPU-h for the L / D / V records, '+fx(e.C,1)+' for C, '+fx(e.B_vpred,1)+' for the two archived v-prediction B records and '+fx(e.B,1)+' for the '+b.b_records+' x₀-prior B records present. A B record costs ≈ '+fx(b.b_hours_mean,2)+' GPU-h, so the '+b.b_expected+' planned B records come to ≈ '+fx(b.b_hours_projected,0)+' GPU-h, against the spec’s 12 GPU-h cap for B.';};
+
+/* ---------- data-bound values ---------- */
+function resolve(path){return path.split('.').reduce(function(o,k){return o==null?undefined:o[k];},D);}
+document.querySelectorAll('[data-v]').forEach(function(h){const sp=h.dataset.v.split(':');const v=resolve(sp[0]);const f=sp[1];
+  if(v==null){h.innerHTML=pend();return;}
+  if(f==='e')h.textContent=sci(v);else if(f!=null&&typeof v==='number')h.textContent=Number(v).toFixed(+f);else h.textContent=String(v);});
+document.querySelectorAll('[data-fig]').forEach(function(h){const f=F[h.dataset.fig];if(f)f(h);});
+document.querySelectorAll('[data-chart]').forEach(function(h){const f=CH[h.dataset.chart];if(f)f(h);});
+document.querySelectorAll('[data-table]').forEach(function(h){const f=T[h.dataset.table];if(f)f(h);});
+document.querySelectorAll('[data-slot]').forEach(function(h){const f=SL[h.dataset.slot];if(f)f(h);});
+
+})();
+</script>
