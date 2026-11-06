@@ -84,3 +84,36 @@ The two B records that exist (60 and 50 dB, 50 cubes, K = 32, ΠGDM 50 steps) ar
 - **The x₀-prediction pilot breaks the pattern** (`uncond_x0pilot_b64`, `--prediction_type x0`, 10 epochs, 0.9 GPU-h): x̂₀ error 3.3 / 3.4 / 3.4 / 3.5 / 3.6 / 4.0 / 4.6 / 5.7 / 10.6 / 23.5 % at t = 25 … 900 (epoch 5: 5.0 … 23.7 — still improving), monotone, well below the input-blind curve everywhere up to t = 700 (at t = 299: 4.0 against 24.6 for the v-prediction priors), and its unguided DDIM-50 samples have 27.5 % RMSE to the truth with 0.1 % of their elements saturated (a random plausible cube would score ≈ 24 % on these per-cube-normalised data). Its only weak spot is the far high-t end (23.5 % at t = 900, where x₀-prediction is known to be noisy), which the chain's first steps and the clamp tolerate. The reading is a parameterisation effect: with v-prediction the low-t target is ≈ ε and the network settled on the input-blind per-t mean; with x₀-prediction the low-t target is ≈ the identity, which forces it to read x_t.
 
 **Ruling (controller, 2026-11-05, superseding "failed-by-prior"):** the pilot meets the pre-registered decision rule (monotone and ≥ 30 % below the current prior at t ≤ 300) by a wide margin → **B's prior is retrained with x₀-prediction** (`uncond_x0_b64`, 100 epochs, L1, min-SNR γ = 5, launched 2026-11-05 14:35 on GPU 1, ≈ 7 h) and the harness builds B's sampler from the checkpoint's own prediction type (C stays v-prediction). This amends spec §5.5's "v-prediction" for the prior only, on the evidence above. The v-prediction prior's 60 / 50 dB records stay in the archive as the record of the failure. Budget: 3 pilots (2.7 GPU-h) + 7 GPU-h retrain + ≈ 24 GPU-h of B records (2 GPU-h each, not the plan's 0.63) — the user's GPUs are otherwise idle; PH5's B rows are dropped first if time runs short (spec drop order).
+
+## E2 — zero-shot transfer to Device 2 and PH5, sequential (Task 16; D, V, C trained on Device 1 only)
+
+Records `e2_{device2,ph5}_sequential_<snr>_{main,C}.json` (200 gate cubes); report-only verdict `verdict__e123_noB__report.json`.
+
+| sensor | SNR | L: RMSE / CRPS | D: RMSE | V: CRPS / cov50 / cov90 / AUSE | C: mean-of-32 / C1 / single | C: CRPS / cov50 / cov90 / AUSE |
+|---|---|---|---|---|---|---|
+| device2 | 40 | 3.185 / 1.751 | **3.067** | 1.735 / 0.488 / 0.893 / 0.347 | 3.122 / 2.972 / 4.241 | **1.700** / 0.473 / 0.889 / 0.406 |
+| device2 | 30 | 5.122 / 2.779 | **4.133** | 2.739 / 0.495 / 0.897 / 0.319 | 4.834 / 4.523 / 6.686 | **2.619** / 0.490 / 0.904 / 0.380 |
+| device2 | 20 | 7.682 / 4.288 | **6.849** | **4.234** / 0.488 / 0.885 / 0.339 | 8.355 / 7.421 / 10.894 | 4.728 / 0.443 / 0.843 / 0.432 |
+| ph5 | 40 | **8.963** / **4.722** | 10.084 | 4.737 / 0.502 / 0.908 / 0.251 | 16.267 / 12.533 / 18.417 | 9.135 / 0.247 / 0.629 / 0.231 |
+| ph5 | 30 | **10.413** / **5.589** | 12.147 | 5.638 / 0.509 / 0.890 / 0.296 | 19.516 / 14.165 / 21.872 | 11.128 / 0.243 / 0.627 / 0.249 |
+| ph5 | 20 | **11.666** / **6.426** | 15.878 | 6.634 / 0.464 / 0.812 / 0.387 | 22.244 / 15.823 / 24.538 | 13.403 / 0.220 / 0.598 / 0.365 |
+
+- **T3 (line C, 30 dB): FAIL** — (RMSE_C / RMSE_L) is 0.783 on device1 and 0.944 on device2, against the limit 1.10 × 0.783 = 0.861. The sufficient-statistic conditioning transfers only partly: on device2 C still beats the MMSE at 40 and 30 dB (by 2 % and 6 %) and beats V on CRPS at 40 / 30 dB (1.700 vs 1.735; 2.619 vs 2.739) with cov90 0.89–0.90, but at 20 dB it falls behind both L and V (8.36 % vs 7.68; CRPS 4.73 vs 4.23) with cov90 0.843. The regressor D transfers better: 4 / 19 / 11 % below L at 40 / 30 / 20 dB (31 / 39 / 50 % on device1).
+- **PH5 (report-only):** nothing learned on device1 transfers. D is 12–36 % WORSE than the MMSE, C's mean 1.8–1.9 × worse, C badly under-dispersed (cov50 0.22–0.25, cov90 0.60–0.63); only V's CRPS stays level with L's. PH5's legacy-axis response has rank 16 (Stage 0) and a very different posterior-std structure, so its (x̂, s) maps are out of the training distribution of every family model; this is the sensor on which the paper's "no retraining" claim is false for the conditional networks.
+
+## E3 — snapshot mode, device1 (Task 17; D, V, C saw snapshot cubes in training; L_demosaic is the classical baseline)
+
+Records `e3_device1_snapshot_<snr>_{main,C}.json` (200 gate cubes).
+
+| SNR | L exact: RMSE / CRPS | L_demosaic: RMSE / CRPS | D: RMSE | V: CRPS / cov50 / cov90 / AUSE | C: mean-of-32 / C1 / single | C: CRPS / cov50 / cov90 / AUSE |
+|---|---|---|---|---|---|---|
+| 60 | 12.107 / 6.847 | 5.574 / 2.868 | **2.696** | 6.084 / 0.236 / 0.956 / 0.086 | 6.531 / 7.585 / 13.069 | 3.861 / 0.776 / 0.993 / 0.360 |
+| 40 | 12.118 / 6.854 | 5.613 / 2.899 | **2.727** | 6.093 / 0.238 / 0.955 / 0.087 | 6.566 / 7.614 / 13.094 | 3.878 / 0.774 / 0.993 / 0.360 |
+| 30 | 12.218 / 6.912 | 5.835 / 3.063 | **2.950** | 6.170 / 0.256 / 0.950 / 0.099 | 6.841 / 7.826 / 13.287 | 4.011 / 0.758 / 0.992 / 0.363 |
+| 20 | 12.877 / 7.278 | 6.867 / 3.745 | **3.971** | 6.635 / 0.320 / 0.940 / 0.150 | 7.719 / 8.781 / 14.142 | 4.467 / 0.732 / 0.985 / 0.384 |
+
+- **T4 (line C vs L_demosaic at 30 dB, limit 0.85): FAIL** — ratio 1.172 (2-SE bound 1.211): C's posterior mean (6.84 %) is WORSE than demosaic-then-MMSE (5.84 %). D passes the same clause overwhelmingly: **2.95 % = half the demosaic baseline** (ratio 0.506), at every SNR.
+- Reading. In snapshot mode the centre x̂ is the exact per-pixel posterior from ONE measured channel (≈ 12 %, essentially the prior mean) and s is correspondingly wide, so the whitened residual r = (x − x̂)/s is large and highly structured: it IS the demosaicing problem. The one-call regressor learns it (2.7–4.0 %); the diffusion trained on the same target does not — its one-call point C1 is 7.6–8.8 %, its mean of 32 samples 6.5–7.7 %, its samples hugely over-dispersed (cov50 0.73–0.78, cov90 0.99) and still rough (single sample 13 %). The variance head inherits the poor centre (its mean is x̂) and cannot shrink enough to be calibrated (cov50 0.24). So the regressor-centred design that served C well in sequential mode handicaps the probabilistic lines wherever the centre is poor; a diffusion centred on D's prediction (Phase 2a's construction) would have been the fairer snapshot test — out of scope here, recorded for the write-up.
+
+## Verdict so far (report-only, B pending its x₀-prediction retrain)
+Line C passes 1 of the pre-registered clauses (T2 at 30 dB), fails T1 at every SNR, T2 at 20 dB on coverage only, T3 and T4. Line B: pending. Sanity: every method monotone in SNR; D, V, C, C1 at or below the MMSE floor reference on device1 at 60 dB.
