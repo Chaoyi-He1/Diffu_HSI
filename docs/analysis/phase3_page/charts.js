@@ -250,16 +250,27 @@ function rng(a){return a.length?(a.length>1?a[0]+'–'+a[a.length-1]:String(a[0]
 SL.status=function(h){const p=ST.pending;h.innerHTML=p.length?'<b>Not yet in the records at build time:</b> '+p.join(', ')+'. The cells that need them show “pending”.':'';};
 SL.outcome=function(h){const cB=passes('B'),cC=passes('C');const tb=t2v('B',20);const ml=V.main_line;
   const cC40=[40,30,20].map(function(x){return met(set('device1','sequential',x),'C','cov90');});
-  const dItem='<li><b>Regressor D:</b> the best point estimate at high SNR ('+rng(bestSnrs('D'))+' on the shared cubes) and the only method that demosaics: '+fx(F0.e3_D_30,2)+' % in snapshot at 30 dB against '+fx(F0.Ldem_30,2)+' % for demosaic-then-MMSE.</li>';
+  const bD=bestSnrs('D'),bB=bestSnrs('B'),bC=bestSnrs('C');
+  const t2ok=function(line){return T2S.some(function(x){const c=t2v(line,x);return c&&c.passed;});};
+  const demo=F0.e3_D_30!=null&&F0.Ldem_30!=null&&F0.e3_D_30<F0.Ldem_30;
+  const ph5None=F0.ph5_D_worse_min!=null&&F0.ph5_C_ratio_min!=null&&F0.ph5_D_worse_min>0&&F0.ph5_C_ratio_min>1;
+  const dItem='<li><b>Regressor D:</b> the best point estimate at high SNR ('+rng(bD)+' on the shared cubes) and the only method that demosaics: '+fx(F0.e3_D_30,2)+' % in snapshot at 30 dB against '+fx(F0.Ldem_30,2)+' % for demosaic-then-MMSE.</li>';
   const cItem='<li><b>C, conditional diffusion:</b> near-nominal coverage on its own sensor (cov90 '+fx(Math.min.apply(null,cC40),3)+'–'+fx(Math.max.apply(null,cC40),3)+' at 40–20 dB), and the lowest CRPS of any method whose coverage is near nominal at ≤ 40 dB ('+fx(F0.C_crps_gain_lo_min,0)+'–'+fx(F0.C_crps_gain_lo_max,0)+' % below L and V). It never matches the regressor’s mean.</li>';
-  if(!V.b_valid){h.innerHTML='<p><b>Main line:</b> '+bInvalid()+' C passes '+cC.length+' ('+(joinAnd(cC)||'none')+') out of 5; '+bInvalidWhy()+', so B’s clauses, the pass counts and the main line wait for the regenerated verdict.</p><ul>'+dItem+cItem+'</ul>';return;}
+  const dOpen='When the measurement is informative — high SNR'+(bD.length?' ('+rng(bD)+')':'')+', or snapshot mode on the sensor the networks were trained on — the one-call regressor D is the best point estimate'+(demo?' and the only method that demosaics':'')+'. ';
+  const cOpen=bC.length?'The conditional diffusion C is the best point estimate at '+rng(bC)+'. ':(t2ok('C')&&!t2ok('B')?'The conditional diffusion C gives the best uncertainty of the calibrated methods on its own sensor (the only line to pass the uncertainty clause T2) but never the best mean. ':'The conditional diffusion C is never the best mean; its uncertainty is compared in section 3. ');
+  const ph5Txt=ph5None?'Nothing learned on Device 1 transfers to PH5 (B was not run there).':'PH5’s transfer results are in section 4.';
+  if(!V.b_valid){h.innerHTML='<p><b>No single method wins everywhere.</b> '+dOpen+cOpen+ph5Txt+'</p><ul>'+dItem+cItem+'</ul><p><b>Pre-registered verdict:</b> '+bInvalid()+' C passes '+cC.length+' ('+(joinAnd(cC)||'none')+') out of 5; '+bInvalidWhy()+', so B’s clauses, the pass counts and the main line wait for the regenerated verdict.</p>';return;}
   const r30=V.T1.B&&V.T1.B['30.0'],r20=V.T1.B&&V.T1.B['20.0'];const c30=t2v('B',30);const ti=tieInfo(2);
-  const d2=set('device2','sequential',30);
-  h.innerHTML='<p><b>Main line: '+(ml||'—')+'.</b> The pre-registered verdict (<code>'+ST.verdict_file+'</code>) gives B '+cB.length+' pass ('+(joinAnd(cB)||'none')+') and C '+cC.length+' pass ('+(joinAnd(cC)||'none')+') out of 5. The tie goes to the line with the lower paired CRPS − CRPS<sub>V</sub> at 20 dB: '+ti.txt+', so '+(ti.winner||ml)+' is named. '+
-   '<b>B wins on the accuracy of its mean, not on calibration.</b> Its mean-of-32 is '+fx(r30.ratio,3)+' / '+fx(r20.ratio,3)+' × the regressor at 30 / 20 dB on the shared cubes, and it transfers zero-shot to Device 2. Its samples are badly over-confident, though (cov90 '+fx(c30.cov90,3)+' / '+fx(tb.cov90,3)+' at 30 / 20 dB against 0.90 nominal). Both lines are reported in full below.</p>'+
+  const d2=set('device2','sequential',30);const d2ok=bOk(d2)&&d2.B.on_subset&&d2.B.on_subset.D;
+  const bTrans=d2ok&&d2.B.means.mean_rmse_pct<d2.B.on_subset.D.rmse_pct;
+  const bOpen=bB.length?'When noise dominates ('+rng(bB)+') the guided prior B becomes the best point estimate'+(bTrans?', and it is the only learned method that transfers to a second sensor without retraining':'')+'. ':'The guided prior B is the best point estimate at no SNR on the shared cubes. ';
+  const tie=cB.length===cC.length?'the tie is broken by the lower paired CRPS − CRPS<sub>V</sub> at 20 dB ('+ti.txt+'), so the main line is <b>'+(ti.winner||ml||'—')+'</b>':'so the main line is <b>'+(ml||'—')+'</b>';
+  h.innerHTML='<p><b>No single method wins everywhere.</b> '+dOpen+bOpen+cOpen+ph5Txt+'</p>'+
    '<ul>'+dItem+
-   '<li><b>B, guided prior:</b> the best point estimate at '+rng(bestSnrs('B'))+', and zero-shot on Device 2 ('+fx(d2.B.means.mean_rmse_pct,2)+' % at 30 dB against the regressor’s '+fx(d2.B.on_subset.D.rmse_pct,2)+' %), but over-confident everywhere.</li>'+
-   cItem+'</ul>';};
+   '<li><b>B, guided prior:</b> the best point estimate at '+rng(bB)+' (mean-of-32 '+fx(r30&&r30.ratio,3)+' / '+fx(r20&&r20.ratio,3)+' × the regressor at 30 / 20 dB on the shared cubes), and zero-shot on Device 2 ('+(d2ok?fx(d2.B.means.mean_rmse_pct,2)+' % at 30 dB against the regressor’s '+fx(d2.B.on_subset.D.rmse_pct,2)+' %':pend())+'), but over-confident everywhere.</li>'+
+   cItem+'</ul>'+
+   '<p><b>Pre-registered verdict</b> (<code>'+ST.verdict_file+'</code>)<b>:</b> B passes '+cB.length+' of 5 clauses ('+(joinAnd(cB)||'none')+'), C '+cC.length+' ('+(joinAnd(cC)||'none')+'); '+tie+
+   (ml==='B'?' — won through the accuracy of its mean, not through calibration: its samples are over-confident (cov90 '+fx(c30&&c30.cov90,3)+' / '+fx(tb&&tb.cov90,3)+' at 30 / 20 dB against 0.90)':'')+'. Both lines are reported in full below.</p>';};
 SL.kpiB=function(h){if(!V.b_valid){h.innerHTML=bInvalid();return;}const r=V.T1.B&&V.T1.B['20.0'];h.textContent=r?fx(r.ratio,3)+' ×':'—';};
 SL.kpiBsub=function(h){if(!V.b_valid){h.textContent='the verdict’s B clauses are not current';return;}const r=V.T1.B&&V.T1.B['30.0'];h.textContent=r?(fx(r.ratio,3)+' × at 30 dB; T1 passes at 30 and 20 dB'):'';};
 SL.countBC=function(h){if(!V.b_valid){h.innerHTML='B '+pend('not current')+' · C '+passes('C').length;return;}h.textContent='B '+passes('B').length+' · C '+passes('C').length;};
@@ -332,3 +343,4 @@ document.querySelectorAll('[data-chart]').forEach(function(h){const f=CH[h.datas
 document.querySelectorAll('[data-table]').forEach(function(h){const f=T[h.dataset.table];if(f)f(h);});
 document.querySelectorAll('[data-slot]').forEach(function(h){const f=SL[h.dataset.slot];if(f)f(h);});
 hints();window.addEventListener('resize',hints);
+document.querySelectorAll('details.fold').forEach(function(d){d.addEventListener('toggle',hints);});

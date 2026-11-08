@@ -13,16 +13,16 @@ svg .box-s4{fill:var(--s4-bg);stroke:var(--s4)}
 .outcome p{margin:6px 0;font-size:15.5px}
 .outcome ul{margin:6px 0 2px;padding-left:1.2em;font-size:15px}
 .outcome li{margin:3px 0}
+.fold{margin:14px 0}.fold>summary{cursor:pointer;font-weight:600;color:var(--ink-2);padding:10px 14px;background:var(--panel);border:1px solid var(--rule);border-radius:10px;list-style:none}.fold>summary::-webkit-details-marker{display:none}.fold>summary::before{content:'▸ ';color:var(--accent)}.fold[open]>summary::before{content:'▾ '}.fold>summary:hover{border-color:var(--accent)}.fold>:not(summary){margin-top:12px}
 .hint{font-size:12px;color:var(--muted);margin:2px 0 0;text-align:right}
 </style>
 <main lang="zh-CN">
 <header>
   <div class="eyebrow">Diffu_HSI · 传感器退化 · Phase 3 · 记录截至 <span data-v="generated"></span></div>
   <h1>第 3 阶段——从性能较差的 EC 传感器重建光谱</h1>
-  <p class="lede">论文主张：对于性能较差的电致变色（EC）传感器，扩散模型是恢复其所见光谱的最合适方法。该传感器有 30 个电压状态，响应宽且相互重叠，其中只有约 <span data-v="facts.d1_informative:0"></span>–13<sup>*</sup> 个状态携带关于 31 个波段的独立信息。第 3 阶段在传感器之“差”真正起作用的地方检验这一主张。<b>E1</b> 在顺序模式下为设备 1 加入测量噪声，信噪比从 60 dB 的噪声底一直扫到 20 dB。<b>E2</b> 将在设备 1 上训练的模型不经重新训练直接用于设备 2 和 PH5。<b>E3</b> 让设备 1 工作在快照（马赛克）模式下，每个像素只测量一个状态；<b>E4</b>（仅报告）在 30 dB 下对设备 2 做同样的测试。两条扩散路线与考虑噪声的线性最小均方误差估计（MMSE，记为 L）、单次前向的回归器（D）以及方差头（V）比较。<b>B</b> 是一个无条件的光谱–空间先验，由测量值引导（ΠGDM 引导）。<b>C</b> 是围绕 MMSE 估计的条件残差扩散模型，在整个噪声与模式族上训练。</p>
-  <p class="lede" style="margin-top:10px">检验方案是事先确定的。用户于 2026 年 11 月 4 日批准了规格说明，条款 T1–T4 的阈值在任何记录产生之前就已写入 <code>scripts/sensor/sd_verdict.py</code>。之后只有一项修订：第一个先验失败后，B 的先验改用 x₀ 预测重新训练（第 6 节）。本页的每个数字都在构建时从评测记录和判定文件中读取。</p>
+  <p class="lede">当传感器的弱点——测量噪声、换一台设备、单次曝光的马赛克采样——真正起作用时，扩散模型恢复性能较差的电致变色（EC）传感器所见光谱的能力，能否胜过单次前向的回归器和经典的线性估计？第 3 阶段用预注册的检验在三种实测传感器上回答这个问题。下面的概览给出答案，第 1–7 节给出证据，训练细节与裁定折叠在页尾。</p>
   <div class="status" data-slot="status"></div>
-  <div class="outcome"><span class="lbl">结论</span><div data-slot="outcome"></div></div>
+  <div class="outcome"><span class="lbl">结果概览</span><div data-slot="outcome"></div></div>
   <div class="kv">
     <div><small>60 dB 噪声底处的 MMSE（合理性参考）</small><b class="hi"><span data-v="facts.L_floor:3"></span> %</b><small>设备 1，顺序模式，200 个 cube</small></div>
     <div><small>20 dB 下的回归器 D</small><b class="hi"><span data-v="facts.D_20:2"></span> %</b><small>MMSE 为 <span data-v="facts.L_20:2"></span> %：低 <span data-v="facts.D_below_L_20:0"></span> %</small></div>
@@ -39,7 +39,8 @@ svg .box-s4{fill:var(--s4-bg);stroke:var(--s4)}
   </nav>
   <div class="gloss">
     <h3>阅读前需要知道的背景</h3>
-    <div><b>传感器与一次测量</b>电致变色（EC）滤光片的光谱透过率随所加电压改变。30 个电压（“状态”）对应 30 个宽而相互重叠的光谱滤波器，它们在实验室实测的透过率组成响应矩阵 R（31 个波段 × 30 个状态）。一个像素的测量是 y = Rᵀx + 噪声，每个状态一个数。任务是从 y 恢复 64 × 64 图像（一个“cube”）中每个像素的 31 波段光谱 x。</div>
+    <div><b>四组实验 E1–E4</b>E1 在顺序模式下为设备 1 加入测量噪声，信噪比从 60 dB 的噪声底一直扫到 20 dB。E2 将在设备 1 上训练的模型不经重新训练直接用于设备 2 和 PH5。E3 让设备 1 工作在快照（马赛克）模式下；E4（仅报告）在 30 dB 下对设备 2 做同样的测试。两条扩散路线与考虑噪声的线性 MMSE（L）、单次前向的回归器（D）和方差头（V）比较：B 是由测量值引导（ΠGDM）的无条件光谱–空间先验，C 是围绕 MMSE 估计的条件残差扩散模型，在整个噪声与模式族上训练。方案事先固定：规格说明于 2026 年 11 月 4 日批准，条款 T1–T4 的阈值在任何记录产生之前就已写入 <code>scripts/sensor/sd_verdict.py</code>；此后唯一的修订（B 的先验改用 x₀ 预测重新训练）见第 6 节。本页每个数字都在构建时从评测记录和判定文件中读取。</div>
+    <div><b>传感器与一次测量</b>电致变色（EC）滤光片的光谱透过率随所加电压改变。30 个电压（“状态”）对应 30 个宽而相互重叠的光谱滤波器，它们在实验室实测的透过率组成响应矩阵 R（31 个波段 × 30 个状态）。设备 1 的 30 条响应高度重叠，其中只有约 <span data-v="facts.d1_informative:0"></span>–13<sup>*</sup> 条携带关于 31 个波段的独立信息。一个像素的测量是 y = Rᵀx + 噪声，每个状态一个数。任务是从 y 恢复 64 × 64 图像（一个“cube”）中每个像素的 31 波段光谱 x。</div>
     <div><b>顺序模式与快照模式</b>顺序模式下，每个像素依次在全部 30 个状态下读出：30 次曝光，每像素 30 个数。快照（马赛克）模式只曝光一次，每个像素固定处于一个状态；30 个状态以 5 × 6 的小块在整幅图像上周期重复，类似相机的 Bayer 滤色阵列，像素 (i, j) 测的是第 (i mod 5)·6 + (j mod 6) 个状态，只得到一个数。这时单靠一个像素无法恢复它的光谱，缺失的状态必须从邻近像素借来（去马赛克），然后再做光谱反演。</div>
     <div><b>设备 1、设备 2、PH5</b>三种不同的 EC 传感器，各自用实测的响应矩阵表示，都取 30 个等间隔的状态。设备 1 是论文的传感器，也是学习模型唯一的训练对象；设备 2 和 PH5 只用来测试不经重新训练的迁移（“零样本”）。PH5 的条件数差得多（第 1 节）。</div>
     <div><b>数据：训练 cube 与门控 cube</b>从 HFD 高光谱场景中裁出的 64 × 64 × 31 图块。训练使用场景 P001–P022；200 个“门控”cube 是留出的评测集，大多来自网络从未见过的场景。B 的采样器开销很大，因此只在其中固定的 50 个 cube 上评测，涉及 B 的比较都在这 50 个上配对进行。</div>
@@ -58,7 +59,7 @@ svg .box-s4{fill:var(--s4-bg);stroke:var(--s4)}
     <div><b>CRPS、cov50 / cov90、AUSE</b>连续分级概率评分，以量程百分比表示（越低越好）；落在中心 50 % / 90 % 区间内的元素比例（校准良好时为 0.50 / 0.90）；稀疏化曲线与理想曲线之间的面积（0 表示离散程度对误差的排序完全正确）</div>
     <div><b>信噪比</b>以 dB 计，相对于统一的全局信号功率 $P_y$ = <span data-v="config.P_y:3"></span>（设备 1，顺序模式），因此同一信噪比对每种设备和模式都意味着相同的探测器噪声。60 dB 是扫描的噪声底（$\sigma^2 = P_y/10^6$），并非无噪声：任何地方都没有使用 σ = 0</div>
     <div><b>± 数值</b>对 cube 的标准误，按源图像聚类（200 个门控 cube 来自 <span data-v="facts.clusters_gate:0"></span> 幅图像，B 的 50 个来自 <span data-v="facts.clusters_B:0"></span> 幅）。B 的比较在两份记录共有的文件上配对进行</div>
-    <div><b>* 手动输入</b>设备 1 信息性状态数的上界 13（见开篇段落）是手动输入的，并非从数据读取：它是对第 1 节奇异值谱的解读。下界统计的是不低于最大奇异值 1 % 的奇异值个数；紧随其后的两个略低于这条线</div>
+    <div><b>* 手动输入</b>设备 1 信息性状态数的上界 13（见上方背景说明）是手动输入的，并非从数据读取：它是对第 1 节奇异值谱的解读。下界统计的是不低于最大奇异值 1 % 的奇异值个数；紧随其后的两个略低于这条线</div>
   </div>
 </header>
 
@@ -177,18 +178,20 @@ svg .box-s4{fill:var(--s4-bg);stroke:var(--s4)}
 <section id="s6">
   <h2><span class="no">06</span>B 线：一个先得学会成为先验的先验</h2>
   <p class="lead">最初的 B 记录是退化的。原因在于先验，而不是采样器。在各向同性高斯玩具问题上，ΠGDM 代码在 50 步时复现了精确后验；以逐像素 Wiener 滤波器作为去噪器时，同一代码对真实 cube 的重建接近 MMSE。然而，学习得到的 v 预测先验在中低噪声水平下忽略了自己的输入。</p>
-  <figure>
-    <p class="charthead">各先验的 x̂₀ 估计误差随扩散时间步的变化（16 个门控 cube，60 dB；对数坐标）</p>
-    <div class="legend" data-legend="probe"></div>
-    <div class="scroll" data-chart="bprobe" data-aria="x0 估计误差随时间步的变化。v 预测先验及两个配方变体在 t 约 200 以内与输入无关预测器重合，并在 t = 150 到 400 间超过均值 cube 的误差；x0 预测试验模型和先验单调且低得多。"></div>
-    <figcaption data-slot="probetext"></figcaption>
-  </figure>
-  <div class="thm"><span class="lbl">采样器先通过了资格验证</span><span data-slot="toytext"></span></div>
-  <div class="tbl" data-table="toy"></div>
   <h3>B 的记录：已归档的 v 预测先验与 x₀ 预测先验</h3>
   <p>B 在 50 个 cube 的子集上评分。其他方法也在同一批 50 个 cube 上展示，配对差值使用两份记录共有的文件。</p>
   <div class="tbl" data-table="brec"></div>
   <p data-slot="bnow"></p>
+  <details class="fold"><summary>先验为什么必须重新训练：x̂₀ 误差探测与采样器的玩具问题验证</summary>
+    <figure>
+      <p class="charthead">各先验的 x̂₀ 估计误差随扩散时间步的变化（16 个门控 cube，60 dB；对数坐标）</p>
+      <div class="legend" data-legend="probe"></div>
+      <div class="scroll" data-chart="bprobe" data-aria="x0 估计误差随时间步的变化。v 预测先验及两个配方变体在 t 约 200 以内与输入无关预测器重合，并在 t = 150 到 400 间超过均值 cube 的误差；x0 预测试验模型和先验单调且低得多。"></div>
+      <figcaption data-slot="probetext"></figcaption>
+    </figure>
+    <div class="thm"><span class="lbl">采样器先通过了资格验证</span><span data-slot="toytext"></span></div>
+    <div class="tbl" data-table="toy"></div>
+  </details>
 </section>
 
 <!-- ============================================================ -->
@@ -202,24 +205,30 @@ svg .box-s4{fill:var(--s4-bg);stroke:var(--s4)}
 <!-- ============================================================ -->
 <section id="s8">
   <h2><span class="no">08</span>运行与预算</h2>
-  <p class="lead">共五次基础宽度 64 的训练，每次使用一块 RTX A4500：四次 100 轮，方差头 40 轮。另有三次 10 轮的先验试验。选择遵循预注册规则：D 和 V 取监控损失最低的轮次，扩散模型固定取第 100 轮。每个网络只训练一次（种子 <span data-v="facts.train_seed:0"></span>）；没有种子重复实验。每个采样器的第 k 个样本在 torch 种子 k 下抽取，测量噪声对每个文件使用 crc32 种子。</p>
-  <div class="tbl" data-table="runs"></div>
-  <p data-slot="budget"></p>
+  <p class="lead">五次基础宽度 64 的训练，各用一块 RTX A4500，单一种子；D 和 V 取监控损失最低的轮次，扩散模型固定取第 100 轮。运行表与 GPU 小时预算折叠在下方。</p>
+  <details class="fold"><summary>训练运行与 GPU 预算</summary>
+    <p style="font-size:14px;color:var(--muted)">四次 100 轮的训练和方差头的 40 轮，另有三次 10 轮的先验试验。每个网络只训练一次（种子 <span data-v="facts.train_seed:0"></span>）；每个采样器的第 k 个样本在 torch 种子 k 下抽取，测量噪声对每个文件使用 crc32 种子。</p>
+    <div class="tbl" data-table="runs"></div>
+    <p data-slot="budget"></p>
+  </details>
 </section>
 
 <!-- ============================================================ -->
 <section id="s9">
   <h2><span class="no">09</span>偏离与裁定</h2>
-  <ul class="plain">
-    <li><b>ΠGDM 的校正系数。</b>草案中的 $\sqrt{\bar\alpha_t}$ 在各向同性玩具问题上发散。校正现改为 $\hat x_0 + (1-\bar\alpha_t)/\sqrt{\bar\alpha_t}\cdot g$，即 $x_0$ 坐标下的得分校正。</li>
-    <li><b>按文件设定噪声种子。</b>每个 cube 的噪声种子是其相对数据根目录路径的 crc32，而不是其在列表中的位置。因此 50 个和 200 个 cube 上的记录看到完全相同的噪声，并可按文件配对。</li>
-    <li><b>处处 K = 32；B 在 50 个 cube 的子集上。</b>覆盖率判定需要 K ≥ 19，因此撤回了草案中的 K = 16。ΠGDM 的成本使 B 只能在 50 个 cube 的子集上运行，并在共有的 cube 上与 200-cube 记录配对。<span data-slot="tbRuling">因此 B 的决胜规则 CRPS 差值基于 50 个 cube，C 的基于 200 个。</span></li>
-    <li data-slot="x0rule"></li>
-    <li><b>B 的成本。</b>一条 B 记录约耗 <span data-v="budget.b_hours_mean:2"></span> GPU 小时，而非计划中的 0.63，因此超出了规格说明 12 GPU 小时的上限；用户的 GPU 当时没有其他任务。</li>
-    <li><b>撤销 B 的 PH5 行。</b>得知 B 的成本后，它们在规格说明的撤销顺序中排在首位，而且 PH5 本来就仅报告。</li>
-    <li><b>E4 的 B 单元运行了两次。</b>第一条记录来自一个仍指向 v 预测检查点的逐设置驱动脚本；页面的提取器标记了它（预测类型 v），它已与其他 v 预测记录一同归档，该单元用 x₀ 先验重新运行（在一块空闲 GPU 上用了 1.7 GPU 小时）。</li>
-    <li><b>E4 已运行。</b>E1–E3 之后仍有 GPU 时间，因此运行了规格说明中可选的 E4（设备 2，快照模式，30 dB，所有方法，仅报告）；结果见第 5 节。</li>
-  </ul>
+  <p class="lead">对计划的每一处偏离都经过裁定并记入执行账本；影响数字解读的裁定折叠于此。</p>
+  <details class="fold"><summary>偏离与裁定</summary>
+    <ul class="plain">
+      <li><b>ΠGDM 的校正系数。</b>草案中的 $\sqrt{\bar\alpha_t}$ 在各向同性玩具问题上发散。校正现改为 $\hat x_0 + (1-\bar\alpha_t)/\sqrt{\bar\alpha_t}\cdot g$，即 $x_0$ 坐标下的得分校正。</li>
+      <li><b>按文件设定噪声种子。</b>每个 cube 的噪声种子是其相对数据根目录路径的 crc32，而不是其在列表中的位置。因此 50 个和 200 个 cube 上的记录看到完全相同的噪声，并可按文件配对。</li>
+      <li><b>处处 K = 32；B 在 50 个 cube 的子集上。</b>覆盖率判定需要 K ≥ 19，因此撤回了草案中的 K = 16。ΠGDM 的成本使 B 只能在 50 个 cube 的子集上运行，并在共有的 cube 上与 200-cube 记录配对。<span data-slot="tbRuling">因此 B 的决胜规则 CRPS 差值基于 50 个 cube，C 的基于 200 个。</span></li>
+      <li data-slot="x0rule"></li>
+      <li><b>B 的成本。</b>一条 B 记录约耗 <span data-v="budget.b_hours_mean:2"></span> GPU 小时，而非计划中的 0.63，因此超出了规格说明 12 GPU 小时的上限；用户的 GPU 当时没有其他任务。</li>
+      <li><b>撤销 B 的 PH5 行。</b>得知 B 的成本后，它们在规格说明的撤销顺序中排在首位，而且 PH5 本来就仅报告。</li>
+      <li><b>E4 的 B 单元运行了两次。</b>第一条记录来自一个仍指向 v 预测检查点的逐设置驱动脚本；页面的提取器标记了它（预测类型 v），它已与其他 v 预测记录一同归档，该单元用 x₀ 先验重新运行（在一块空闲 GPU 上用了 1.7 GPU 小时）。</li>
+      <li><b>E4 已运行。</b>E1–E3 之后仍有 GPU 时间，因此运行了规格说明中可选的 E4（设备 2，快照模式，30 dB，所有方法，仅报告）；结果见第 5 节。</li>
+    </ul>
+  </details>
 </section>
 
 <footer>

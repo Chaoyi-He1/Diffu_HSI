@@ -255,16 +255,27 @@ function rng(a){return a.length?(a.length>1?a[0]+'–'+a[a.length-1]:String(a[0]
 SL.status=function(h){const p=ST.pending;h.innerHTML=p.length?'<b>构建时记录中尚缺：</b>'+p.join('、')+'。依赖这些记录的单元格显示“待定”。':'';};
 SL.outcome=function(h){const cB=passes('B'),cC=passes('C');const tb=t2v('B',20);const ml=V.main_line;
   const cC40=[40,30,20].map(function(x){return met(set('device1','sequential',x),'C','cov90');});
-  const dItem='<li><b>回归器 D：</b>高信噪比下的最佳点估计（在共有的 cube 上为 '+rng(bestSnrs('D'))+'），也是唯一能去马赛克的方法：快照模式 30 dB 下为 '+fx(F0.e3_D_30,2)+' %，而先去马赛克再 MMSE 为 '+fx(F0.Ldem_30,2)+' %。</li>';
+  const bD=bestSnrs('D'),bB=bestSnrs('B'),bC=bestSnrs('C');
+  const t2ok=function(line){return T2S.some(function(x){const c=t2v(line,x);return c&&c.passed;});};
+  const demo=F0.e3_D_30!=null&&F0.Ldem_30!=null&&F0.e3_D_30<F0.Ldem_30;
+  const ph5None=F0.ph5_D_worse_min!=null&&F0.ph5_C_ratio_min!=null&&F0.ph5_D_worse_min>0&&F0.ph5_C_ratio_min>1;
+  const dItem='<li><b>回归器 D：</b>高信噪比下的最佳点估计（在共有的 cube 上为 '+rng(bD)+'），也是唯一能去马赛克的方法：快照模式 30 dB 下为 '+fx(F0.e3_D_30,2)+' %，而先去马赛克再 MMSE 为 '+fx(F0.Ldem_30,2)+' %。</li>';
   const cItem='<li><b>C，条件扩散模型：</b>在其训练所用传感器上覆盖率接近名义值（40–20 dB 下 cov90 为 '+fx(Math.min.apply(null,cC40),3)+'–'+fx(Math.max.apply(null,cC40),3)+'），并且在 ≤ 40 dB 时，是覆盖率接近名义值的方法中 CRPS 最低者（比 L 和 V 低 '+fx(F0.C_crps_gain_lo_min,0)+'–'+fx(F0.C_crps_gain_lo_max,0)+' %）。它的均值始终比不上回归器。</li>';
-  if(!V.b_valid){h.innerHTML='<p><b>主线：</b>'+bInvalid()+' C 在 5 项中通过 '+cC.length+' 项（'+(joinAnd(cC)||'无')+'）；'+bInvalidWhy()+'，因此 B 的条款、通过数和主线需等待重新生成的判定。</p><ul>'+dItem+cItem+'</ul>';return;}
+  const dOpen='当测量信息充分时——高信噪比'+(bD.length?'（'+rng(bD)+'）':'')+'，或在网络训练所用传感器上的快照模式——单次前向的回归器 D 是最佳点估计'+(demo?'，也是唯一能去马赛克的方法':'')+'。';
+  const cOpen=bC.length?'条件扩散模型 C 在 '+rng(bC)+' 下是最佳点估计。':(t2ok('C')&&!t2ok('B')?'条件扩散模型 C 在自身传感器上给出校准良好的方法中最好的不确定性（唯一通过不确定性条款 T2 的路线），但均值从未最好。':'条件扩散模型 C 的均值从未最好；其不确定性的比较见第 3 节。');
+  const ph5Txt=ph5None?'在设备 1 上学到的东西都无法迁移到 PH5（B 未在 PH5 上运行）。':'PH5 上的迁移结果见第 4 节。';
+  if(!V.b_valid){h.innerHTML='<p><b>没有哪一种方法在所有条件下都最好。</b>'+dOpen+cOpen+ph5Txt+'</p><ul>'+dItem+cItem+'</ul><p><b>预注册判定：</b>'+bInvalid()+' C 在 5 项中通过 '+cC.length+' 项（'+(joinAnd(cC)||'无')+'）；'+bInvalidWhy()+'，因此 B 的条款、通过数和主线需等待重新生成的判定。</p>';return;}
   const r30=V.T1.B&&V.T1.B['30.0'],r20=V.T1.B&&V.T1.B['20.0'];const c30=t2v('B',30);const ti=tieInfo(2);
-  const d2=set('device2','sequential',30);
-  h.innerHTML='<p><b>主线：'+(ml||'—')+'。</b>预注册判定（<code>'+ST.verdict_file+'</code>）中，B 在 5 项中通过 '+cB.length+' 项（'+(joinAnd(cB)||'无')+'），C 通过 '+cC.length+' 项（'+(joinAnd(cC)||'无')+'）。平局时取 20 dB 处配对 CRPS − CRPS<sub>V</sub> 较低的路线：'+ti.txt+'，因此选定 '+(ti.winner||ml)+'。'+
-   '<b>B 胜在均值的准确性，而非校准。</b>在共有的 cube 上，其 32 样本均值在 30 / 20 dB 下分别是回归器的 '+fx(r30.ratio,3)+' / '+fx(r20.ratio,3)+' 倍，并能零样本迁移到设备 2。不过它的样本严重过度自信（30 / 20 dB 下 cov90 为 '+fx(c30.cov90,3)+' / '+fx(tb.cov90,3)+'，名义值为 0.90）。两条路线的完整结果均在下文报告。</p>'+
+  const d2=set('device2','sequential',30);const d2ok=bOk(d2)&&d2.B.on_subset&&d2.B.on_subset.D;
+  const bTrans=d2ok&&d2.B.means.mean_rmse_pct<d2.B.on_subset.D.rmse_pct;
+  const bOpen=bB.length?'当噪声占主导（'+rng(bB)+'）时，引导先验 B 成为最佳点估计'+(bTrans?'，而且是唯一不经重新训练就能迁移到第二台传感器的学习方法':'')+'。':'在共有的 cube 上，引导先验 B 在任何信噪比下都不是最佳点估计。';
+  const tie=cB.length===cC.length?'平局按 20 dB 处配对 CRPS − CRPS<sub>V</sub> 较低者决出（'+ti.txt+'），因此主线是 <b>'+(ti.winner||ml||'—')+'</b>':'因此主线是 <b>'+(ml||'—')+'</b>';
+  h.innerHTML='<p><b>没有哪一种方法在所有条件下都最好。</b>'+dOpen+bOpen+cOpen+ph5Txt+'</p>'+
    '<ul>'+dItem+
-   '<li><b>B，引导先验：</b>在 '+rng(bestSnrs('B'))+' 下是最佳点估计，并能零样本迁移到设备 2（30 dB 下为 '+fx(d2.B.means.mean_rmse_pct,2)+' %，回归器为 '+fx(d2.B.on_subset.D.rmse_pct,2)+' %），但在所有设置下都过度自信。</li>'+
-   cItem+'</ul>';};
+   '<li><b>B，引导先验：</b>在 '+rng(bB)+' 下是最佳点估计（在共有的 cube 上，其 32 样本均值在 30 / 20 dB 下分别是回归器的 '+fx(r30&&r30.ratio,3)+' / '+fx(r20&&r20.ratio,3)+' 倍），并能零样本迁移到设备 2（'+(d2ok?'30 dB 下为 '+fx(d2.B.means.mean_rmse_pct,2)+' %，回归器为 '+fx(d2.B.on_subset.D.rmse_pct,2)+' %':pend())+'），但在所有设置下都过度自信。</li>'+
+   cItem+'</ul>'+
+   '<p><b>预注册判定</b>（<code>'+ST.verdict_file+'</code>）<b>：</b>B 在 5 项条款中通过 '+cB.length+' 项（'+(joinAnd(cB)||'无')+'），C 通过 '+cC.length+' 项（'+(joinAnd(cC)||'无')+'）；'+tie+
+   (ml==='B'?'——它胜在均值的准确性，而非校准：其样本过度自信（30 / 20 dB 下 cov90 为 '+fx(c30&&c30.cov90,3)+' / '+fx(tb&&tb.cov90,3)+'，名义值为 0.90）':'')+'。两条路线的完整结果均在下文报告。</p>';};
 SL.kpiB=function(h){if(!V.b_valid){h.innerHTML=bInvalid();return;}const r=V.T1.B&&V.T1.B['20.0'];h.textContent=r?fx(r.ratio,3)+' ×':'—';};
 SL.kpiBsub=function(h){if(!V.b_valid){h.textContent='判定中 B 的条款不是最新的';return;}const r=V.T1.B&&V.T1.B['30.0'];h.textContent=r?('30 dB 下为 '+fx(r.ratio,3)+' ×；T1 在 30 与 20 dB 通过'):'';};
 SL.countBC=function(h){if(!V.b_valid){h.innerHTML='B '+pend('非最新')+' · C '+passes('C').length;return;}h.textContent='B '+passes('B').length+' · C '+passes('C').length;};
@@ -337,3 +348,4 @@ document.querySelectorAll('[data-chart]').forEach(function(h){const f=CH[h.datas
 document.querySelectorAll('[data-table]').forEach(function(h){const f=T[h.dataset.table];if(f)f(h);});
 document.querySelectorAll('[data-slot]').forEach(function(h){const f=SL[h.dataset.slot];if(f)f(h);});
 hints();window.addEventListener('resize',hints);
+document.querySelectorAll('details.fold').forEach(function(d){d.addEventListener('toggle',hints);});

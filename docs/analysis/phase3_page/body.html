@@ -13,16 +13,16 @@ svg .box-s4{fill:var(--s4-bg);stroke:var(--s4)}
 .outcome p{margin:6px 0;font-size:15.5px}
 .outcome ul{margin:6px 0 2px;padding-left:1.2em;font-size:15px}
 .outcome li{margin:3px 0}
+.fold{margin:14px 0}.fold>summary{cursor:pointer;font-weight:600;color:var(--ink-2);padding:10px 14px;background:var(--panel);border:1px solid var(--rule);border-radius:10px;list-style:none}.fold>summary::-webkit-details-marker{display:none}.fold>summary::before{content:'▸ ';color:var(--accent)}.fold[open]>summary::before{content:'▾ '}.fold>summary:hover{border-color:var(--accent)}.fold>:not(summary){margin-top:12px}
 .hint{font-size:12px;color:var(--muted);margin:2px 0 0;text-align:right}
 </style>
 <main>
 <header>
   <div class="eyebrow">Diffu_HSI · sensor degradation · Phase 3 · records as of <span data-v="generated"></span></div>
   <h1>Phase 3 — Reconstruction from a poor EC sensor</h1>
-  <p class="lede">The paper claims that a diffusion model is the most suitable way to recover the spectrum seen by a poor electrochromic (EC) sensor: 30 voltage states with broad, overlapping responses, of which only about <span data-v="facts.d1_informative:0"></span>–13<sup>*</sup> carry independent information about the 31 bands. Phase 3 tests that claim where the sensor's poorness matters. <b>E1</b> adds measurement noise to Device 1 in sequential mode and sweeps the SNR from the 60 dB noise floor down to 20 dB. <b>E2</b> applies models trained on Device 1, without retraining, to Device 2 and to PH5. <b>E3</b> runs Device 1 in snapshot (mosaic) mode, where each pixel measures one state; <b>E4</b> (report-only) does the same on Device 2 at 30 dB. Two diffusion lines compete against the noise-aware linear MMSE (L), a one-call regressor (D) and a variance head (V). <b>B</b> is an unconditional spectral–spatial prior guided by the measurement (ΠGDM). <b>C</b> is a conditional residual diffusion around the MMSE estimate, trained over the whole noise and mode family.</p>
-  <p class="lede" style="margin-top:10px">The test was fixed in advance. The user approved the spec on 4 November 2026, and the thresholds of clauses T1–T4 were written into <code>scripts/sensor/sd_verdict.py</code> before any record existed. One amendment came later: B's prior was retrained with x₀-prediction after the first prior failed (section 6). Every number on this page is read from the evaluation records and the verdict file at build time.</p>
+  <p class="lede">Can a diffusion model recover the spectrum seen by a poor electrochromic (EC) sensor better than a one-call regressor or the classical linear estimate, once the sensor's weaknesses — measurement noise, a different device, a single-exposure mosaic — are actually in play? Phase 3 answers with pre-registered tests on three measured sensors. The summary below gives the answer; sections 1–7 give the evidence; training details and rulings are folded at the end.</p>
   <div class="status" data-slot="status"></div>
-  <div class="outcome"><span class="lbl">OUTCOME</span><div data-slot="outcome"></div></div>
+  <div class="outcome"><span class="lbl">RESULTS AT A GLANCE</span><div data-slot="outcome"></div></div>
   <div class="kv">
     <div><small>MMSE at the 60 dB noise floor (sanity reference)</small><b class="hi"><span data-v="facts.L_floor:3"></span> %</b><small>Device 1, sequential, 200 cubes</small></div>
     <div><small>regressor D at 20 dB</small><b class="hi"><span data-v="facts.D_20:2"></span> %</b><small>MMSE <span data-v="facts.L_20:2"></span> %: <span data-v="facts.D_below_L_20:0"></span> % lower</small></div>
@@ -39,7 +39,8 @@ svg .box-s4{fill:var(--s4-bg);stroke:var(--s4)}
   </nav>
   <div class="gloss">
     <h3>Background for the reader</h3>
-    <div><b>The sensor and a measurement</b>An electrochromic (EC) filter changes its spectral transmission with the applied voltage. Thirty voltages ("states") give thirty broad, overlapping spectral filters; their transmissions, measured in the lab, form the response matrix R (31 bands × 30 states). A pixel's measurement is y = Rᵀx + noise, one number per state. The task is to recover the 31-band spectrum x of every pixel of a 64 × 64 image (a "cube") from y.</div>
+    <div><b>The four experiments E1–E4</b>E1 adds measurement noise to Device 1 in sequential mode and sweeps the SNR from the 60 dB noise floor down to 20 dB. E2 applies the models trained on Device 1, without retraining, to Device 2 and PH5. E3 runs Device 1 in snapshot (mosaic) mode; E4 (report-only) does the same on Device 2 at 30 dB. Two diffusion lines compete against the noise-aware linear MMSE (L), a one-call regressor (D) and a variance head (V): B is an unconditional spectral–spatial prior guided by the measurement (ΠGDM), C a conditional residual diffusion around the MMSE estimate, trained over the whole noise-and-mode family. The protocol was fixed in advance: the spec was approved on 2026-11-04 and the thresholds of clauses T1–T4 were in <code>scripts/sensor/sd_verdict.py</code> before any record existed; the one amendment since (B's prior retrained with x₀-prediction) is in section 6. Every number on this page is read from the evaluation records and the verdict file at build time.</div>
+    <div><b>The sensor and a measurement</b>An electrochromic (EC) filter changes its spectral transmission with the applied voltage. Thirty voltages ("states") give thirty broad, overlapping spectral filters; their transmissions, measured in the lab, form the response matrix R (31 bands × 30 states). Device 1's 30 responses overlap so heavily that only about <span data-v="facts.d1_informative:0"></span>–13<sup>*</sup> of them carry independent information about the 31 bands. A pixel's measurement is y = Rᵀx + noise, one number per state. The task is to recover the 31-band spectrum x of every pixel of a 64 × 64 image (a "cube") from y.</div>
     <div><b>Sequential vs snapshot mode</b>In sequential mode every pixel is read under all 30 states in turn: 30 exposures, 30 numbers per pixel. In snapshot (mosaic) mode there is one exposure and each pixel sits in a single state; the 30 states repeat in 5 × 6 tiles across the image, like a camera's Bayer colour-filter array, so pixel (i, j) measures state (i mod 5)·6 + (j mod 6) and yields one number. A pixel's spectrum then cannot be recovered from that pixel alone: the missing states have to be borrowed from its neighbours (demosaicing) before the spectral inversion.</div>
     <div><b>Device 1, Device 2, PH5</b>Three different EC sensors, each represented by its measured response matrix with 30 evenly spaced states. Device 1 is the paper's sensor and the only one the learned models are trained on; Device 2 and PH5 are used only to test transfer without retraining ("zero-shot"). PH5 is much more ill-conditioned (section 1).</div>
     <div><b>Data: training cubes and gate cubes</b>64 × 64 × 31 patches cut from the HFD hyperspectral scenes. Training uses the scenes P001–P022; the 200 "gate" cubes are the held-out evaluation set, mostly from scenes the networks never saw. B is evaluated on a fixed 50-cube subset of them because its sampler is expensive, and every comparison involving B is paired on those 50.</div>
@@ -58,7 +59,7 @@ svg .box-s4{fill:var(--s4-bg);stroke:var(--s4)}
     <div><b>CRPS, cov50 / cov90, AUSE</b>continuous ranked probability score in % of range (lower is better); the share of elements inside the central 50 % / 90 % interval (calibrated: 0.50 / 0.90); the area between the sparsification curve and the oracle's (0 = the spread ranks the errors perfectly)</div>
     <div><b>SNR</b>in dB against one global signal power $P_y$ = <span data-v="config.P_y:3"></span> (Device 1, sequential), so a given SNR means the same detector noise for every device and mode. 60 dB is the noise floor of the sweep ($\sigma^2 = P_y/10^6$), not noise-free: no σ = 0 is used anywhere</div>
     <div><b>± values</b>standard errors over cubes, clustered by source image (<span data-v="facts.clusters_gate:0"></span> images for the 200 gate cubes, <span data-v="facts.clusters_B:0"></span> for B's 50). B's comparisons are paired on the files the two records share</div>
-    <div><b>* typed</b>the upper bound 13 of Device 1's informative states (in the opening paragraph) is typed, not read from the data: it is a reading of the singular-value spectrum in section 1. The lower bound counts the singular values at or above 1 % of the largest; the next two lie just under that line</div>
+    <div><b>* typed</b>the upper bound 13 of Device 1's informative states (in the background notes above) is typed, not read from the data: it is a reading of the singular-value spectrum in section 1. The lower bound counts the singular values at or above 1 % of the largest; the next two lie just under that line</div>
   </div>
 </header>
 
@@ -177,18 +178,20 @@ svg .box-s4{fill:var(--s4-bg);stroke:var(--s4)}
 <section id="s6">
   <h2><span class="no">06</span>Line B: a prior that first had to learn to be one</h2>
   <p class="lead">The first B records were degenerate. The cause was the prior, not the sampler. On the isotropic Gaussian toy the ΠGDM code reproduces the exact posterior at 50 steps, and with a per-pixel Wiener filter as the denoiser the same code reconstructs real cubes close to the MMSE. The learned v-prediction prior, however, ignored its input at low and medium noise.</p>
-  <figure>
-    <p class="charthead">x̂₀-estimate error of each prior against the diffusion timestep (16 gate cubes, 60 dB; log scale)</p>
-    <div class="legend" data-legend="probe"></div>
-    <div class="scroll" data-chart="bprobe" data-aria="x0-estimate error against timestep. The v-prediction prior and two recipe variants follow an input-blind predictor up to t of about 200 and exceed the mean-cube error from t = 150 to 400; the x0-prediction pilot and prior are monotone and far lower."></div>
-    <figcaption data-slot="probetext"></figcaption>
-  </figure>
-  <div class="thm"><span class="lbl">THE SAMPLER WAS LICENSED FIRST</span><span data-slot="toytext"></span></div>
-  <div class="tbl" data-table="toy"></div>
   <h3>B's records: the archived v-prediction prior and the x₀-prediction prior</h3>
   <p>B is scored on the 50-cube subset. The other methods are shown on the same 50 cubes, and the paired differences use the files both records share.</p>
   <div class="tbl" data-table="brec"></div>
   <p data-slot="bnow"></p>
+  <details class="fold"><summary>Why the prior had to be retrained: the x̂₀-error probe and the sampler's toy-problem licence</summary>
+    <figure>
+      <p class="charthead">x̂₀-estimate error of each prior against the diffusion timestep (16 gate cubes, 60 dB; log scale)</p>
+      <div class="legend" data-legend="probe"></div>
+      <div class="scroll" data-chart="bprobe" data-aria="x0-estimate error against timestep. The v-prediction prior and two recipe variants follow an input-blind predictor up to t of about 200 and exceed the mean-cube error from t = 150 to 400; the x0-prediction pilot and prior are monotone and far lower."></div>
+      <figcaption data-slot="probetext"></figcaption>
+    </figure>
+    <div class="thm"><span class="lbl">THE SAMPLER WAS LICENSED FIRST</span><span data-slot="toytext"></span></div>
+    <div class="tbl" data-table="toy"></div>
+  </details>
 </section>
 
 <!-- ============================================================ -->
@@ -202,24 +205,30 @@ svg .box-s4{fill:var(--s4-bg);stroke:var(--s4)}
 <!-- ============================================================ -->
 <section id="s8">
   <h2><span class="no">08</span>Runs and budget</h2>
-  <p class="lead">Five trainings at base 64, each on one RTX A4500: four of 100 epochs and the variance head's 40. There were also three 10-epoch prior pilots. Selection followed the pre-registered rule: the lowest monitoring loss for D and V, and the fixed epoch 100 for the diffusions. Each network was trained once (seed <span data-v="facts.train_seed:0"></span>); there is no seed replication. Sample k of every sampler is drawn under torch seed k, and the measurement noise uses a crc32 seed per file.</p>
-  <div class="tbl" data-table="runs"></div>
-  <p data-slot="budget"></p>
+  <p class="lead">Five trainings at base width 64, one RTX A4500 each, one seed; D and V take the epoch with the lowest monitoring loss, the diffusions their fixed epoch 100. The run table and the GPU-hour budget are folded below.</p>
+  <details class="fold"><summary>Training runs and GPU budget</summary>
+    <p style="font-size:14px;color:var(--muted)">Four runs of 100 epochs and the variance head's 40, plus three 10-epoch prior pilots. Each network was trained once (seed <span data-v="facts.train_seed:0"></span>); sample k of every sampler is drawn under torch seed k, and the measurement noise uses a crc32 seed per file.</p>
+    <div class="tbl" data-table="runs"></div>
+    <p data-slot="budget"></p>
+  </details>
 </section>
 
 <!-- ============================================================ -->
 <section id="s9">
   <h2><span class="no">09</span>Deviations and rulings</h2>
-  <ul class="plain">
-    <li><b>ΠGDM's correction coefficient.</b> The draft's $\sqrt{\bar\alpha_t}$ diverged on the isotropic toy. The correction is now $\hat x_0 + (1-\bar\alpha_t)/\sqrt{\bar\alpha_t}\cdot g$, the score correction in $x_0$ coordinates.</li>
-    <li><b>Noise seeds per file.</b> Each cube's noise seed is the crc32 of its path relative to the data root, not its list position. Records on the 50 and the 200 cubes therefore see identical noise and pair by file.</li>
-    <li><b>K = 32 everywhere; B on the 50-cube subset.</b> Coverage verdicts need K ≥ 19, so the draft's K = 16 was withdrawn. B's ΠGDM cost restricts it to the 50-cube subset, where it is paired against the 200-cube records on the common files. <span data-slot="tbRuling">B's tie-break CRPS difference is therefore on 50 cubes and C's on 200.</span></li>
-    <li data-slot="x0rule"></li>
-    <li><b>B's cost.</b> A B record costs ≈ <span data-v="budget.b_hours_mean:2"></span> GPU-h, not the plan's 0.63, so the spec's 12 GPU-h cap was exceeded; the user's GPUs were otherwise idle.</li>
-    <li><b>PH5's B rows dropped.</b> They were first in the spec's drop order once B's cost was known, and PH5 is report-only anyway.</li>
-    <li><b>E4's B cell was run twice.</b> The first record came from a per-setting driver that still named the v-prediction checkpoint; the page's extractor flagged it (prediction type v), it is archived with the other v-prediction records and the cell was re-run with the x₀ prior (1.7 GPU-h on an otherwise idle GPU).</li>
-    <li><b>E4 run.</b> GPU time remained after E1–E3, so the spec's optional E4 (Device 2, snapshot, 30 dB, all methods, report-only) was run; it is in section 5.</li>
-  </ul>
+  <p class="lead">Every deviation from the plan was ruled on and recorded in the execution ledger; the rulings that affect how a number should be read are folded here.</p>
+  <details class="fold"><summary>Deviations and rulings</summary>
+    <ul class="plain">
+      <li><b>ΠGDM's correction coefficient.</b> The draft's $\sqrt{\bar\alpha_t}$ diverged on the isotropic toy. The correction is now $\hat x_0 + (1-\bar\alpha_t)/\sqrt{\bar\alpha_t}\cdot g$, the score correction in $x_0$ coordinates.</li>
+      <li><b>Noise seeds per file.</b> Each cube's noise seed is the crc32 of its path relative to the data root, not its list position. Records on the 50 and the 200 cubes therefore see identical noise and pair by file.</li>
+      <li><b>K = 32 everywhere; B on the 50-cube subset.</b> Coverage verdicts need K ≥ 19, so the draft's K = 16 was withdrawn. B's ΠGDM cost restricts it to the 50-cube subset, where it is paired against the 200-cube records on the common files. <span data-slot="tbRuling">B's tie-break CRPS difference is therefore on 50 cubes and C's on 200.</span></li>
+      <li data-slot="x0rule"></li>
+      <li><b>B's cost.</b> A B record costs ≈ <span data-v="budget.b_hours_mean:2"></span> GPU-h, not the plan's 0.63, so the spec's 12 GPU-h cap was exceeded; the user's GPUs were otherwise idle.</li>
+      <li><b>PH5's B rows dropped.</b> They were first in the spec's drop order once B's cost was known, and PH5 is report-only anyway.</li>
+      <li><b>E4's B cell was run twice.</b> The first record came from a per-setting driver that still named the v-prediction checkpoint; the page's extractor flagged it (prediction type v), it is archived with the other v-prediction records and the cell was re-run with the x₀ prior (1.7 GPU-h on an otherwise idle GPU).</li>
+      <li><b>E4 run.</b> GPU time remained after E1–E3, so the spec's optional E4 (Device 2, snapshot, 30 dB, all methods, report-only) was run; it is in section 5.</li>
+    </ul>
+  </details>
 </section>
 
 <footer>
