@@ -59,6 +59,19 @@ def zh_head(head):
     return head
 
 
+ZH_HELPERS = (("sm.textContent='Show the data';", "sm.textContent='显示数据';"),
+              ("'min '+mn[1].toFixed(4)+' @ '+mn[0]", "'最小 '+mn[1].toFixed(4)+' @ t = '+mn[0]"))
+
+
+def zh_helpers(helpers):
+    """Chinese shared helpers: the two user-visible strings of the Phase 1a' helper block (the data-table toggle and the
+    line chart's minimum label); everything else in the block is code."""
+    for old, new in ZH_HELPERS:
+        assert helpers.count(old) == 1, old
+        helpers = helpers.replace(old, new, 1)
+    return helpers
+
+
 def main():
     lang, args = parse_lang(sys.argv[1:])
     L = LANGS[lang]
@@ -75,6 +88,8 @@ def main():
     h0 = old.index("const NS='http://www.w3.org/2000/svg';")
     h1 = old.index('/* ---------- figures ---------- */')
     helpers = old[h0:h1]
+    if lang == 'zh':
+        helpers = zh_helpers(helpers)
     body = open(os.path.join(HERE, L['body']), encoding='utf-8').read()
     charts = open(os.path.join(HERE, L['charts']), encoding='utf-8').read()
     src = head + '\n\n' + body + '\n<script>\nconst D=/*__DATA__*/null;\n(function(){\n' + helpers + charts + '\n})();\n</script>\n'

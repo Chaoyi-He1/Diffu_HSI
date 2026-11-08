@@ -414,7 +414,7 @@ const tip=document.getElementById('tip');
 function showTip(e,html){tip.innerHTML=html;tip.hidden=false;const r=tip.getBoundingClientRect();let x=e.clientX+14,y=e.clientY+14;if(x+r.width>innerWidth-8)x=e.clientX-r.width-14;if(y+r.height>innerHeight-8)y=e.clientY-r.height-14;tip.style.left=Math.max(4,x)+'px';tip.style.top=Math.max(4,y)+'px';}
 function hideTip(){tip.hidden=true;}
 function svgPt(svg,e){const p=svg.createSVGPoint();p.x=e.clientX;p.y=e.clientY;return p.matrixTransform(svg.getScreenCTM().inverse());}
-function dataTable(host,head,rows){const d=document.createElement('details');d.className='data';const sm=document.createElement('summary');sm.textContent='Show the data';d.appendChild(sm);const w=document.createElement('div');w.className='tbl';const t=document.createElement('table');t.className='dt';let h='<tr>'+head.map(function(x){return '<th>'+x+'</th>';}).join('')+'</tr>';rows.forEach(function(r){h+='<tr>'+r.map(function(x){return '<td>'+x+'</td>';}).join('')+'</tr>';});t.innerHTML=h;w.appendChild(t);d.appendChild(w);host.parentNode.insertBefore(d,host.nextSibling);}
+function dataTable(host,head,rows){const d=document.createElement('details');d.className='data';const sm=document.createElement('summary');sm.textContent='显示数据';d.appendChild(sm);const w=document.createElement('div');w.className='tbl';const t=document.createElement('table');t.className='dt';let h='<tr>'+head.map(function(x){return '<th>'+x+'</th>';}).join('')+'</tr>';rows.forEach(function(r){h+='<tr>'+r.map(function(x){return '<td>'+x+'</td>';}).join('')+'</tr>';});t.innerHTML=h;w.appendChild(t);d.appendChild(w);host.parentNode.insertBefore(d,host.nextSibling);}
 function hover(node,fn){node.addEventListener('pointermove',function(e){showTip(e,fn());});node.addEventListener('pointerleave',hideTip);}
 function clear(host){while(host.firstChild)host.removeChild(host.firstChild);const n=host.nextSibling;if(n&&n.classList&&n.classList.contains('data'))n.parentNode.removeChild(n);}
 
@@ -438,7 +438,7 @@ function lineChart(host,o){
     const L=s.data[s.data.length-1];
     el('circle',{cx:X(L[0]),cy:Y(L[1]),r:4.5,class:'dot',style:'fill:var('+s.c+')'},svg);
     if(s.label)tx(svg,X(L[0])+(s.ldx==null?10:s.ldx),Y(L[1])+(s.ldy==null?4:s.ldy),s.label,'endlbl',s.lanchor||'start');
-    if(s.min){const mn=s.data.reduce(function(a,b){return b[1]<a[1]?b:a;});el('circle',{cx:X(mn[0]),cy:Y(mn[1]),r:6,fill:'none',style:'stroke:var('+s.c+');stroke-width:1.6'},svg);tx(svg,X(mn[0])+10,Y(mn[1])-11,'min '+mn[1].toFixed(4)+' @ '+mn[0],'vlbl','start');}
+    if(s.min){const mn=s.data.reduce(function(a,b){return b[1]<a[1]?b:a;});el('circle',{cx:X(mn[0]),cy:Y(mn[1]),r:6,fill:'none',style:'stroke:var('+s.c+');stroke-width:1.6'},svg);tx(svg,X(mn[0])+10,Y(mn[1])-11,'最小 '+mn[1].toFixed(4)+' @ t = '+mn[0],'vlbl','start');}
   });
   const cross=el('line',{y1:m.t,y2:m.t+ph,class:'cross',visibility:'hidden'},svg);
   const hd=o.series.map(function(s){return el('circle',{r:5,class:'dot',style:'fill:var('+s.c+')',visibility:'hidden'},svg);});
@@ -625,7 +625,7 @@ CH.e3rmse=function(h){const snrs=[20,30,40,60];const ms=['L','L_demosaic','D','C
   legendInto('e3',ms.map(function(m){const has=snrs.some(function(x){return rmse(set('device1','snapshot',x),m)!=null;});return {n:(m==='L'?'L，逐像素精确后验':MN[m])+(m==='B'&&!has?' — 待定':''),c:MC[m],dash:m==='C1'};}));
   const ser=ms.map(function(m){return {name:m==='L'?'L 精确':MN[m],c:MC[m],dash:m==='C1',label:{L:'L 精确',L_demosaic:'L 去马赛克',D:'D',C:'C',B:'B'}[m],ldy:{C:-2,L_demosaic:7,B:18}[m],data:snrs.map(function(x){const v=rmse(set('device1','snapshot',x),m);return v==null?null:[x,v];}).filter(Boolean)};});
   const t=D.facts.Ldem_target_30;
-  xy(h,{log:true,x:[9,62],y:[2,16],xTicks:[20,30,40,60],xFmt:function(v){return v===60?'60（噪声底）':String(v);},yTicks:[2,3,5,8,12,16],yTitle:'RMSE % (log)',xTitle:'信噪比（dB）',labelAt:'first',mr:20,ml:56,series:ser,tipX:function(v){return v+' dB';},
+  xy(h,{log:true,x:[9,62],y:[2,16],xTicks:[20,30,40,60],xFmt:function(v){return v===60?'60（噪声底）':String(v);},yTicks:[2,3,5,8,12,16],yTitle:'RMSE %（对数）',xTitle:'信噪比（dB）',labelAt:'first',mr:20,ml:56,series:ser,tipX:function(v){return v+' dB';},
     refs:[{y:t,x0:26,x1:34,lx:35,label:'T4 目标 '+fx(t,2),cls:'ref'}],
     table:{head:['设置','L 精确','L 去马赛克','D','C 32 样本均值','C1','C 单样本','B（50）'],rows:[['device1',60],['device1',40],['device1',30],['device1',20],['device2',30]].map(function(q){const x=q[1];const s=set(q[0],'snapshot',x);if(!s)return [q[0]+' '+x,'—','—','—','—','—','—','待定'];return [(q[0]==='device2'?'E4 设备 2，':'E3，')+x+' dB',fx(rmse(s,'L'),3),fx(rmse(s,'L_demosaic'),3),fx(rmse(s,'D'),3),fx(rmse(s,'C'),3),fx(rmse(s,'C1'),3),fx(met(s,'C','single_rmse_pct'),3),bOk(s)?fx(rmse(s,'B'),3):bStatusTxt(s)];})}});};
 CH.bprobe=function(h){const P=D.b_prior_probe;const cs={blind:['--ink-2',true,false,'7 4'],vpred:['--s2',false,false],g0:['--muted',false,false],tt:['--muted',true,false,'2 3'],x0pilot:['--accent',false,false],x0:['--s4',false,false]};
