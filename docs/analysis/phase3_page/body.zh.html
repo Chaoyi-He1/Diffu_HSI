@@ -1,0 +1,217 @@
+<style>
+/* Phase 3 additions to the shared tokens: a fifth series colour for line B (the guided unconditional prior). */
+:root{--s4:#7c4dd6;--s4-bg:#ece5fb}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--s4:#a585ee;--s4-bg:#2a2140}}
+:root[data-theme="dark"]{--s4:#a585ee;--s4-bg:#2a2140}
+svg .box-s4{fill:var(--s4-bg);stroke:var(--s4)}
+.status{font-size:14px;color:var(--ink-2);background:var(--warn-bg);border:1px solid var(--rule);border-radius:10px;padding:10px 14px;margin:14px 0 4px}
+.status:empty{display:none}
+.marks{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:13px;color:var(--ink-2);margin:8px 0 0}
+.marks span{white-space:nowrap}
+.outcome{background:var(--panel);border:1px solid var(--rule);border-left:4px solid var(--s4);border-radius:0 12px 12px 0;padding:14px 18px;margin:18px 0 6px}
+.outcome .lbl{font-family:var(--mono);font-size:12.5px;font-weight:700;letter-spacing:.04em;color:var(--s4);display:block;margin-bottom:4px}
+.outcome p{margin:6px 0;font-size:15.5px}
+.outcome ul{margin:6px 0 2px;padding-left:1.2em;font-size:15px}
+.outcome li{margin:3px 0}
+.hint{font-size:12px;color:var(--muted);margin:2px 0 0;text-align:right}
+</style>
+<main lang="zh-CN">
+<header>
+  <div class="eyebrow">Diffu_HSI · 传感器退化 · Phase 3 · 记录截至 <span data-v="generated"></span></div>
+  <h1>第 3 阶段——从性能较差的 EC 传感器重建光谱</h1>
+  <p class="lede">论文主张：对于性能较差的电致变色（EC）传感器，扩散模型是恢复其所见光谱的最合适方法。该传感器有 30 个电压状态，响应宽且相互重叠，其中只有约 <span data-v="facts.d1_informative:0"></span>–13<sup>*</sup> 个状态携带关于 31 个波段的独立信息。第 3 阶段在传感器之“差”真正起作用的地方检验这一主张。<b>E1</b> 在顺序模式下为设备 1 加入测量噪声，信噪比从 60 dB 的噪声底一直扫到 20 dB。<b>E2</b> 将在设备 1 上训练的模型不经重新训练直接用于设备 2 和 PH5。<b>E3</b> 让设备 1 工作在快照（马赛克）模式下，每个像素只测量一个状态；<b>E4</b>（仅报告）在 30 dB 下对设备 2 做同样的测试。两条扩散路线与考虑噪声的线性最小均方误差估计（MMSE，记为 L）、单次前向的回归器（D）以及方差头（V）比较。<b>B</b> 是一个无条件的光谱–空间先验，由测量值引导（ΠGDM 引导）。<b>C</b> 是围绕 MMSE 估计的条件残差扩散模型，在整个噪声与模式族上训练。</p>
+  <p class="lede" style="margin-top:10px">检验方案是事先确定的。用户于 2026 年 11 月 4 日批准了规格说明，条款 T1–T4 的阈值在任何记录产生之前就已写入 <code>scripts/sensor/sd_verdict.py</code>。之后只有一项修订：第一个先验失败后，B 的先验改用 x₀ 预测重新训练（第 6 节）。本页的每个数字都在构建时从评测记录和判定文件中读取。</p>
+  <div class="status" data-slot="status"></div>
+  <div class="outcome"><span class="lbl">结论</span><div data-slot="outcome"></div></div>
+  <div class="kv">
+    <div><small>60 dB 噪声底处的 MMSE（合理性参考）</small><b class="hi"><span data-v="facts.L_floor:3"></span> %</b><small>设备 1，顺序模式，200 个 cube</small></div>
+    <div><small>20 dB 下的回归器 D</small><b class="hi"><span data-v="facts.D_20:2"></span> %</b><small>MMSE 为 <span data-v="facts.L_20:2"></span> %：低 <span data-v="facts.D_below_L_20:0"></span> %</small></div>
+    <div><small>20 dB 下 B 的 32 样本均值相对 D（同一批 50 个 cube）</small><b class="hi" data-slot="kpiB"></b><small data-slot="kpiBsub"></small></div>
+    <div><small>30 dB 下 C 的 CRPS 相对 MMSE 后验</small><b class="hi">−<span data-v="facts.C_crps_below_L_30:0"></span> %</b><small>相对 V 为 −<span data-v="facts.C_crps_below_V_30:0"></span> %；cov90 <span data-v="settings.device1_sequential_30.methods.C.cov90:3"></span>（T2 <span data-v="facts.C_T2_30_word"></span>）</small></div>
+    <div><small>通过的条款数（共 5 项）与主线</small><b class="hi" data-slot="countBC"></b><small data-slot="countsub"></small></div>
+  </div>
+  <figure>
+    <div class="scroll" data-fig="pipeline" data-aria="场景经传感器响应 R 以顺序或快照模式测量，并加入高斯噪声。闭式 MMSE 将测量值转换为估计值和后验标准差；回归器 D、方差头 V 和条件扩散模型 C 以这两张图为输入。引导先验 B 直接使用测量值和前向算子。"></div>
+    <figcaption>比较对象。L、D、V 和 C 共用同一接口：前向模型只通过 MMSE 估计 $\hat x$ 及其后验标准差 $s$ 传递给网络。对于每一种传感器、噪声水平和模式，这两张图的含义都相同，这正是零样本迁移在原理上可行的原因。B 从不看到 $\hat x$。它在采样时把仅用光谱训练的先验与精确算子 $H$ 和已知噪声水平结合起来。D、V 和 C 只在设备 1 上训练，信噪比在 20 到 50 dB 之间抽取并加上 60 dB 噪声底，一半为顺序模式，一半为快照模式。</figcaption>
+  </figure>
+  <nav class="toc" aria-label="目录">
+    <a href="#s1"><b>1</b>传感器</a><a href="#s2"><b>2</b>误差与信噪比</a><a href="#s3"><b>3</b>不确定性</a><a href="#s4"><b>4</b>迁移</a><a href="#s5"><b>5</b>快照模式</a><a href="#s6"><b>6</b>B 线</a><a href="#s7"><b>7</b>条款</a><a href="#s8"><b>8</b>运行</a><a href="#s9"><b>9</b>裁定</a>
+  </nav>
+  <div class="gloss">
+    <h3>下文术语</h3>
+    <div><b>L</b>考虑噪声的线性 MMSE 及其高斯后验：闭式解，无需训练；经典的点估计与概率基线。在快照模式下，“L 精确”指单通道逐像素后验，“L 去马赛克”指先去马赛克再 MMSE</div>
+    <div><b>D / V</b>单次前向的回归器与异方差方差头，与 C 在同一族上训练（选定轮次分别为第 <span data-v="runs.2.selected:0"></span> 轮和第 <span data-v="runs.3.selected:0"></span> 轮）</div>
+    <div><b>C</b>围绕 $\hat x$ 的族条件残差扩散模型，残差经 $s$ 白化；每个 cube 采 32 个 DDIM-10 样本。C1 是同一网络的单次前向</div>
+    <div><b>B</b>64 波段 cube 上的无条件先验，加上使用精确算子的 ΠGDM 引导，50 步，32 个样本，在 50 个 cube 的子集上评测</div>
+    <div><b>RMSE</b>逐 cube 计算，以 [0, 1] 量程的百分比表示，再对 cube 取平均。对 B 和 C，除非注明“单样本”，指 32 个样本均值的误差（“32 样本均值”，即采样器的后验均值估计）</div>
+    <div><b>CRPS、cov50 / cov90、AUSE</b>连续分级概率评分，以量程百分比表示（越低越好）；落在中心 50 % / 90 % 区间内的元素比例（校准良好时为 0.50 / 0.90）；稀疏化曲线与理想曲线之间的面积（0 表示离散程度对误差的排序完全正确）</div>
+    <div><b>信噪比</b>以 dB 计，相对于统一的全局信号功率 $P_y$ = <span data-v="config.P_y:3"></span>（设备 1，顺序模式），因此同一信噪比对每种设备和模式都意味着相同的探测器噪声。60 dB 是扫描的噪声底（$\sigma^2 = P_y/10^6$），并非无噪声：任何地方都没有使用 σ = 0</div>
+    <div><b>± 数值</b>对 cube 的标准误，按源图像聚类（200 个门控 cube 来自 <span data-v="facts.clusters_gate:0"></span> 幅图像，B 的 50 个来自 <span data-v="facts.clusters_B:0"></span> 幅）。B 的比较在两份记录共有的文件上配对进行</div>
+    <div><b>* 手动输入</b>设备 1 信息性状态数的上界 13（见开篇段落）是手动输入的，并非从数据读取：它是对第 1 节奇异值谱的解读。下界统计的是不低于最大奇异值 1 % 的奇异值个数；紧随其后的两个略低于这条线</div>
+  </div>
+</header>
+
+<!-- ============================================================ -->
+<section id="s1">
+  <h2><span class="no">01</span>传感器，以及线性逆解能做到什么</h2>
+  <p class="lead">设备 1 响应的 30 个归一化列高度重叠。其 30 个奇异值中有 <span data-v="facts.d1_n_below:0"></span> 个低于最大值的 1 %（条件数 <span data-v="facts.d1_cond:e"></span>），因此这些方向上的噪声会被无限放大，只有光谱先验才能补全它们。设备 2 有 <span data-v="facts.d2_n_below:0"></span> 个这样的方向；在旧版波长轴下，PH5 有 <span data-v="facts.ph5_n_below:0"></span> 个。</p>
+  <div class="twocol">
+    <figure>
+      <p class="charthead">设备 1：选定的 30 个响应列 R（归一化）</p>
+      <div class="scroll" data-chart="sensorR" data-aria="三十条宽而相互重叠的响应曲线，覆盖 451 到 855 nm 的 31 个波段。"></div>
+      <figcaption>各列按电压状态着色，从第一个状态（浅）到最后一个状态（深）；横轴为旧版拉伸波长轴，用户保留它是为了与第 0–2a 阶段可比。</figcaption>
+    </figure>
+    <figure>
+      <p class="charthead">R 的奇异值，相对于最大奇异值（对数坐标）</p>
+      <div class="scroll" data-chart="sensorSV" data-aria="三种传感器的奇异值，对数坐标。大多数低于最大值的百分之一；PH5 衰减最快。"></div>
+      <figcaption>虚线为最大奇异值的 1 %；在本文测试的信噪比下，低于该线的奇异值几乎不携带信号。低于 1e-12 的值（PH5 秩为 <span data-v="facts.ph5_rank:0"></span> 时的零空间）画在坐标轴下限处。</figcaption>
+    </figure>
+  </div>
+  <figure>
+    <p class="charthead">Stage 0（第 0 阶段）：三种传感器的 MMSE 误差随信噪比的变化（顺序模式，200 个门控 cube）</p>
+    <div class="scroll" data-chart="stage0" data-aria="设备 1、设备 2、PH5 以及使用原始响应的设备 1 的 MMSE RMSE 随信噪比的变化，对数坐标。误差随信噪比降低而稳定上升；PH5 在每个信噪比下都差得多。"></div>
+    <figcaption>在 60 dB 噪声底处，设备 1 上的 MMSE 误差为 <span data-v="facts.L_floor:3"></span> %，是第 0 阶段无噪声结果（<span data-v="facts.legacy_noise_free:3"></span> %，旧版波长轴，s = 3e-7 正则项，无噪声；不可直接比较）的 <span data-v="facts.floor_over_legacy:1"></span> 倍。此后信噪比每降低 10 dB，误差约增长 <span data-v="facts.L_growth_per10:2"></span> 倍。这正是论文所讨论的“差”，没有噪声时它不会显现。设备 2 在每个信噪比下都更难（<span data-v="facts.d2_L_floor:2"></span> → <span data-v="facts.d2_L_20:2"></span> %）。PH5 即使在噪声底处也只能达到 <span data-v="facts.ph5_L_floor:2"></span> %。<span data-slot="normcheck"></span></figcaption>
+  </figure>
+  <div class="remark" data-slot="angles"></div>
+</section>
+
+<!-- ============================================================ -->
+<section id="s2">
+  <h2><span class="no">02</span>图 (i)：设备 1 上误差随信噪比的变化</h2>
+  <p class="lead" data-slot="e1lead"></p>
+  <figure>
+    <p class="charthead">点估计误差：各方法估计值的 RMSE（对数坐标）</p>
+    <div class="legend" data-legend="e1"></div>
+    <div class="scroll" data-chart="e1rmse" data-aria="L、D、C、C1 和 B 的 RMSE 随信噪比的变化，对数坐标。从 60 到 40 dB，D 最低。B 在其 50 个 cube 上几乎不随信噪比变化，在 30 和 20 dB 处最低。C 的 32 样本均值介于 D 与 L 之间。"></div>
+    <div class="marks" data-slot="t1marks"></div>
+    <figcaption>L、D、C 和 C1 基于 200 个门控 cube，B 基于其 50 个 cube 的子集。判定在 B 与 D 共有的文件上将二者配对；同条件下的数字见第 6 节。T1 标记给出平均 RMSE 与 D 的比值。<span data-slot="t1text"></span></figcaption>
+  </figure>
+  <figure>
+    <p class="charthead">预测分布：各概率方法的 CRPS（对数坐标）</p>
+    <div class="legend" data-legend="e1c"></div>
+    <div class="scroll" data-chart="e1crps" data-aria="L、V、C 和 B 的 CRPS 随信噪比的变化。在 40 dB 处 C 的 CRPS 最低；在 30 和 20 dB 处，B 在其 50 个 cube 上最低，但其样本严重欠离散。"></div>
+    <figcaption><span data-slot="e1crpscap"></span></figcaption>
+  </figure>
+  <h3>解读</h3>
+  <ul class="plain">
+    <li data-slot="dbest"></li>
+    <li><b>C 的单个样本粗糙，但其均值并不粗糙。</b>单样本相对真值的对数高频能量比为 +<span data-v="facts.C_hf_single_60:1"></span> 到 +<span data-v="facts.C_hf_single_20:1"></span>；32 样本均值为 +<span data-v="facts.C_hf_mean_60:1"></span> 到 +<span data-v="facts.C_hf_mean_20:1"></span>。单样本 RMSE 在 30 dB 下为 <span data-v="facts.Csingle_30:2"></span> %，在 20 dB 下为 <span data-v="facts.Csingle_20:2"></span> %，这是一次校准良好的抽样所付出的 √2 代价。</li>
+    <li data-slot="e1B"></li>
+  </ul>
+</section>
+
+<!-- ============================================================ -->
+<section id="s3">
+  <h2><span class="no">03</span>图 (ii)：低信噪比下的不确定性</h2>
+  <p class="lead">条款 T2：在 30 和 20 dB 下，扩散路线的 CRPS 必须以 2 倍聚类标准误低于 MMSE 后验和方差头二者，且 90 % 覆盖率位于 [0.85, 0.95] 内。MMSE 后验是一个强基线：它在每个信噪比下都接近校准，且略微过离散（cov90 <span data-v="facts.L_cov90_min:3"></span>–<span data-v="facts.L_cov90_max:3"></span>）。</p>
+  <figure>
+    <p class="charthead">30 和 20 dB 下的 CRPS（越低越好）</p>
+    <div class="scroll" data-chart="t2crps" data-aria="L、V、C 和 B 在 30 和 20 dB 下 CRPS 的分组柱状图。B 在其 50 个 cube 上于两个信噪比下都最低；在 200 个 cube 的方法中 C 最低。"></div>
+    <div class="marks" data-slot="t2marks"></div>
+    <figcaption data-slot="t2text"></figcaption>
+  </figure>
+  <div class="twocol">
+    <figure>
+      <p class="charthead">中心 50 % 与 90 % 区间的覆盖率</p>
+      <div class="scroll" data-chart="t2cov" data-aria="各方法在 30 和 20 dB 下的覆盖率点，对照名义值 0.5 和 0.9，T2 的 0.85 到 0.95 区间以阴影标出。B 的覆盖率远低于名义值。"></div>
+      <figcaption>圆点为 cov90，方块为 cov50；阴影带为 T2 的 [0.85, 0.95]。B 基于其 50 个 cube。<span data-slot="covtext"></span></figcaption>
+    </figure>
+    <figure>
+      <p class="charthead">误差排序：AUSE（越低越好）</p>
+      <div class="scroll" data-chart="t2ause" data-aria="30 和 20 dB 下 AUSE 的分组柱状图。方差头对误差的排序最好。"></div>
+      <figcaption>方差头对误差的排序仍然最好（E1 上 AUSE 为 <span data-v="facts.V_ause_min:3"></span>–<span data-v="facts.V_ause_max:3"></span>，C 为 <span data-v="facts.C_ause_min:3"></span>–<span data-v="facts.C_ause_max:3"></span>）。因此 C 的优势在于其边缘分布的形状，而不在于它把不确定性放在哪里。B 基于其 50 个 cube。</figcaption>
+    </figure>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section id="s4">
+  <h2><span class="no">04</span>不经重新训练迁移到设备 2 与 PH5（E2）</h2>
+  <p class="lead">D、V 和 C 只在设备 1 上训练；B 从未在任何传感器上训练。条款 T3 检验：某条路线在 30 dB 下设备 2 上相对 MMSE 的误差比值，是否保持在其设备 1 上比值的 10 % 以内。PH5 仅报告。</p>
+  <figure>
+    <p class="charthead">各传感器上的 RMSE（顺序模式）</p>
+    <div class="seg" role="group" aria-label="信噪比"><button type="button" data-e2="40" aria-pressed="false">40 dB</button><button type="button" data-e2="30" aria-pressed="true">30 dB</button><button type="button" data-e2="20" aria-pressed="false">20 dB</button></div>
+    <div class="scroll" data-chart="e2" data-aria="L、D、C 和 B 在设备 1、设备 2 和 PH5 上 RMSE 的分组柱状图。在设备 2 上 B 最低，学习得到的条件方法保留了部分优势；在 PH5 上它们落后于 MMSE，B 未运行。"></div>
+    <figcaption><span data-slot="t3text"></span></figcaption>
+  </figure>
+  <ul class="plain">
+    <li data-slot="e2B"></li>
+    <li><b>设备 2：C 的条件信息只能部分迁移。</b>C 在 40 和 30 dB 下仍低于 MMSE（比值 <span data-v="facts.device2_C_vs_L_40:3"></span> 和 <span data-v="facts.device2_C_vs_L_30:3"></span>），cov90 为 <span data-v="facts.device2_C_cov90_40:2"></span>–<span data-v="facts.device2_C_cov90_30:2"></span>，但在 20 dB 下落后于 MMSE（比值 <span data-v="facts.device2_C_vs_L_20:3"></span>，cov90 <span data-v="facts.device2_C_cov90_20:3"></span>）。回归器保留的优势比 C 多：<span data-slot="d2D"></span></li>
+    <li><b>PH5：在设备 1 上学到的几乎都无法迁移。</b>D 比 MMSE 差 <span data-v="facts.ph5_D_worse_min:0"></span>–<span data-v="facts.ph5_D_worse_max:0"></span> %，C 的均值差 <span data-v="facts.ph5_C_ratio_min:2"></span>–<span data-v="facts.ph5_C_ratio_max:2"></span> 倍。C 严重欠离散（cov50 ≤ <span data-v="facts.ph5_C_cov50_max:2"></span>，cov90 ≤ <span data-v="facts.ph5_C_cov90_max:2"></span>）。只有 V 的 CRPS 与 L 持平（<span data-slot="ph5V"></span>）。PH5 的响应秩为 <span data-v="facts.ph5_rank:0"></span>，后验标准差结构也大不相同，因此其 $(\hat x, s)$ 图落在每个族模型的训练分布之外。在这一传感器上，论文“无需重新训练”的说法对条件网络不成立。出于成本考虑，B 的 PH5 行已撤销。</li>
+  </ul>
+</section>
+
+<!-- ============================================================ -->
+<section id="s5">
+  <h2><span class="no">05</span>快照模式（E3，以及设备 2 上的 E4）</h2>
+  <p class="lead">在快照模式下，每个像素在 5 × 6 的图块中测量 30 个状态之一。单通道的精确逐像素后验基本上就是先验均值（<span data-v="facts.e3_Lexact_min:1"></span>–<span data-v="facts.e3_Lexact_max:1"></span> %）。经典基线先对 30 个通道去马赛克，再运行顺序模式的 MMSE。条款 T4 要求在 30 dB 下比该基线改进 15 %：RMSE 不超过 <span data-v="facts.Ldem_target_30:3"></span> %，基线为 <span data-v="facts.Ldem_30:3"></span> %。E3 的信噪比网格为 60 / 40 / 30 / 20 dB，没有 50 dB 点。</p>
+  <figure>
+    <p class="charthead">设备 1 快照模式下 RMSE 随信噪比的变化（对数坐标）</p>
+    <div class="legend" data-legend="e3"></div>
+    <div class="scroll" data-chart="e3rmse" data-aria="快照模式下 RMSE 随信噪比的变化。精确逐像素 MMSE 约为百分之 12，先去马赛克再 MMSE 约为 6，D 约为 3。C 的均值与 B 位于去马赛克基线处或其上方。"></div>
+    <figcaption><span data-slot="t4text"></span></figcaption>
+  </figure>
+  <figure>
+    <p class="charthead">快照模式的不确定性：CRPS、cov50 / cov90 与 AUSE</p>
+    <div class="tbl" data-table="e3unc"></div>
+  </figure>
+  <div class="remark"><b>扩散模型为何在这里落败。</b>在快照模式下，C 的中心 $\hat x$ 是单通道后验，因此白化残差很大且结构性很强：对它建模<i>本身就是</i>去马赛克问题。单次前向的回归器学会了这一点（<span data-v="facts.e3_D_min:1"></span>–<span data-v="facts.e3_D_max:1"></span> %）。在同一目标上训练的扩散模型却没有学会。C1 为 <span data-v="facts.e3_C1_min:1"></span>–<span data-v="facts.e3_C1_max:1"></span> %，C 的样本严重过离散（cov50 <span data-v="facts.e3_C_cov50_min:2"></span>–<span data-v="facts.e3_C_cov50_max:2"></span>，cov90 ≥ <span data-v="facts.e3_C_cov90_min:3"></span>）。方差头继承了糟糕的中心，无法收缩到足以校准的程度（30 dB 下 cov50 <span data-v="facts.e3_V_cov50_30:2"></span>）。像第 2a 阶段那样以 D 的预测为中心的扩散模型，才是对 C 更公平的快照测试。这超出了本阶段的范围，已记录下来留待论文撰写时说明。</div>
+  <ul class="plain">
+    <li data-slot="e3B"></li>
+    <li data-slot="e4"></li>
+  </ul>
+</section>
+
+<!-- ============================================================ -->
+<section id="s6">
+  <h2><span class="no">06</span>B 线：一个先得学会成为先验的先验</h2>
+  <p class="lead">最初的 B 记录是退化的。原因在于先验，而不是采样器。在各向同性高斯玩具问题上，ΠGDM 代码在 50 步时复现了精确后验；以逐像素 Wiener 滤波器作为去噪器时，同一代码对真实 cube 的重建接近 MMSE。然而，学习得到的 v 预测先验在中低噪声水平下忽略了自己的输入。</p>
+  <figure>
+    <p class="charthead">各先验的 x̂₀ 估计误差随扩散时间步的变化（16 个门控 cube，60 dB；对数坐标）</p>
+    <div class="legend" data-legend="probe"></div>
+    <div class="scroll" data-chart="bprobe" data-aria="x0 估计误差随时间步的变化。v 预测先验及两个配方变体在 t 约 200 以内与输入无关预测器重合，并在 t = 150 到 400 间超过均值 cube 的误差；x0 预测试验模型和先验单调且低得多。"></div>
+    <figcaption data-slot="probetext"></figcaption>
+  </figure>
+  <div class="thm"><span class="lbl">采样器先通过了资格验证</span><span data-slot="toytext"></span></div>
+  <div class="tbl" data-table="toy"></div>
+  <h3>B 的记录：已归档的 v 预测先验与 x₀ 预测先验</h3>
+  <p>B 在 50 个 cube 的子集上评分。其他方法也在同一批 50 个 cube 上展示，配对差值使用两份记录共有的文件。</p>
+  <div class="tbl" data-table="brec"></div>
+  <p data-slot="bnow"></p>
+</section>
+
+<!-- ============================================================ -->
+<section id="s7">
+  <h2><span class="no">07</span>预注册条款与主线</h2>
+  <p class="lead" data-slot="mainline"></p>
+  <div class="tbl" data-table="clauses"></div>
+  <p data-slot="verdictnote" style="font-size:14px;color:var(--muted)"></p>
+</section>
+
+<!-- ============================================================ -->
+<section id="s8">
+  <h2><span class="no">08</span>运行与预算</h2>
+  <p class="lead">共五次基础宽度 64 的训练，每次使用一块 RTX A4500：四次 100 轮，方差头 40 轮。另有三次 10 轮的先验试验。选择遵循预注册规则：D 和 V 取监控损失最低的轮次，扩散模型固定取第 100 轮。每个网络只训练一次（种子 <span data-v="facts.train_seed:0"></span>）；没有种子重复实验。每个采样器的第 k 个样本在 torch 种子 k 下抽取，测量噪声对每个文件使用 crc32 种子。</p>
+  <div class="tbl" data-table="runs"></div>
+  <p data-slot="budget"></p>
+</section>
+
+<!-- ============================================================ -->
+<section id="s9">
+  <h2><span class="no">09</span>偏离与裁定</h2>
+  <ul class="plain">
+    <li><b>ΠGDM 的校正系数。</b>草案中的 $\sqrt{\bar\alpha_t}$ 在各向同性玩具问题上发散。校正现改为 $\hat x_0 + (1-\bar\alpha_t)/\sqrt{\bar\alpha_t}\cdot g$，即 $x_0$ 坐标下的得分校正。</li>
+    <li><b>按文件设定噪声种子。</b>每个 cube 的噪声种子是其相对数据根目录路径的 crc32，而不是其在列表中的位置。因此 50 个和 200 个 cube 上的记录看到完全相同的噪声，并可按文件配对。</li>
+    <li><b>处处 K = 32；B 在 50 个 cube 的子集上。</b>覆盖率判定需要 K ≥ 19，因此撤回了草案中的 K = 16。ΠGDM 的成本使 B 只能在 50 个 cube 的子集上运行，并在共有的 cube 上与 200-cube 记录配对。<span data-slot="tbRuling">因此 B 的决胜规则 CRPS 差值基于 50 个 cube，C 的基于 200 个。</span></li>
+    <li data-slot="x0rule"></li>
+    <li><b>B 的成本。</b>一条 B 记录约耗 <span data-v="budget.b_hours_mean:2"></span> GPU 小时，而非计划中的 0.63，因此超出了规格说明 12 GPU 小时的上限；用户的 GPU 当时没有其他任务。</li>
+    <li><b>撤销 B 的 PH5 行。</b>得知 B 的成本后，它们在规格说明的撤销顺序中排在首位，而且 PH5 本来就仅报告。</li>
+    <li><b>E4 的 B 单元运行了两次。</b>第一条记录来自一个仍指向 v 预测检查点的逐设置驱动脚本；页面的提取器标记了它（预测类型 v），它已与其他 v 预测记录一同归档，该单元用 x₀ 先验重新运行（在一块空闲 GPU 上用了 1.7 GPU 小时）。</li>
+    <li><b>E4 已运行。</b>E1–E3 之后仍有 GPU 时间，因此运行了规格说明中可选的 E4（设备 2，快照模式，30 dB，所有方法，仅报告）；结果见第 5 节。</li>
+  </ul>
+</section>
+
+<footer>
+  数据来源，位于 <code>results/residual_warmstart/</code> 下（git 忽略）：<code>sensor/eval/*.json</code>（sd_eval 记录）和 <code>sensor/eval/vpred_prior/</code>（已归档的 B 记录）、<code>sensor/stage0/</code>、<code>sensor/config.json</code>、<code>sensor/<span data-v="status.verdict_file"></span></code>、玩具问题记录 <code data-v="toy.path"></code>，以及 <code>runs/*/train_log.jsonl</code>。B 先验的探测曲线引自结果说明 <code>docs/superpowers/plans/2026-11-03-sensor-degradation-diffusion-RESULTS.md</code>。规格说明 <code>docs/superpowers/specs/2026-11-03-sensor-degradation-diffusion-design.md</code>。页面数据由 <code>docs/analysis/phase3_page/extract_page_data.py</code> 生成；分支 <code>worktree-phase1-plan</code>。
+</footer>
+</main>
