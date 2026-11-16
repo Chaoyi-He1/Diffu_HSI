@@ -93,7 +93,7 @@ def test_measure_with_pixels_draws_the_pattern_first(small_R):
     y = x @ small_R + 0.1 * rng.standard_normal((10, 10, 30))
     np.testing.assert_array_equal(m['mask'], np.repeat(meas[..., None], 30, -1).astype(np.float32))
     np.testing.assert_allclose(m['y'], (y * meas[..., None]).astype(np.float32))
-    assert np.all(m['y'][~meas] == 0)
+    assert np.all(m['y'][~meas] == 0) and np.array_equal(m['measured'], meas) and m['measured'].dtype == bool
 
 
 def test_measure_poisson(small_R):

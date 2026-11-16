@@ -110,7 +110,8 @@ def measure_scenario(x01_31, R, sigma, scenario, rng, consts):
     (rng.standard_normal of the readings' shape, or rng.poisson for shot noise).
 
     Returns float32 [H, W, S] arrays y, mask, noise_var (the aware measurement; y is 0 where mask is 0, noise_var > 0
-    everywhere) and, when has_naive(scenario), y_naive, mask_naive, noise_var_naive (white Gaussian at sigma).
+    everywhere) and, when has_naive(scenario), y_naive, mask_naive, noise_var_naive (white Gaussian at sigma); with a
+    pixel pattern (has_pixels) also `measured`, the bool [H, W] pixel flag. Every mask is multiplied by that flag.
     consts (scenario_consts) is needed by poisson (mean_y), saturation (quantiles) and quantisation (y_max)."""
     kind = scenario['noise']['kind']
     if kind not in NOISE_KINDS:
@@ -154,6 +155,8 @@ def measure_scenario(x01_31, R, sigma, scenario, rng, consts):
         mn = mn * pix
         out.update(y_naive=(yn * mn).astype(np.float32), mask_naive=mn.astype(np.float32),
                    noise_var_naive=nvn.astype(np.float32))
+    if has_pixels(scenario):
+        out['measured'] = measured
     return out
 
 
