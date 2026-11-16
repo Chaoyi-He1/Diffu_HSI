@@ -75,3 +75,44 @@ def test_sequential_posterior_refuses_more_channels_than_bands():
     mu, C, R = _toy(L=3, S=5)                                   # S > L: the thin-SVD gain would be wrong
     with pytest.raises(AssertionError, match=r'S <= bands L.*\(3, 5\)'):
         MM.posterior_sequential(np.zeros((2, 5)), R, mu, C, 0.1)
+
+
+# ----------------------------------------------------------------------------- mmse_maps_general (Phase 3b)
+def _setup(small_R, synthetic_prior):
+    return dict(mu=synthetic_prior['mu'], C=synthetic_prior['C']), expand_matrix(np.linspace(451, 855, 31), 64)
+
+
+def test_general_equals_mmse_maps_sequential_and_snapshot(small_R, synthetic_prior):
+    prior, A = _setup(small_R, synthetic_prior)
+    y = np.random.default_rng(0).random((10, 12, 30))
+    ones, nv = np.ones_like(y), np.full_like(y, 0.1 ** 2)
+    xs, ss = MM.mmse_maps(y, None, small_R, prior, 0.1, A)
+    xg, sg = MM.mmse_maps_general(y, ones, nv, small_R, prior, A)
+    assert xg.dtype == sg.dtype == np.float32 and xg.shape == (10, 12, 64)
+    np.testing.assert_allclose(xg, xs, atol=1e-5); np.testing.assert_allclose(sg, ss, atol=1e-5)
+    m = mosaic_mask(10, 12)
+    xm, sm = MM.mmse_maps(y * m, m, small_R, prior, 0.1, A)
+    xg, sg = MM.mmse_maps_general(y * m, m, nv, small_R, prior, A)
+    np.testing.assert_allclose(xg, xm, atol=1e-5); np.testing.assert_allclose(sg, sm, atol=1e-5)
+
+
+def test_general_matches_a_dense_per_pixel_reference(small_R, synthetic_prior):
+    prior, A = _setup(small_R, synthetic_prior)
+    g = np.random.default_rng(1)
+    y = g.random((5, 6, 30)); mask = (g.random((5, 6, 30)) < 0.4).astype(np.float32); nv = 0.001 + 0.05 * g.random((5, 6, 30))
+    mask[2, 3] = 0                                                              # a pixel with no measured element
+    xg, sg = MM.mmse_maps_general(y * mask, mask, nv, small_R, prior, A, chunk=7)   # chunks that do not divide 30 pixels
+    mu01, C01 = MM.prior01(prior)
+    for i in range(5):
+        for j in range(6):
+            rows = np.nonzero(mask[i, j])[0]
+            if len(rows):
+                Rr = small_R[:, rows]; N = np.diag(nv[i, j, rows])
+                G = C01 @ Rr @ np.linalg.inv(Rr.T @ C01 @ Rr + N)
+                x = mu01 + G @ (y[i, j, rows] - Rr.T @ mu01); S = C01 - G @ Rr.T @ C01
+            else:
+                x, S = mu01, C01
+            np.testing.assert_allclose(xg[i, j], 2 * (A @ x) - 1, atol=1e-5)
+            np.testing.assert_allclose(sg[i, j], 2 * np.sqrt(np.maximum(np.diag(A @ S @ A.T), 0)), atol=1e-5)
+    np.testing.assert_allclose(xg[2, 3], 2 * (A @ mu01) - 1, atol=1e-6)        # the unmeasured pixel: prior mean and std
+    np.testing.assert_allclose(sg[2, 3], 2 * np.sqrt(np.diag(A @ C01 @ A.T)), atol=1e-6)

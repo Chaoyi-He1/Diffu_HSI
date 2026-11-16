@@ -98,6 +98,41 @@ def mmse_maps(y, mask, R, prior, sigma, A):
     return _to_trainer(x64, s64, shape)
 
 
+def mmse_maps_general(y, mask, noise_var, R, prior, A, chunk=65536):
+    """Per-pixel Gaussian posterior for an arbitrary 0/1 mask [H, W, S] and per-element noise variance [H, W, S]
+    (Phase 3b scenarios). Pixel p measures the rows m_p = mask[p] with noise N_p = diag(noise_var[p, m_p]):
+
+        G_p = C R_p (R_p^T C R_p + N_p)^-1,  xhat_p = mu + G_p (y_p - R_p^T mu),  Sigma_p = C - G_p R_p^T C
+
+    solved for all pixels at once in the masked form (M R^T C R M + diag(nv on measured rows, 1 elsewhere)) v = M r, in
+    float64, `chunk` pixels per batched solve. A pixel with no measured element gets the prior mean and prior std.
+    Returns (x_hat64, std64) [H, W, M] float32 on the trainer scale, as mmse_maps."""
+    Hh, W, S = y.shape
+    mu01, C01 = prior01(prior)
+    R = np.asarray(R, np.float64)
+    A = np.asarray(A, np.float64)
+    CR = C01 @ R                                                   # [L, S]
+    RCR = R.T @ CR                                                 # [S, S]
+    F = A @ CR                                                     # [M, S]
+    base = np.einsum('ij,jk,ik->i', A, C01, A)                     # prior variance on the 64-band grid
+    yv = np.asarray(y, np.float64).reshape(-1, S)
+    mv = np.asarray(mask, np.float64).reshape(-1, S)
+    nvv = np.broadcast_to(np.asarray(noise_var, np.float64), (Hh, W, S)).reshape(-1, S)
+    if not np.all((mv == 0) | (mv == 1)):
+        raise ValueError('mask must be 0/1')
+    resid = (yv - mu01 @ R) * mv                                   # [P, S]
+    x64 = np.empty((yv.shape[0], A.shape[0])); var = np.empty_like(x64)
+    eye = np.eye(S)
+    for a in range(0, yv.shape[0], int(chunk)):
+        m = mv[a:a + chunk]
+        Ap = m[:, :, None] * RCR[None] * m[:, None, :] + np.where(m > 0, nvv[a:a + chunk], 1.0)[:, :, None] * eye[None]
+        rhs = np.concatenate([resid[a:a + chunk, :, None], m[:, :, None] * F.T[None]], 2)   # [p, S, 1 + M]
+        sol = np.linalg.solve(Ap, rhs) * m[:, :, None]
+        x64[a:a + chunk] = (mu01 + sol[:, :, 0] @ CR.T) @ A.T
+        var[a:a + chunk] = base[None] - np.einsum('ms,psm->pm', F, sol[:, :, 1:])
+    return _to_trainer(x64, np.sqrt(np.maximum(var, 0.0)), (Hh, W, A.shape[0]))
+
+
 def demosaic(y_m, mask):
     """Per-channel linear interpolation of the mosaic-measured lattice onto the full grid. -> [H, W, S]."""
     H, W, S = y_m.shape
