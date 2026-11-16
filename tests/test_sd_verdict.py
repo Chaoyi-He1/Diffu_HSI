@@ -270,6 +270,33 @@ def test_tiebreak_pairs_the_tied_lines_on_their_common_files(tmp_path, monkeypat
     assert all(tb['lines'][l]['se_cluster_common'] >= 0 for l in ('B', 'C'))
 
 
+def test_rename_reads_Bp_as_line_B_and_is_report_only(tmp_path, monkeypatch):
+    # every B record also carries Bp with a calibrated spread; the renaming manifest scores Bp as line B
+    recs = _world(B=dict(cov=0.3))                                              # B itself fails T2 on coverage
+    for rs in recs.values():
+        for r in rs:
+            if 'B' in r['per_cube']:
+                bp = {k: list(v) for k, v in r['per_cube']['B'].items()}
+                if 'cov90' in bp:
+                    bp['cov90'] = [0.9] * len(bp['cov90'])
+                r['per_cube']['Bp'] = bp
+    mp, st = _load(tmp_path, monkeypatch, recs, name='plain')
+    assert 'Bp' in st[sv.setting_key('device1', 'sequential', 30.0)]            # without rename Bp is just another method
+    assert not sv.verdict(st)['T2']['B'][30.0]['passed']
+    man = json.loads(open(mp).read())
+    man.update(name='bplus', rename={'Bp': 'B'})
+    mp2 = tmp_path / 'bplus_manifest.json'
+    mp2.write_text(json.dumps(man))
+    st2 = sv.load_manifest(str(mp2))
+    k = sv.setting_key('device1', 'sequential', 30.0)
+    assert 'Bp' not in st2[k] and st2[k]['B'][0]['cov90'] == [0.9] * N
+    with pytest.raises(ValueError, match='report-only'):
+        sv.main(['--manifest', str(mp2)])
+    v = sv.main(['--manifest', str(mp2), '--report_only'])
+    assert v['T2']['B'][30.0]['passed'] and v['rename'] == {'Bp': 'B'} and v['main_line'] is None and v['counts']['B'] == 5
+    assert (tmp_path / 'verdict__bplus__report.json').exists()
+
+
 def test_no_tie_break_when_the_counts_differ(tmp_path, monkeypatch):
     _, st = _load(tmp_path, monkeypatch, _world(C=dict(t4=0.95)))
     v = sv.verdict(st)

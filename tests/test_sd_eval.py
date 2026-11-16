@@ -125,7 +125,9 @@ def test_record_holds_every_requested_method_with_paired_files(small_R, syntheti
     assert set(rec) == {'name', 'setting', 'subset', 'K', 'pigdm_steps', 'guidance', 'n', 'files', 'classes', 'per_cube',
                         'means', 'coverage_exact', 'provenance'}
     assert set(rec['provenance']) == {'sensor_config_sha', 'config_path', 'checkpoints', 'git_head', 'created', 'seconds',
-                                      'seeds', 'device', 'batch_size', 'limit_files', 'b_prediction_type', 'c_sampler'}
+                                      'seeds', 'device', 'batch_size', 'limit_files', 'b_prediction_type', 'c_sampler',
+                                      'b_kernel'}
+    assert rec['provenance']['b_kernel'] is None                               # no Bp requested
     assert rec['provenance']['sensor_config_sha'] == training_sha(CFG) and rec['provenance']['seeds'] == [0, 1, 2]
     cs = rec['provenance']['c_sampler']                                   # C's sampler beside B's pigdm_steps / guidance
     assert cs['method'] == 'ddim' and cs['clamp_x0'] == [-8.0, 8.0] and cs['prediction_type'] == 'v'
@@ -268,3 +270,42 @@ def test_refuses_learned_checkpoint_trained_on_another_device(tmp_path):
     SE.check_models(fake_args(methods=['D'], regress=legacy), cfg, torch.device('cpu'))
     prior = save_ckpt(tmp_path / 'u_dev2.pth', 'uncond', sensor_device='device2')      # the prior is sensor-free: no check
     SE.check_models(fake_args(methods=['B'], uncond=prior), cfg, torch.device('cpu'))
+
+
+# ----------------------------------------------------------------------------- B+ (method Bp)
+def _kernel(tmp_path, scale=0.01, **meta):
+    p = str(tmp_path / 'b_kernel.npz')
+    np.savez(p, Sigma_e=scale * np.eye(64), meta=np.array(meta, dtype=object))
+    return p
+
+
+@pytest.mark.filterwarnings('ignore:coverage_samples:UserWarning')
+@pytest.mark.parametrize('mode', ['sequential', 'snapshot'])
+def test_Bp_rescoring_of_the_same_guided_draws(small_R, synthetic_prior, tmp_path, mode):
+    ds = StubSensorDS(small_R, synthetic_prior, mode=mode, n=3)
+    kern = _kernel(tmp_path)
+    both = run(ds, fake_args(mode=mode, methods=['B', 'Bp'], uncond='u', b_kernel=kern, save_draws=str(tmp_path / 'draws')),
+               {'B': Shrink()})
+    only_b = run(ds, fake_args(mode=mode, methods=['B'], uncond='u'), {'B': Shrink()})
+    assert both['per_cube']['B'] == only_b['per_cube']['B']                    # B is scored on untouched draws
+    b, bp = both['means']['B'], both['means']['Bp']
+    assert bp['spread_ratio'] > b['spread_ratio'] and bp['single_rmse_pct'] != b['single_rmse_pct']
+    assert both['provenance']['b_kernel']['sha256'] == SE.kernel_sha256(0.01 * np.eye(64))
+    assert only_b['provenance']['b_kernel'] is None
+    d = np.load(str(tmp_path / 'draws' / 't.npz'))
+    assert d['draws'].shape == (3, 3, 64, H, H) and d['draws'].dtype == np.float16 and len(d['files']) == 3
+    alone = run(ds, fake_args(mode=mode, methods=['Bp'], uncond='u', b_kernel=kern), {'B': Shrink()})
+    assert alone['per_cube']['Bp'] == both['per_cube']['Bp'] and 'B' not in alone['per_cube']
+
+
+def test_Bp_needs_the_kernel_and_the_kernel_must_fit_the_prior(small_R, synthetic_prior, tmp_path):
+    with pytest.raises(ValueError, match='b_kernel'):
+        SE.resolve_methods(fake_args(methods=['Bp'], uncond='u'))
+    assert SE.resolve_methods(fake_args(uncond='u')) == ['L', 'B']
+    assert SE.resolve_methods(fake_args(uncond='u', b_kernel='k')) == ['L', 'B', 'Bp']
+    ds = StubSensorDS(small_R, synthetic_prior, n=2)
+    args = fake_args(methods=['Bp'], uncond='u', b_kernel=_kernel(tmp_path, uncond_sha256='a' * 64))
+    loader = torch.utils.data.DataLoader(ds, batch_size=2, shuffle=False, collate_fn=ds.collate_fn)
+    with pytest.raises(ValueError, match='another prior checkpoint'):
+        SE.run_eval({'B': Shrink()}, ds, loader, args, CFG, {'uncond': {'sha256': 'b' * 64, 'prediction_type': 'v'}},
+                    torch.device('cpu'))

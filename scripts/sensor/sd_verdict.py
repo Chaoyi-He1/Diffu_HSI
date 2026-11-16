@@ -64,9 +64,14 @@ def _parse_key(key):
 
 
 def load_manifest(path):
-    """-> settings[setting_key][method] = (per_cube[method], files, K)."""
+    """-> settings[setting_key][method] = (per_cube[method], files, K).
+
+    A manifest may carry "rename": {"Bp": "B"}: the method Bp of every record is then read as line B, and a record's own
+    B is skipped when the record also holds Bp (B and B+ are scored on the same draws in one record). A renaming
+    manifest scores an amended line, so main() only accepts it with --report_only."""
     with open(path) as f:
         man = json.load(f)
+    rename = dict(man.get('rename') or {})
     settings = {}
     for key, names in man['records'].items():
         dev, mode, snr = _parse_key(key)
@@ -79,6 +84,9 @@ def load_manifest(path):
             if (st.get('sensor_device'), st.get('mode'), float(st.get('snr_db', float('nan')))) != (dev, mode, snr):
                 raise ValueError(f'record {name} has setting {st} but the manifest files it under {key}')
             for method, pc in rec['per_cube'].items():
+                if any(dst == method and src in rec['per_cube'] for src, dst in rename.items()):
+                    continue                                    # the record's own B gives way to its Bp
+                method = rename.get(method, method)
                 if method in out:
                     raise ValueError(f'method {method} appears twice in setting {k} (record {name})')
                 out[method] = (pc, rec['files'], rec['K'])
@@ -346,14 +354,18 @@ def main(argv=None):
     ap.add_argument('--min_common', type=int, default=MIN_COMMON, help='files two records must share to be paired (debug / smoke only)')
     args = ap.parse_args(argv)
     with open(args.manifest) as f:
-        name = json.load(f)['name']
+        man = json.load(f)
+    name = man['name']
+    if man.get('rename') and not args.report_only:
+        raise ValueError(f"manifest {args.manifest} renames methods ({man['rename']}): an amended line is report-only; "
+                         'pass --report_only')
     out = verdict_path(name, args.report_only)
     if os.path.exists(out):
         raise FileExistsError(f'{out} exists; the verdict is taken once')
     settings = load_manifest(args.manifest)
     v = verdict(settings, args.report_only, args.min_common)
     _print(v)
-    v.update(name=name, manifest=os.path.abspath(args.manifest), created=time.strftime('%Y-%m-%dT%H:%M:%S'),
+    v.update(name=name, manifest=os.path.abspath(args.manifest), rename=dict(man.get('rename') or {}), created=time.strftime('%Y-%m-%dT%H:%M:%S'),
              thresholds=dict(T1_RATIO=T1_RATIO, T2_COV90=T2_COV90, T2_SNRS=T2_SNRS, T3_RATIO=T3_RATIO, T3_SNR=T3_SNR, T4_RATIO=T4_RATIO,
                              T4_SNR=T4_SNR, MIN_COMMON=MIN_COMMON))
     os.makedirs(os.path.dirname(out), exist_ok=True)
