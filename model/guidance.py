@@ -149,6 +149,10 @@ def pigdm_sample(model, trainer, meas, shape, n_steps, seed, clamp=(-1.0, 1.0), 
 
 
 def dps_sample(model, trainer, meas, shape, n_steps, seed, zeta=1.0, clamp=(-1.0, 1.0)):
+    if getattr(meas, 'general', False):
+        # DPS steps on the unweighted residual norm: it would silently ignore per-element noise variances
+        raise ValueError('dps_sample does not support a general LinearMeasurement (per-element mask / noise_var); '
+                         'use pigdm')
     ts = _grid(trainer, n_steps)
     trainer.last_nfe = len(ts)
     x = _init(trainer, shape, seed)

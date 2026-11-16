@@ -155,6 +155,7 @@ def test_scenario_R_measurement_and_statistics(fake_sensor_root, ds):
     d = _sim(fake_sensor_root, ds, sc)
     R = SCN.scenario_R(load_sensor('device1', fake_sensor_root)['R'], load_sensor('device2', fake_sensor_root)['R'], sc)
     assert np.array_equal(d.R, R) and d.R.shape == (31, 10) and d.A.shape == ds.A.shape
+    assert d.state_indices.tolist() == [0, 3, 6, 10, 13, 16, 19, 23, 26, 29] and ds.state_indices is None
     assert d.R_sha256 == hashlib.sha256(np.ascontiguousarray(R, dtype=np.float64).tobytes()).hexdigest() != ds.R_sha256
     it = d[2]
     keys = {'x', 'y', 'x0_hat', 's_post', 's_raw', 'mask', 'sigma', 'snr_db', 'snapshot', 'noise_var',

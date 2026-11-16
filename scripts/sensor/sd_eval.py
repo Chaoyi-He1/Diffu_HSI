@@ -16,9 +16,11 @@ whose method is not requested is ignored. Sample coverage is exact only for K >=
 Phase 3b (spec 2026-11-16 Part B): --scenario NAME (scripts/sensor/scenarios_3b.py) evaluates one pre-registered change
 of the forward model, sequential mode only; --snr_db and --sensor_device are taken from the scenario (given, they must
 match). L / D / V / C / C1 read the batch's aware statistics; L_naive / D_naive (non-Gaussian noise only) the naive
-ones; L_interp (pixel patterns only) interpolates the measured readings over the image and adds the interpolation-error
-variance e2 (measured once per run on the first N_E2_CUBES calibration cubes, setting.e2_interp). B / Bp guide and
-condition with the scenario's R, its mask (when not all ones) and its per-element noise variance (non-Gaussian noise).
+ones; L_interp (pixel patterns with Gaussian noise only) interpolates the measured readings over the image and adds the
+interpolation-error variance e2 on the unmeasured pixels (sigma^2 alone on the measured ones; e2 measured once per run
+on the first N_E2_CUBES calibration cubes, setting.e2_interp / e2_interp_files / l_interp_rule). B / Bp guide and
+condition with the scenario's R, its mask (when not all ones) and its per-element noise variance (non-Gaussian noise);
+--guidance dps is refused when that measurement is general (pixel pattern or non-Gaussian noise).
 
     python scripts/sensor/sd_eval.py --name b3_stride_4_30 --scenario stride_4_30 --regress <ckpt> --uncond <ckpt> \
         --b_kernel <kernel> --K 20 --pigdm_steps 50 --device cuda:0
@@ -37,8 +39,8 @@ REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 sys.path.insert(0, REPO)
 from data_loader.hfd_sensor_sim import HFDSensorSim, load_cube01  # noqa: E402
 from data_loader.mmse import demosaic_then_mmse  # noqa: E402
-from data_loader.scenarios import (has_naive, has_pixels, interp_error_e2, interp_then_mmse, load_consts,  # noqa: E402
-                                   needs_consts, scenario_sha)
+from data_loader.scenarios import (L_INTERP_RULE, has_naive, has_pixels, interp_error_e2, interp_then_mmse,  # noqa: E402
+                                   load_consts, needs_consts, scenario_sha)
 from data_loader.sensor_config import CONFIG_PATH, SENSOR_DIR, load_config, training_sha  # noqa: E402
 from data_loader.sensor_forward import guidance_operator  # noqa: E402
 from data_loader.warmstart_paths import DATA_ROOT, PRIOR, file_sha256, git_head  # noqa: E402
@@ -113,6 +115,16 @@ def resolve_methods(args):
     scen = scenario_of(args)
     naive = scen is not None and has_naive(scen)
     pixels = scen is not None and has_pixels(scen)
+    gaussian = scen is None or scen['noise']['kind'] == 'gaussian'
+    methods = _resolve(args, snapshot, naive, pixels, gaussian)
+    if scen is not None and getattr(args, 'guidance', 'pigdm') == 'dps' and any(m in GUIDED for m in methods) \
+            and (pixels or not gaussian):
+        raise ValueError(f'--guidance dps is refused with --scenario {args.scenario}: its measurement takes the general '
+                         'path (per-element mask / noise variance), which DPS ignores; use pigdm')
+    return methods
+
+
+def _resolve(args, snapshot, naive, pixels, gaussian):
     if args.methods:
         bad = [m for m in args.methods if m not in METHODS]
         if bad:
@@ -126,9 +138,12 @@ def resolve_methods(args):
                 raise ValueError(f'{m} needs a --scenario with non-Gaussian noise (poisson / saturation / quantisation)')
         if 'L_interp' in args.methods and not pixels:
             raise ValueError('L_interp needs a --scenario with a pixel pattern (dead / stride)')
+        if 'L_interp' in args.methods and not gaussian:
+            raise ValueError('L_interp needs Gaussian noise: it interpolates y as white-Gaussian readings, and the aware y '
+                             'of a non-Gaussian scenario has dropped or re-weighted elements')
         return [m for m in METHODS if m in args.methods]
     return [m for m in METHODS if m == 'L' or (m == 'L_demosaic' and snapshot)
-            or (m == 'L_naive' and naive) or (m == 'L_interp' and pixels)
+            or (m == 'L_naive' and naive) or (m == 'L_interp' and pixels and gaussian)
             or (m in CKPT_FLAG and getattr(args, CKPT_FLAG[m], None) and (m != 'Bp' or getattr(args, 'b_kernel', None))
                 and (m != 'D_naive' or naive))]
 
@@ -213,10 +228,16 @@ def _interp_baseline(batch, ds, sigma, e2):
     return torch.stack(xs).float(), torch.stack(ss).float()
 
 
-def calibration_cubes01(data_root, n=N_E2_CUBES):
-    """The first n calibration cubes (fit_b_kernel.calibration_files; never a test cube) on the x01 scale."""
+def e2_interp_files(n=N_E2_CUBES):
+    """The first n calibration cubes (fit_b_kernel.calibration_files: gate cubes outside B's test subset and its source
+    images; they may be gate cubes L / D / V / C are scored on), relative to data_root."""
     from scripts.sensor.fit_b_kernel import calibration_files     # lazy: fit_b_kernel imports this module
-    return [load_cube01(os.path.join(data_root, f)) for f in calibration_files(n=n)]
+    return calibration_files(n=n)
+
+
+def calibration_cubes01(data_root, files):
+    """The cubes `files` (relative to data_root) on the x01 scale."""
+    return [load_cube01(os.path.join(data_root, f)) for f in files]
 
 
 def c_sampler_provenance(methods, K):
@@ -236,9 +257,10 @@ def run_eval(models, ds, loader, args, cfg, provenance, device):
     methods = resolve_methods(args)
     K, snapshot = int(args.K), args.mode == 'snapshot'
     scen = scenario_of(args)
-    e2_interp = None
+    e2_interp = e2_files = None
     if 'L_interp' in methods:                    # once per run, on clean calibration readings with this scenario's R
-        e2_interp = interp_error_e2(calibration_cubes01(args.data_root), ds.R, scen['pixels'], 0)
+        e2_files = list(e2_interp_files())
+        e2_interp = interp_error_e2(calibration_cubes01(args.data_root, e2_files), ds.R, scen['pixels'], 0)
     if scen is not None and needs_consts(scen):
         consts_prov = dict(path=os.path.abspath(args.scenario_consts), sha256=file_sha256(args.scenario_consts))
     else:
@@ -337,7 +359,9 @@ def run_eval(models, ds, loader, args, cfg, provenance, device):
                 batch_size=int(args.batch_size), limit_files=int(args.limit_files))
     if scen is not None:                         # Phase 3b keys, only on scenario records
         setting.update(scenario=scen, scenario_sha=scenario_sha(scen), R_sha256=ds.R_sha256,
-                       e2_interp=None if e2_interp is None else [float(v) for v in e2_interp])
+                       state_indices=None if ds.state_indices is None else [int(i) for i in ds.state_indices],
+                       e2_interp=None if e2_interp is None else [float(v) for v in e2_interp],
+                       e2_interp_files=e2_files, l_interp_rule=L_INTERP_RULE if 'L_interp' in methods else None)
         prov['scenario_consts'] = consts_prov
     return dict(name=args.name, setting=setting,
                 subset=args.subset, K=K, pigdm_steps=int(args.pigdm_steps), guidance=args.guidance, n=len(ds),

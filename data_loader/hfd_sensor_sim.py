@@ -12,7 +12,7 @@ import torch
 from data_loader.HFD_dataset import HFD_data
 from data_loader.linear_estimate import expand_matrix, load_prior
 from data_loader.mmse import mmse_maps, mmse_maps_general
-from data_loader.scenarios import has_naive, has_pixels, measure_scenario, needs_consts, scenario_R
+from data_loader.scenarios import has_naive, has_pixels, measure_scenario, needs_consts, scenario_R, state_indices
 from data_loader.sensor_config import training_sha
 from data_loader.sensor_forward import measure, sigma_from_snr
 from data_loader.sensor_model import load_sensor
@@ -67,7 +67,10 @@ class HFDSensorSim(torch.utils.data.Dataset):
         self.R = self.sensor['R'] if R_override is None else R_override
         self.R_sha256 = self.sensor['sha256'] if R_override is None else \
             hashlib.sha256(np.ascontiguousarray(R_override, dtype=np.float64).tobytes()).hexdigest()
+        self.state_indices = None                # Phase 3b: the columns of the 30-state R a scenario keeps
         if scenario is not None:
+            if scenario.get('states') is not None:
+                self.state_indices = state_indices(self.sensor['R'].shape[1], scenario['states'])
             self.R = scenario_R(self.sensor['R'], load_sensor('device2', data_root)['R'], scenario)
             self.R_sha256 = hashlib.sha256(np.ascontiguousarray(self.R, dtype=np.float64).tobytes()).hexdigest()
         p = load_prior(prior_path)

@@ -141,6 +141,17 @@ def test_refuses_a_mask_that_is_not_0_1_or_has_the_wrong_rows(small_R):
         G.LinearMeasurement(H, b, y, None, 0.1, noise_var=torch.ones(1, 30, 2, 3))
 
 
+def test_dps_refuses_a_general_measurement(small_R):
+    """Fix round 1, M4: DPS uses the unweighted residual norm, so it would ignore per-element variances."""
+    tr = DiffusionTrainer(device=torch.device('cpu'), prediction_type='v', snr_gamma=None); H, b = _ops(small_R)
+    den = T.GaussianDenoiser(torch.zeros(64), torch.eye(64), tr); y = torch.randn(1, 30, 4, 4)
+    m = G.LinearMeasurement(H, b, y, None, 0.1, noise_var=torch.full_like(y, 0.01))
+    with pytest.raises(ValueError, match='general'):
+        G.dps_sample(den, tr, m, (1, 64, 4, 4), 5, seed=0, clamp=None)
+    with pytest.raises(ValueError, match='general'):
+        G.draw_guided(den, tr, m, (1, 64, 4, 4), K=1, n_steps=5, method='dps', clamp=None)
+
+
 def test_pigdm_with_a_stride_mask_reduces_the_measured_residual(small_R):
     tr = DiffusionTrainer(device=torch.device('cpu'), prediction_type='v', snr_gamma=None); H, b = _ops(small_R)
     den = T.GaussianDenoiser(torch.zeros(64), torch.eye(64), tr)

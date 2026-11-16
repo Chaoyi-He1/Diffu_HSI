@@ -319,6 +319,7 @@ import model.guidance as GD  # noqa: E402
 
 SCN_CONSTS = dict(mean_y=3.0, y_max=9.0, quantiles={'0.9': 5.0, '0.7': 4.0})
 OLD_SETTING_KEYS = {'sensor_device', 'mode', 'snr_db', 'sigma', 'R_sha256', 'seed_scheme'}
+SCEN_SETTING_KEYS = {'scenario', 'scenario_sha', 'state_indices', 'e2_interp', 'e2_interp_files', 'l_interp_rule'}
 
 
 class StubScenarioDS(StubSensorDS):
@@ -330,6 +331,7 @@ class StubScenarioDS(StubSensorDS):
         self.scen, self.consts = spec['scenario'], consts
         self.R = SCN.scenario_R(R, np.flipud(R).copy(), self.scen)
         self.R_sha256 = 'scenario-r'
+        self.state_indices = None if self.scen['states'] is None else SCN.state_indices(R.shape[1], self.scen['states'])
 
     def __getitem__(self, i):
         x01 = self.cubes[i]
@@ -372,7 +374,7 @@ def _spy(monkeypatch):
 @pytest.mark.filterwarnings('ignore:coverage_samples:UserWarning')
 def test_pixel_scenario_record_carries_L_interp_and_e2(small_R, synthetic_prior, tmp_path, monkeypatch):
     ds = StubScenarioDS(small_R, synthetic_prior, 'stride_4_30')
-    monkeypatch.setattr(SE, 'calibration_cubes01', lambda data_root, n=SE.N_E2_CUBES: ds.cubes)
+    monkeypatch.setattr(SE, 'calibration_cubes01', lambda data_root, files: ds.cubes[:len(files)])
     calls = _spy(monkeypatch)
     args = fake_args(scenario='stride_4_30', scenario_consts=None, uncond='u', b_kernel=_kernel(tmp_path))
     assert SE.resolve_methods(args) == ['L', 'L_interp', 'B', 'Bp']
@@ -380,9 +382,12 @@ def test_pixel_scenario_record_carries_L_interp_and_e2(small_R, synthetic_prior,
         rec = run(ds, args, {'B': Shrink()})
     assert list(rec['per_cube']) == ['L', 'L_interp', 'B', 'Bp'] and len(rec['per_cube']['L_interp']['crps']) == 4
     s = rec['setting']
-    assert set(s) == OLD_SETTING_KEYS | {'scenario', 'scenario_sha', 'e2_interp'}
+    assert set(s) == OLD_SETTING_KEYS | SCEN_SETTING_KEYS
     assert s['scenario'] == SE.SCENARIOS['stride_4_30']['scenario'] and s['scenario_sha'] == SCN.scenario_sha(s['scenario'])
-    assert s['R_sha256'] == 'scenario-r'
+    assert s['R_sha256'] == 'scenario-r' and s['state_indices'] is None
+    assert s['l_interp_rule'] == 'sigma^2 on measured pixels, sigma^2 + e2 on unmeasured'
+    from scripts.sensor.fit_b_kernel import calibration_files                     # fix round 1, M1: the e2 cubes are named
+    assert s['e2_interp_files'] == calibration_files(n=SE.N_E2_CUBES) and len(s['e2_interp_files']) == 20
     np.testing.assert_allclose(s['e2_interp'], SCN.interp_error_e2(ds.cubes, ds.R, {'kind': 'stride', 'd': 4}, 0))
     assert rec['provenance']['scenario_consts'] is None
     assert set(rec) == {'name', 'setting', 'subset', 'K', 'pigdm_steps', 'guidance', 'n', 'files', 'classes', 'per_cube',
@@ -415,7 +420,9 @@ def test_poisson_scenario_carries_the_naive_methods_and_aware_guidance(small_R, 
     b = sensor_collate_fn([ds[i] for i in range(len(ds))])
     assert rec['per_cube']['D_naive']['rmse_pct'] == SE.point_metrics(b['x0_hat_naive'].clamp(-1, 1), b['x'])['rmse_pct']
     assert rec['provenance']['scenario_consts'] == dict(path=os.path.abspath(str(cpath)), sha256=file_sha256(str(cpath)))
-    assert set(rec['setting']) == OLD_SETTING_KEYS | {'scenario', 'scenario_sha', 'e2_interp'} and rec['setting']['e2_interp'] is None
+    s = rec['setting']
+    assert set(s) == OLD_SETTING_KEYS | SCEN_SETTING_KEYS
+    assert s['e2_interp'] is None and s['e2_interp_files'] is None and s['l_interp_rule'] is None and s['state_indices'] is None
     assert SpyMeasurement.made and all(m.general and m.noise_var is not None for m in SpyMeasurement.made)
     assert torch.equal(SpyMeasurement.made[0].noise_var, b['noise_var'][:2])
     assert all(torch.is_tensor(c['sigma2']) and c['mask'] is None for c in calls)    # all-ones mask: passed as None
@@ -429,6 +436,7 @@ def test_gaussian_scenario_without_pixels_uses_the_phase3_measurement(small_R, s
     with np.errstate(divide='ignore', invalid='ignore'):
         rec = run(ds, args, {'B': Shrink()})
     assert list(rec['per_cube']) == ['L', 'B', 'Bp'] and ds.R.shape == (31, 5)
+    assert rec['setting']['state_indices'] == [0, 7, 15, 22, 29]                    # fix round 1, M3
     assert all(not m.general and not m.snapshot and m.H.shape[0] == 5 for m in SpyMeasurement.made)
     assert all(not torch.is_tensor(c['sigma2']) and c['mask'] is None for c in calls)
 
@@ -447,6 +455,27 @@ def test_scenario_method_refusals():
     assert SE.resolve_methods(fake_args(regress='r')) == ['L', 'D']                    # no scenario: as before
     with pytest.raises(ValueError, match='unknown scenario'):
         SE.resolve_methods(fake_args(scenario='nope'))
+
+
+def test_L_interp_refused_with_non_gaussian_noise(monkeypatch):
+    """Fix round 1, M2: the aware y of a non-Gaussian scenario has dropped / re-weighted elements L_interp cannot read."""
+    monkeypatch.setitem(SE.SCENARIOS, 'dead_sat', dict(sensor_device='device1', snr_db=30.0, scenario=dict(
+        name='dead_sat', R={'kind': 'device'}, states=None, pixels={'kind': 'dead', 'p': 0.5},
+        noise={'kind': 'saturation', 'q': 0.9})))
+    with pytest.raises(ValueError, match='L_interp.*Gaussian'):
+        SE.resolve_methods(fake_args(scenario='dead_sat', methods=['L', 'L_interp']))
+    assert SE.resolve_methods(fake_args(scenario='dead_sat')) == ['L', 'L_naive']   # not in the default list either
+    assert 'L_interp' in SE.resolve_methods(fake_args(scenario='dead_50'))
+
+
+def test_dps_refused_with_a_general_measurement_scenario():
+    """Fix round 1, M4: DPS ignores per-element variances and the general mask's noise model."""
+    for name in ('stride_4_30', 'dead_50', 'poisson_30', 'sat_90', 'quant_4'):
+        with pytest.raises(ValueError, match='dps'):
+            SE.resolve_methods(fake_args(scenario=name, uncond='u', guidance='dps'))
+    assert SE.resolve_methods(fake_args(scenario='states_5_20', uncond='u', guidance='dps')) == ['L', 'B']
+    assert SE.resolve_methods(fake_args(scenario='stride_4_30', guidance='dps')) == ['L', 'L_interp']   # no guided method
+    assert SE.resolve_methods(fake_args(uncond='u', guidance='dps')) == ['L', 'B']                     # no scenario
 
 
 def test_scenario_arguments(tmp_path):
@@ -488,5 +517,6 @@ def test_no_scenario_record_has_no_scenario_keys(small_R, synthetic_prior):
 
 @pytest.mark.dataset
 def test_calibration_cubes_for_e2(data_root):
-    cubes = SE.calibration_cubes01(data_root, n=2)
+    from scripts.sensor.fit_b_kernel import calibration_files
+    cubes = SE.calibration_cubes01(data_root, calibration_files(n=2))
     assert len(cubes) == 2 and cubes[0].shape == (64, 64, 31) and 0 <= cubes[0].min() and cubes[0].max() <= 1
