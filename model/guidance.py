@@ -26,20 +26,39 @@ def _view(a, x):
 
 
 class LinearMeasurement:
-    """y_eff = (y - b) * mask; apply(x) = (H x) * mask; solve applies (r2 H H^T + sigma^2 I)^-1 on the measured rows."""
+    """y_eff = (y - b) * mask; apply(x) = (H x) * mask; solve applies (r2 H H^T + sigma^2 I)^-1 on the measured rows.
 
-    def __init__(self, H, b, y, mask, sigma_y):
+    Three paths. With noise_var None: mask None / all-ones -> sequential (every row, noise sigma^2); a one-hot mask over
+    the rows -> snapshot (both exactly as in Phase 3). Otherwise (any other 0/1 mask [B, O, H, W], or a per-element
+    noise_var [B, O, H, W] given) -> general: per pixel, (r2 M H H^T M + diag(noise_var on measured rows, 1 elsewhere))
+    v = M resid, returned as M v (float64 internally). H may have any number of rows O (state subsets)."""
+
+    GENERAL_CHUNK = 65536                       # pixels per batched solve on the general path
+
+    def __init__(self, H, b, y, mask, sigma_y, noise_var=None):
         self.H = H.to(device=y.device, dtype=y.dtype)
         self.b = b.to(device=y.device, dtype=y.dtype)
         self.sigma2 = float(sigma_y) ** 2
-        if mask is None or bool(torch.all(mask == 1)):
+        self.general, self.noise_var = False, None
+        if noise_var is None and (mask is None or bool(torch.all(mask == 1))):
             self.mask, self.snapshot = None, False
         else:
-            mask = mask.to(device=y.device, dtype=y.dtype)
-            if mask.shape[1] != self.H.shape[0] or not bool(torch.all((mask == 0) | (mask == 1))) \
-                    or not bool(torch.all(mask.sum(1) == 1)):
-                raise ValueError('mask must be None, all-ones (sequential) or one-hot over the 30 rows (snapshot)')
-            self.mask, self.snapshot = mask, True
+            if mask is not None:
+                mask = mask.to(device=y.device, dtype=y.dtype)
+                if mask.shape[1] != self.H.shape[0] or not bool(torch.all((mask == 0) | (mask == 1))):
+                    raise ValueError('mask must be None, all-ones (sequential), one-hot over the rows (snapshot) or a '
+                                     f'0/1 tensor with H\'s {self.H.shape[0]} rows (general)')
+            if noise_var is None and bool(torch.all(mask.sum(1) == 1)):
+                self.mask, self.snapshot = mask, True
+            else:
+                if mask is not None and mask.shape != y.shape:
+                    raise ValueError(f'a general mask must have y\'s shape {tuple(y.shape)}, got {tuple(mask.shape)}')
+                if noise_var is not None and tuple(noise_var.shape) != tuple(y.shape):
+                    raise ValueError(f'noise_var must have y\'s shape {tuple(y.shape)}, got {tuple(noise_var.shape)}')
+                self.mask = torch.ones_like(y) if mask is None else mask
+                self.snapshot, self.general = False, True
+                self.noise_var = (torch.full_like(y, self.sigma2) if noise_var is None
+                                  else noise_var.to(device=y.device, dtype=y.dtype))
         self.y_eff = self._m(y - self.b[None, :, None, None])
 
     def _m(self, v):
@@ -51,8 +70,27 @@ class LinearMeasurement:
     def residual(self, x0):
         return self.y_eff - self.apply(x0)
 
+    def _solve_general(self, resid, r2):
+        B, O, Hh, Ww = resid.shape
+        f = dict(device=resid.device, dtype=torch.float64)
+        Hd = self.H.to(**f)
+        HHt = Hd @ Hd.T                                                          # [O, O]
+        mp = self.mask.to(**f).permute(0, 2, 3, 1).reshape(-1, O)                # [B*P, O]
+        nv = torch.where(mp > 0, self.noise_var.to(**f).permute(0, 2, 3, 1).reshape(-1, O), torch.ones_like(mp))
+        r2p = r2.to(**f)[:, None].expand(B, Hh * Ww).reshape(-1)                  # [B*P]
+        rhs = resid.to(**f).permute(0, 2, 3, 1).reshape(-1, O) * mp
+        v = torch.empty_like(rhs)
+        for a in range(0, rhs.shape[0], self.GENERAL_CHUNK):
+            s = slice(a, a + self.GENERAL_CHUNK)
+            m = mp[s]
+            A = r2p[s, None, None] * (m[:, :, None] * HHt[None] * m[:, None, :]) + torch.diag_embed(nv[s])
+            v[s] = torch.linalg.solve(A, rhs[s][..., None])[..., 0] * m
+        return v.reshape(B, Hh, Ww, O).permute(0, 3, 1, 2).to(resid.dtype).contiguous()
+
     def solve(self, resid, r2):
         r2 = r2.to(device=resid.device, dtype=resid.dtype)
+        if self.general:
+            return self._solve_general(resid, r2)
         if self.snapshot:
             hk2 = (self.H ** 2).sum(1)                                              # ||h_k||^2, [30]
             denom = r2[:, None, None, None] * hk2[None, :, None, None] + self.sigma2
