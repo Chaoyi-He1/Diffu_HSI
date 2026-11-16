@@ -111,6 +111,22 @@ readings dropped, σ² + Δ²/12 for the ADC. L, D (aware statistics) and B / B�
 aware; L_naive and D_naive assume white Gaussian noise at the nominal σ. Prediction: the aware methods beat their naive
 versions; B⁺ beats D with aware statistics under saturation (the statistics leave the family's training distribution).
 
+### Rulings before any Part B record (2026-11-16, after the code review of the scenario infrastructure)
+
+- **L_interp** uses σ² on measured pixels and σ² + e2 on unmeasured ones (a measured pixel has no interpolation error;
+  adding e2 everywhere, as the paragraph above reads, weakened the baseline by 2–3 %). On a stride grid the
+  interpolation holds the edge value beyond the last measured row / column. e2 is estimated on the first 20
+  calibration cubes; they are among the 200 gate cubes L_interp is scored on (not among B's 50), which can only favour
+  the baseline. L_interp is defined for Gaussian noise only.
+- **State subsets** round half up: floor(linspace(0, 29, S) + 0.5); S = 5 is [0, 7, 15, 22, 29]. The record states
+  the index list.
+- **C and C1** are scored on the 50-cube subset with K = 20 (the cubes and K of B), not on the 200 gate cubes: 24 more
+  200-cube C records would cost ≈ 17 GPU-h for a line that is not the subject of these tests.
+- The scenario constants (γ's mean reading, the saturation quantiles, the ADC range) come from the clean Device 1
+  readings of the 68 calibration cubes (`sensor/scenario_consts.json`).
+- The implementer's smoke run suggests shot noise at these photon levels barely separates aware from naive; the
+  prediction of B.4 stands as written and is reported whatever it gives.
+
 ### Budget
 
 A.4: 13 × 1.7 = 22 GPU-h. B: 24 settings × ≈ 1.05 GPU-h = 25 GPU-h, plus minutes for L / D / V / C. Two RTX A4500;
