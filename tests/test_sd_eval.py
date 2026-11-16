@@ -309,3 +309,184 @@ def test_Bp_needs_the_kernel_and_the_kernel_must_fit_the_prior(small_R, syntheti
     with pytest.raises(ValueError, match='another prior checkpoint'):
         SE.run_eval({'B': Shrink()}, ds, loader, args, CFG, {'uncond': {'sha256': 'b' * 64, 'prediction_type': 'v'}},
                     torch.device('cpu'))
+
+
+# ----------------------------------------------------------------------------- Phase 3b scenarios (--scenario)
+from data_loader import scenarios as SCN  # noqa: E402
+from data_loader.mmse import mmse_maps_general  # noqa: E402
+from data_loader.warmstart_paths import file_sha256  # noqa: E402
+import model.guidance as GD  # noqa: E402
+
+SCN_CONSTS = dict(mean_y=3.0, y_max=9.0, quantiles={'0.9': 5.0, '0.7': 4.0})
+OLD_SETTING_KEYS = {'sensor_device', 'mode', 'snr_db', 'sigma', 'R_sha256', 'seed_scheme'}
+
+
+class StubScenarioDS(StubSensorDS):
+    """HFDSensorSim's scenario items for one SCENARIOS entry (R2 = the flipped fixture R)."""
+
+    def __init__(self, R, prior, name, consts=None, n=4):
+        spec = SE.SCENARIOS[name]
+        super().__init__(R, prior, snr_db=spec['snr_db'], n=n)
+        self.scen, self.consts = spec['scenario'], consts
+        self.R = SCN.scenario_R(R, np.flipud(R).copy(), self.scen)
+        self.R_sha256 = 'scenario-r'
+
+    def __getitem__(self, i):
+        x01 = self.cubes[i]
+        sigma = sigma_from_snr(self.snr_db, CFG['P_y'])
+        m = SCN.measure_scenario(x01, self.R, sigma, self.scen, np.random.default_rng(i), self.consts)
+        xh, s = mmse_maps_general(m['y'], m['mask'], m['noise_var'], self.R, self.prior, self.A)
+        out = dict(x=((2.0 * x01 - 1.0) @ self.A.T).astype(np.float32), y=m['y'], x0_hat=xh,
+                   s_post=np.maximum(s, SIGMA_D).astype(np.float32), s_raw=s, mask=m['mask'], sigma=np.float32(sigma),
+                   snr_db=np.float32(self.snr_db), snapshot=np.float32(0.0), noise_var=m['noise_var'])
+        if SCN.has_naive(self.scen):
+            xn, sn = mmse_maps_general(m['y_naive'], m['mask_naive'], m['noise_var_naive'], self.R, self.prior, self.A)
+            out.update(y_naive=m['y_naive'], mask_naive=m['mask_naive'], noise_var_naive=m['noise_var_naive'],
+                       x0_hat_naive=xn, s_post_naive=np.maximum(sn, SIGMA_D).astype(np.float32), s_raw_naive=sn)
+        if SCN.has_pixels(self.scen):
+            out['measured'] = m['measured'][..., None].astype(np.float32)
+        return out
+
+
+class SpyMeasurement(GD.LinearMeasurement):
+    made = []
+
+    def __init__(self, *a, **kw):
+        super().__init__(*a, **kw)
+        SpyMeasurement.made.append(self)
+
+
+def _spy(monkeypatch):
+    SpyMeasurement.made = []
+    calls = []
+    real = SE.posterior_draws
+
+    def pd(draws, H, b, y, sigma2, Sigma_e, mask=None, clamp=(-1.0, 1.0)):
+        calls.append(dict(sigma2=sigma2, mask=mask))
+        return real(draws, H, b, y, sigma2, Sigma_e, mask=mask, clamp=clamp)
+    monkeypatch.setattr(SE, 'LinearMeasurement', SpyMeasurement)
+    monkeypatch.setattr(SE, 'posterior_draws', pd)
+    return calls
+
+
+@pytest.mark.filterwarnings('ignore:coverage_samples:UserWarning')
+def test_pixel_scenario_record_carries_L_interp_and_e2(small_R, synthetic_prior, tmp_path, monkeypatch):
+    ds = StubScenarioDS(small_R, synthetic_prior, 'stride_4_30')
+    monkeypatch.setattr(SE, 'calibration_cubes01', lambda data_root, n=SE.N_E2_CUBES: ds.cubes)
+    calls = _spy(monkeypatch)
+    args = fake_args(scenario='stride_4_30', scenario_consts=None, uncond='u', b_kernel=_kernel(tmp_path))
+    assert SE.resolve_methods(args) == ['L', 'L_interp', 'B', 'Bp']
+    with np.errstate(divide='ignore', invalid='ignore'):
+        rec = run(ds, args, {'B': Shrink()})
+    assert list(rec['per_cube']) == ['L', 'L_interp', 'B', 'Bp'] and len(rec['per_cube']['L_interp']['crps']) == 4
+    s = rec['setting']
+    assert set(s) == OLD_SETTING_KEYS | {'scenario', 'scenario_sha', 'e2_interp'}
+    assert s['scenario'] == SE.SCENARIOS['stride_4_30']['scenario'] and s['scenario_sha'] == SCN.scenario_sha(s['scenario'])
+    assert s['R_sha256'] == 'scenario-r'
+    np.testing.assert_allclose(s['e2_interp'], SCN.interp_error_e2(ds.cubes, ds.R, {'kind': 'stride', 'd': 4}, 0))
+    assert rec['provenance']['scenario_consts'] is None
+    assert set(rec) == {'name', 'setting', 'subset', 'K', 'pigdm_steps', 'guidance', 'n', 'files', 'classes', 'per_cube',
+                        'means', 'coverage_exact', 'provenance'}
+    # the guidance and the B+ conditioning see the stride mask (gaussian noise: no per-element variance)
+    assert SpyMeasurement.made and all(m.general for m in SpyMeasurement.made)
+    assert all(not torch.is_tensor(c['sigma2']) and c['mask'] is not None for c in calls)
+    # L_interp by hand for cube 0: the readings interpolated over the image, then the sequential MMSE with sigma^2 + e2
+    it = ds[0]
+    xh, sd = SCN.interp_then_mmse(it['y'], it['measured'][..., 0] > 0.5, ds.R, ds.prior, float(it['sigma']), ds.A,
+                                  np.asarray(s['e2_interp']))
+    ref = SE.gaussian_metrics(torch.from_numpy(xh.transpose(2, 0, 1))[None], torch.from_numpy(sd.transpose(2, 0, 1))[None],
+                              torch.from_numpy(it['x'].transpose(2, 0, 1))[None])
+    assert np.isclose(rec['per_cube']['L_interp']['crps'][0], ref['crps'][0], rtol=1e-5)
+    json.dumps(rec)
+
+
+@pytest.mark.filterwarnings('ignore:coverage_samples:UserWarning')
+def test_poisson_scenario_carries_the_naive_methods_and_aware_guidance(small_R, synthetic_prior, tmp_path, monkeypatch):
+    cpath = tmp_path / 'scenario_consts.json'
+    cpath.write_text(json.dumps(SCN_CONSTS))
+    ds = StubScenarioDS(small_R, synthetic_prior, 'poisson_30', consts=SCN_CONSTS)
+    calls = _spy(monkeypatch)
+    args = fake_args(scenario='poisson_30', scenario_consts=str(cpath), regress='r', uncond='u', b_kernel=_kernel(tmp_path))
+    assert SE.resolve_methods(args) == ['L', 'L_naive', 'D', 'D_naive', 'B', 'Bp']
+    with np.errstate(divide='ignore', invalid='ignore'):
+        rec = run(ds, args, {'D': Const(0.0), 'B': Shrink()})
+    assert list(rec['per_cube']) == ['L', 'L_naive', 'D', 'D_naive', 'B', 'Bp']
+    assert rec['per_cube']['L'] != rec['per_cube']['L_naive'] and rec['per_cube']['D'] != rec['per_cube']['D_naive']
+    b = sensor_collate_fn([ds[i] for i in range(len(ds))])
+    assert rec['per_cube']['D_naive']['rmse_pct'] == SE.point_metrics(b['x0_hat_naive'].clamp(-1, 1), b['x'])['rmse_pct']
+    assert rec['provenance']['scenario_consts'] == dict(path=os.path.abspath(str(cpath)), sha256=file_sha256(str(cpath)))
+    assert set(rec['setting']) == OLD_SETTING_KEYS | {'scenario', 'scenario_sha', 'e2_interp'} and rec['setting']['e2_interp'] is None
+    assert SpyMeasurement.made and all(m.general and m.noise_var is not None for m in SpyMeasurement.made)
+    assert torch.equal(SpyMeasurement.made[0].noise_var, b['noise_var'][:2])
+    assert all(torch.is_tensor(c['sigma2']) and c['mask'] is None for c in calls)    # all-ones mask: passed as None
+
+
+@pytest.mark.filterwarnings('ignore:coverage_samples:UserWarning')
+def test_gaussian_scenario_without_pixels_uses_the_phase3_measurement(small_R, synthetic_prior, tmp_path, monkeypatch):
+    ds = StubScenarioDS(small_R, synthetic_prior, 'states_5_20', n=2)
+    calls = _spy(monkeypatch)
+    args = fake_args(scenario='states_5_20', scenario_consts=None, uncond='u', b_kernel=_kernel(tmp_path))
+    with np.errstate(divide='ignore', invalid='ignore'):
+        rec = run(ds, args, {'B': Shrink()})
+    assert list(rec['per_cube']) == ['L', 'B', 'Bp'] and ds.R.shape == (31, 5)
+    assert all(not m.general and not m.snapshot and m.H.shape[0] == 5 for m in SpyMeasurement.made)
+    assert all(not torch.is_tensor(c['sigma2']) and c['mask'] is None for c in calls)
+
+
+def test_scenario_method_refusals():
+    with pytest.raises(ValueError, match='L_naive'):
+        SE.resolve_methods(fake_args(methods=['L', 'L_naive']))                         # no scenario
+    with pytest.raises(ValueError, match='D_naive'):
+        SE.resolve_methods(fake_args(methods=['D_naive'], regress='r', scenario='stride_4_30'))   # gaussian noise
+    with pytest.raises(ValueError, match='L_interp'):
+        SE.resolve_methods(fake_args(methods=['L_interp'], scenario='poisson_30'))      # no pixel pattern
+    with pytest.raises(ValueError, match='L_interp'):
+        SE.resolve_methods(fake_args(methods=['L_interp']))
+    assert SE.resolve_methods(fake_args(scenario='sat_70')) == ['L', 'L_naive']         # D_naive needs --regress
+    assert SE.resolve_methods(fake_args(scenario='dead_90', methods=['L_interp'])) == ['L_interp']
+    assert SE.resolve_methods(fake_args(regress='r')) == ['L', 'D']                    # no scenario: as before
+    with pytest.raises(ValueError, match='unknown scenario'):
+        SE.resolve_methods(fake_args(scenario='nope'))
+
+
+def test_scenario_arguments(tmp_path):
+    ap = SE.get_parser()
+    a = ap.parse_args(['--name', 'x', '--scenario', 'blend_050'])
+    assert a.snr_db is None and SE.apply_scenario_args(a) == SE.SCENARIOS['blend_050']['scenario']
+    assert a.snr_db == 30.0 and a.sensor_device == 'device1' and a.scenario_consts is None
+    a = ap.parse_args(['--name', 'x', '--scenario', 'states_5_20', '--snr_db', '20'])
+    assert SE.apply_scenario_args(a)['states'] == 5
+    with pytest.raises(ValueError, match='snr_db'):
+        SE.apply_scenario_args(ap.parse_args(['--name', 'x', '--scenario', 'states_5_20', '--snr_db', '40']))
+    with pytest.raises(ValueError, match='sensor_device'):
+        SE.apply_scenario_args(ap.parse_args(['--name', 'x', '--scenario', 'blend_050', '--sensor_device', 'device2']))
+    with pytest.raises(ValueError, match='sequential'):
+        SE.apply_scenario_args(ap.parse_args(['--name', 'x', '--scenario', 'blend_050', '--mode', 'snapshot']))
+    with pytest.raises(ValueError, match='snr_db'):
+        SE.apply_scenario_args(ap.parse_args(['--name', 'x']))                         # no scenario: --snr_db required
+    a = ap.parse_args(['--name', 'x', '--snr_db', '30'])
+    assert SE.apply_scenario_args(a) is None and a.snr_db == 30.0
+    with pytest.raises(FileNotFoundError, match='scenario_consts'):
+        SE.apply_scenario_args(ap.parse_args(['--name', 'x', '--scenario', 'quant_4',
+                                              '--scenario_consts', str(tmp_path / 'missing.json')]))
+    c = tmp_path / 'c.json'
+    c.write_text(json.dumps(SCN_CONSTS))
+    a = ap.parse_args(['--name', 'x', '--scenario', 'quant_4', '--scenario_consts', str(c)])
+    SE.apply_scenario_args(a)
+    assert a.scenario_consts == str(c) and a.snr_db == 40.0
+    a = ap.parse_args(['--name', 'x', '--scenario', 'sat_90'])
+    if not os.path.isfile(SE.SCENARIO_CONSTS):
+        with pytest.raises(FileNotFoundError):
+            SE.apply_scenario_args(a)
+    assert SE.SCENARIO_CONSTS.endswith('/sensor/scenario_consts.json')
+
+
+def test_no_scenario_record_has_no_scenario_keys(small_R, synthetic_prior):
+    rec = run(StubSensorDS(small_R, synthetic_prior, n=2), fake_args(methods=['L'], K=32), {})
+    assert set(rec['setting']) == OLD_SETTING_KEYS and 'scenario_consts' not in rec['provenance']
+
+
+@pytest.mark.dataset
+def test_calibration_cubes_for_e2(data_root):
+    cubes = SE.calibration_cubes01(data_root, n=2)
+    assert len(cubes) == 2 and cubes[0].shape == (64, 64, 31) and 0 <= cubes[0].min() and cubes[0].max() <= 1
