@@ -51,11 +51,11 @@ def test_scenario_R_gain_is_seeded_per_state(small_R):
 
 def test_scenario_R_state_subset(small_R):
     R = SC.scenario_R(small_R, None, _scen(states=5))
-    idx = np.round(np.linspace(0, 29, 5)).astype(int)
-    assert R.shape == (31, 5) and np.array_equal(R, small_R[:, idx]) and list(idx) == [0, 7, 14, 22, 29]
+    idx = [0, 7, 15, 22, 29]                                                       # round half up (fix round 1, M3)
+    assert R.shape == (31, 5) and np.array_equal(R, small_R[:, idx])
     Rg = SC.scenario_R(small_R, None, _scen(R={'kind': 'gain', 'delta': 0.5, 'seed': 0}, states=10))
     np.testing.assert_allclose(Rg, SC.scenario_R(small_R, None, _scen(R={'kind': 'gain', 'delta': 0.5, 'seed': 0}))[
-        :, np.round(np.linspace(0, 29, 10)).astype(int)])                         # gain over the 30 states, then the subset
+        :, [0, 3, 6, 10, 13, 16, 19, 23, 26, 29]])                                  # gain over the 30 states, then the subset
 
 
 # ----------------------------------------------------------------------------- pixel patterns
@@ -192,12 +192,50 @@ def test_interp_then_mmse_and_e2(small_R, synthetic_prior):
     e2 = SC.interp_error_e2(cubes, small_R, {'kind': 'stride', 'd': 4}, 0)
     assert e2.shape == (30,) and (e2 > 0).all()
     assert np.array_equal(SC.interp_error_e2(cubes, small_R, None, 0), np.zeros(30))
+
+def test_interp_then_mmse_uses_sigma2_on_measured_and_sigma2_plus_e2_elsewhere(small_R, synthetic_prior):
+    """Fix round 1, I1: a measured pixel has no interpolation error."""
+    prior = dict(mu=synthetic_prior['mu'], C=synthetic_prior['C']); A = expand_matrix(np.linspace(451, 855, 31), 64)
+    rng = np.random.default_rng(0)
+    cube = np.clip(0.5 + synthetic_prior['X'][rng.integers(0, 20000, 144)].reshape(12, 12, 31), 0, 1)
+    sigma, e2 = 0.05, np.full(30, 0.05)                                            # e2 >> sigma^2: the two rules differ
     st = SC.pixel_measured(12, 12, {'kind': 'stride', 'd': 4}, None)
-    y = (cubes[0] @ small_R) * st[..., None]
-    xh, s = SC.interp_then_mmse(y, st, small_R, prior, 0.05, A, e2)
+    y = (cube @ small_R) * st[..., None]
+    xh, s = SC.interp_then_mmse(y, st, small_R, prior, sigma, A, e2)
+    assert xh.dtype == np.float32 and s.dtype == np.float32 and xh.shape == (12, 12, 64)
     mu01, C01 = MM.prior01(prior)
-    xr, Sr = MM.posterior_sequential(SC.interp_readings(y, st).reshape(-1, 30), small_R, mu01, C01, 0.05 ** 2 + e2)
-    x64, s64 = MM.lift_mean_std(xr, Sr, A)
-    np.testing.assert_allclose(xh, (2 * x64 - 1).reshape(12, 12, 64), atol=1e-5)
-    np.testing.assert_allclose(s, (2 * s64).reshape(12, 12, 64), atol=1e-5)
-    assert xh.dtype == np.float32 and s.dtype == np.float32
+    d = SC.interp_readings(y, st)
+
+    def post(nv):
+        xr, Sr = MM.posterior_sequential(d.reshape(-1, 30), small_R, mu01, C01, nv)
+        x64, s64 = MM.lift_mean_std(xr, Sr, A)
+        return (2 * x64 - 1).reshape(12, 12, 64), (2 * s64).reshape(12, 12, 64)
+    x_m, s_m = post(sigma ** 2)                                                     # plain sequential MMSE, sigma^2
+    x_u, s_u = post(sigma ** 2 + e2)
+    np.testing.assert_allclose(xh[st], x_m[st], atol=1e-5); np.testing.assert_allclose(s[st], s_m[st], atol=1e-5)
+    np.testing.assert_allclose(xh[~st], x_u[~st], atol=1e-5); np.testing.assert_allclose(s[~st], s_u[~st], atol=1e-5)
+    assert np.abs(x_m[st] - x_u[st]).max() > 1e-3 and np.abs(s_m[st] - s_u[st]).max() > 1e-3   # the old rule would fail
+    assert SC.L_INTERP_RULE == 'sigma^2 on measured pixels, sigma^2 + e2 on unmeasured'
+
+
+def test_interp_readings_stride_holds_the_edge_beyond_the_grid():
+    """Fix round 1, M9: no linear extrapolation past the last measured row / column."""
+    Hh, W = 19, 23                                                                  # rows 0..16 and cols 0..20 measured
+    ramp = np.add.outer(np.arange(Hh), 2 * np.arange(W)).astype(float)
+    y = np.repeat(ramp[..., None], 2, -1)
+    st = SC.pixel_measured(Hh, W, {'kind': 'stride', 'd': 4}, None)
+    d = SC.interp_readings(y * st[..., None], st)
+    np.testing.assert_allclose(d[:17, :21], y[:17, :21], atol=1e-9)                # exact inside the grid's extent
+    np.testing.assert_allclose(d[17:, :21], np.repeat(y[16:17, :21], 2, 0), atol=1e-9)   # last measured row held
+    np.testing.assert_allclose(d[:17, 21:], np.repeat(y[:17, 20:21], 2, 1), atol=1e-9)   # last measured column held
+    assert np.all(d[17:, 21:] == y[16, 20, 0])                                      # the corner holds (16, 20)
+
+
+def test_state_indices_round_half_up():
+    """Fix round 1, M3: floor(linspace(0, n - 1, S) + 0.5), strictly increasing."""
+    assert SC.state_indices(30, 15).tolist() == [0, 2, 4, 6, 8, 10, 12, 15, 17, 19, 21, 23, 25, 27, 29]
+    assert SC.state_indices(30, 10).tolist() == [0, 3, 6, 10, 13, 16, 19, 23, 26, 29]
+    assert SC.state_indices(30, 5).tolist() == [0, 7, 15, 22, 29]
+    assert SC.state_indices(30, 30).tolist() == list(range(30))
+    with pytest.raises(ValueError, match='increasing'):
+        SC.state_indices(3, 5)

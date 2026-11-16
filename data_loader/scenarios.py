@@ -27,6 +27,7 @@ PIXEL_KINDS = ('dead', 'stride')
 NOISE_KINDS = ('gaussian', 'poisson', 'saturation', 'quantisation')
 NAIVE_KINDS = ('poisson', 'saturation', 'quantisation')        # also the kinds that need scenario_consts
 QUANTILES = (0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 0.99)
+L_INTERP_RULE = 'sigma^2 on measured pixels, sigma^2 + e2 on unmeasured'     # interp_then_mmse's noise variance
 
 
 # ----------------------------------------------------------------------------- flags and identity
@@ -49,7 +50,13 @@ def scenario_sha(scenario):
 
 
 def state_indices(n, S):
-    return np.round(np.linspace(0, n - 1, int(S))).astype(int)
+    """Evenly spaced subset of n states, rounded half up: floor(linspace(0, n - 1, S) + 0.5); strictly increasing
+    (ValueError otherwise). n = 30: S = 15 -> [0, 2, ..., 12, 15, ..., 29], 10 -> [0, 3, 6, 10, 13, 16, 19, 23, 26, 29],
+    5 -> [0, 7, 15, 22, 29]."""
+    idx = np.floor(np.linspace(0, n - 1, int(S)) + 0.5).astype(int)
+    if np.any(np.diff(idx) <= 0):
+        raise ValueError(f'the state subset S = {S} of n = {n} is not strictly increasing: {idx.tolist()}')
+    return idx
 
 
 # ----------------------------------------------------------------------------- the response matrix
@@ -194,7 +201,8 @@ def _rectilinear(measured):
 
 def interp_readings(y, measured):
     """Per-channel spatial interpolation of the measured pixels' readings onto the full [H, W] grid -> [H, W, S]
-    float64. A rectilinear (stride) grid: RegularGridInterpolator, linear, extrapolating (as mmse.demosaic); otherwise
+    float64. A rectilinear (stride) grid: RegularGridInterpolator, linear, with the query clamped to the measured grid's
+    extent (beyond the last measured row / column the edge value is held; no linear extrapolation); otherwise
     griddata-style linear interpolation over the Delaunay triangulation of the measured pixels, with a nearest-neighbour
     fill outside their convex hull (or everywhere when fewer than 3 non-collinear pixels are measured)."""
     y = np.asarray(y, np.float64)
@@ -209,7 +217,8 @@ def interp_readings(y, measured):
         rows, cols = rc
         f = RegularGridInterpolator((rows, cols), y[np.ix_(rows, cols)], method='linear', bounds_error=False,
                                     fill_value=None)
-        return f(pts).reshape(H, W, S)
+        q = np.stack([np.clip(pts[:, 0], rows[0], rows[-1]), np.clip(pts[:, 1], cols[0], cols[-1])], -1)
+        return f(q).reshape(H, W, S)
     src = np.stack(np.nonzero(measured), -1).astype(np.float64)
     vals = y[measured]                                                   # [N, S]
     out = np.full((H * W, S), np.nan)
@@ -227,13 +236,20 @@ def interp_readings(y, measured):
 
 
 def interp_then_mmse(y, measured, R, prior, sigma, A, e2):
-    """Sequential posterior of the interpolated readings with per-channel noise_var = sigma^2 + e2 (as
-    mmse.demosaic_then_mmse). -> (x_hat64, std64) [H, W, 64] float32 on the trainer scale."""
+    """Sequential posterior of the interpolated readings (L_INTERP_RULE): a measured pixel keeps its own reading, which
+    has no interpolation error, so its noise variance is sigma^2 (the plain sequential MMSE); an unmeasured pixel's
+    interpolated reading gets sigma^2 + e2 per channel. -> (x_hat64, std64) [H, W, 64] float32 on the trainer scale."""
     H, W, S = y.shape
     mu01, C01 = prior01(prior)
-    d = interp_readings(y, measured)
-    xh, Sig = posterior_sequential(d.reshape(-1, S), R, mu01, C01, float(sigma) ** 2 + np.asarray(e2, np.float64))
-    return _to_trainer(*lift_mean_std(xh, Sig, A), (H, W, A.shape[0]))
+    d = interp_readings(y, measured).reshape(-1, S)
+    meas = np.asarray(measured, bool).reshape(-1)
+    M = A.shape[0]
+    x64, s64 = np.empty((H * W, M)), np.empty((H * W, M))
+    for sel, nv in ((meas, float(sigma) ** 2), (~meas, float(sigma) ** 2 + np.asarray(e2, np.float64))):
+        if sel.any():
+            xh, Sig = posterior_sequential(d[sel], R, mu01, C01, nv)
+            x64[sel], s64[sel] = lift_mean_std(xh, Sig, A)
+    return _to_trainer(x64, s64, (H, W, M))
 
 
 def interp_error_e2(cubes01, R, pixels_spec, seed):
