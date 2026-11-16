@@ -46,7 +46,14 @@ def file_sha256(path):
 
 
 def git_head(repo=REPO):
-    """The checkout's HEAD commit, or None when git is unavailable (best effort; uncommitted changes are not recorded)."""
+    """The checkout's HEAD commit, or None when git is unavailable (best effort; uncommitted changes are not recorded).
+    An exported copy of the tree (git archive, used to run a long evaluation queue on frozen code) is not a checkout: it
+    states its commit in a GIT_HEAD file at its root, which is read first."""
+    stamp = os.path.join(repo, 'GIT_HEAD')
+    if os.path.isfile(stamp):
+        with open(stamp) as f:
+            h = f.read().strip()
+        return h or None
     try:
         r = subprocess.run(['git', '-C', repo, 'rev-parse', 'HEAD'], capture_output=True, text=True, timeout=10)
         return r.stdout.strip() if r.returncode == 0 and r.stdout.strip() else None

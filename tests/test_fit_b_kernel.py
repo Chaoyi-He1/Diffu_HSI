@@ -27,6 +27,15 @@ def test_calibration_refuses_an_empty_pool(tmp_path):
         F.calibration_files(str(p))
 
 
+def test_an_exported_tree_states_its_commit_in_GIT_HEAD(tmp_path):
+    from data_loader.warmstart_paths import git_head
+    assert git_head(str(tmp_path)) is None                                    # neither a checkout nor an export
+    (tmp_path / 'GIT_HEAD').write_text('0123456789abcdef0123456789abcdef01234567\n')
+    assert git_head(str(tmp_path)) == '0123456789abcdef0123456789abcdef01234567'
+    (tmp_path / 'GIT_HEAD').write_text('\n')
+    assert git_head(str(tmp_path)) is None
+
+
 class _Half(torch.nn.Module):
     """x0-prediction stub: half of x_t, so the guided draws depend on the seed."""
     def forward(self, x_t, cond, t):
