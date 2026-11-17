@@ -32,6 +32,7 @@ function xy(host,o){
   const svg=mk(host,W,H,o.minW||520);const pw=W-m.l-m.r,ph=H-m.t-m.b;
   const X=function(v){return m.l+(v-o.x[0])/(o.x[1]-o.x[0])*pw;};
   let Y;if(o.log){const a=Math.log10(o.y[0]),b=Math.log10(o.y[1]);Y=function(v){return m.t+ph-(Math.log10(Math.max(v,o.y[0]))-a)/(b-a)*ph;};}else{Y=function(v){return m.t+ph-(v-o.y[0])/(o.y[1]-o.y[0])*ph;};}
+  (o.bands||[]).forEach(function(b){el('rect',{x:m.l,y:Y(b.y1),width:pw,height:Y(b.y0)-Y(b.y1),style:'fill:var('+(b.c||'--good-bg')+')'},svg);});
   o.yTicks.forEach(function(t){line(svg,m.l,Y(t),m.l+pw,Y(t),'grid');tx(svg,m.l-8,Y(t)+4,(o.yFmt||String)(t),'tick','end');});
   line(svg,m.l,m.t+ph,m.l+pw,m.t+ph,'axis');
   o.xTicks.forEach(function(t){tx(svg,X(t),m.t+ph+18,(o.xFmt||String)(t),'tick','middle');});
@@ -334,6 +335,174 @@ SL.mainline=function(h){const cB=passes('B'),cC=passes('C'),tb=t2v('B',20),tc=t2
 SL.verdictnote=function(h){h.innerHTML='判定 <code>'+ST.verdict_file+'</code>，生成于 '+(V.created||'—')+'。B 的单元格基于 B 的 50 个 cube，在共有文件上与 200-cube 参考方法配对（至少需要 '+V.min_common+' 个共有文件）。';};
 SL.budget=function(h){const b=D.budget,e=b.eval_hours;const ev=e.main+e.C+e.B+e.B_vpred+(e.B_stale||0);   /* B_stale: non-x0 B records still in eval/ (not counted in e.B) */const tot=b.train_hours+b.pilot_hours+ev;
   h.innerHTML='<b>预算。</b>五个训练运行（含失败的 v 预测先验）共用 '+fx(b.train_hours,1)+' GPU 小时，另有三个先验试验用 '+fx(b.pilot_hours,1)+' GPU 小时。评测方面：L / D / V 记录用 '+fx(e.main,2)+' GPU 小时，C 用 '+fx(e.C,1)+'，已归档的 v 预测 B 记录（E1 60 / 50 dB 以及误启动的 E4 单元）用 '+fx(e.B_vpred,1)+'，'+b.b_records+' 条 x₀ 先验 B 记录用 '+fx(e.B,1)+(e.B_stale?'（另有 '+fx(e.B_stale,1)+' 用于尚未归档的过期非 x₀ B 记录）':'')+'（E4 的 L / D / V 与 C 记录已计入上述总数）。一条 B 记录约耗 '+fx(b.b_hours_mean,2)+' GPU 小时，而规格说明为全部 B 设定的上限为 12 GPU 小时。总计：RTX A4500 上约 '+fx(tot,0)+' GPU 小时。';};
+/* ---------- Phase 3b (sections 10–11, report-only): B⁺ and the four zero-shot tests ---------- */
+const P3=D.phase3b||{},BP=P3.bplus||{},BPS=BP.settings||{},SC=P3.scenarios||{},RF=P3.refs||{},BPV=BP.verdict||null,P3G=P3.groups||{};
+const MC3={L:'--ink-2',D:'--accent',B:'--s4',Bp:'--s4',C:'--s2'};
+const G3N={L:'L，MMSE',D:'D，回归器',B:'B，K 样本均值',Bp:'B⁺，K 样本均值'};
+const BPK=[['E1','device1','sequential',[60,50,40,30,20]],['E2','device2','sequential',[40,30,20]],['E3','device1','snapshot',[60,40,30,20]],['E4','device2','snapshot',[30]]];
+function bpSet(dev,mode,snr){return BPS[dev+'_'+mode+'_'+snr];}
+function bpOk(s){return !!(s&&s.status==='final');}
+function scOk(s){return !!(s&&s.status==='final');}
+/* B⁺ settings: B / Bp from the record, the others re-averaged on its 50 cubes */
+function bpv(s,m,k){k=k||'rmse';if(!bpOk(s))return null;const x=(m==='B'||m==='Bp')?s.means[m]:s.sub[m];return x&&x[k]!=null?x[k]:null;}
+/* scenarios: L / D / classical on the 50-cube subset, B / B⁺ and C / C1 from their 50-cube records */
+function scv(s,m,k){k=k||'rmse';if(!s)return null;let x;if(m==='B'||m==='Bp')x=scOk(s)?s[m]:null;else if(m==='C'||m==='C1')x=s.c_status==='final'?s[m]:null;else x=s.sub&&s.sub[m];return x&&x[k]!=null?x[k]:null;}
+function refv(key,m,k){k=k||'rmse';const r=RF[key];if(!r||r.status!=='final')return null;const x=r[m];return x&&x[k]!=null?x[k]:null;}
+function pdx(p){return p?sg(p.diff,3)+' ± '+fx(p.se_cluster,3)+'（'+fx(p.ratio,3)+' 倍）':'—';}
+function nv(v,n){return v==null?pend():fx(v,n);}
+function bestKey(c){let b=null;Object.keys(c).forEach(function(k){if(c[k]!=null&&(b==null||c[k]<c[b]))b=k;});return b;}
+function passesOf(VV,line){if(!VV)return [];const out=[];const t1=VV.T1&&VV.T1[line]||{};if(E1S.every(function(x){return t1[vk(x)]&&t1[vk(x)].passed;}))out.push('T1');
+  T2S.forEach(function(x){const c=VV.T2&&VV.T2[line]&&VV.T2[line][vk(x)];if(c&&c.passed)out.push(x+' dB 下的 T2');});
+  if(VV.T3&&VV.T3[line]&&VV.T3[line].passed)out.push('T3');if(VV.T4&&VV.T4[line]&&VV.T4[line].passed)out.push('T4');return out;}
+function logRange(vals){const v=vals.filter(function(x){return x!=null&&x>0;});if(!v.length)return {y:[1,10],t:[1,2,5,10]};const lo=Math.min.apply(null,v)*0.85,hi=Math.max.apply(null,v)*1.15;
+  const t=[0.2,0.3,0.5,0.8,1,1.5,2,3,4,5,6,8,10,12,15,20,25,30].filter(function(x){return x>=lo&&x<=hi;});return {y:[lo,hi],t:t.length?t:[lo,hi]};}
+function mnmx(a,n){const v=a.filter(function(x){return x!=null;});if(!v.length)return pend();const lo=Math.min.apply(null,v),hi=Math.max.apply(null,v);return fx(lo,n)===fx(hi,n)?fx(lo,n):fx(lo,n)+'–'+fx(hi,n);}
+function bpLabel(s){return s.exp+' · '+DEVN[s.device]+(s.mode==='snapshot'?' 快照':'')+' · '+s.snr+' dB';}
+function scName(n){const s=SC[n];if(!s)return n;const c=s.scenario||{},snr=s.snr_db,R=c.R||{},nz=c.noise||{};
+  if(R.kind==='blend')return '混合 α = '+R.alpha;if(R.kind==='shift')return '波长偏移 '+R.bands+' 个波段';if(R.kind==='gain')return '增益漂移 δ = '+R.delta;
+  if(c.states)return '状态数 S = '+c.states+'，'+snr+' dB';if(c.pixels&&c.pixels.kind==='dead')return '坏点 '+Math.round(100*c.pixels.p)+' %';if(c.pixels&&c.pixels.kind==='stride')return '×'+c.pixels.d+' 空间降采样，'+snr+' dB';
+  if(nz.kind==='poisson')return '散粒噪声，'+snr+' dB';if(nz.kind==='saturation')return '饱和 '+Math.round(100*(1-nz.q))+' %';if(nz.kind==='quantisation')return nz.bits+' 位 ADC 量化，'+snr+' dB';return n;}
+
+SL.bpUpdate=function(h){const lead='<b>更新（仅报告，判定之后）：</b>';
+  if(!BPV){h.innerHTML=lead+'B⁺ '+pend();return;}
+  const pb=passesOf(BPV,'B'),p0=V.b_valid?passes('B'):null;const t2=function(x){const c=BPV.T2&&BPV.T2.B&&BPV.T2.B[vk(x)];return c?fx(c.cov90,3):pend();};
+  const r=E1S.map(function(x){const c=BPV.T1&&BPV.T1.B&&BPV.T1.B[vk(x)];return c?c.ratio:null;});
+  h.innerHTML=lead+'B⁺ 把 B 的最后一步采样换成一次后验抽样（第 10 节），它在 5 项条款中通过 '+pb.length+' 项（'+(joinAnd(pb)||'无')+'），而 B 通过 '+(p0?p0.length:pend())+' 项。它在 30 / 20 dB 下的 90 % 覆盖率为 '+t2(30)+' / '+t2(20)+'，落在 T2 的区间内。在同一批 50 个 cube 上，其均值的 RMSE 是回归器的 '+mnmx(r,3)+' 倍（'+E1S.map(function(x,i){return x+' dB 下 '+(r[i]==null?pend():fx(r[i],3));}).join('，')+'）。上面第 3 阶段的判定不变：B⁺ 是在判定之后评分的修订，不属于预注册检验。';};
+SL.bpLead=function(h){const P=BP.probe;const b30=met(set('device1','sequential',30),'B','cov90'),b20=met(set('device1','sequential',20),'B','cov90');
+  if(!P){h.innerHTML='构建时未找到去噪器误差下限的数字。'+pend();return;}
+  const above=P.t.filter(function(t,i){return P.x0_err_pct[i]>P.noise_pct[i];});
+  h.innerHTML='第 3 阶段的 B 均值准确，但其样本几乎重合（30 / 20 dB 下 cov90 为 '+fx(b30,2)+' / '+fx(b20,2)+'）。原因在于先验网络，而不是引导。在校准 cube 上，网络的 x̂₀ 误差在 t = '+P.t.join(' / ')+' 处为 '+P.x0_err_pct.map(function(v){return fx(v,2);}).join(' / ')+' %，而其输入中的噪声为 '+P.noise_pct.map(function(v){return fx(v,2);}).join(' / ')+' %。误差存在一个不随 t 变化的下限'+(above.length?'，并且在 t ≤ '+Math.max.apply(null,above)+' 时高于输入噪声':'')+'。ΠGDM 在最后一步返回网络的 x̂₀，也就是一个带有该下限的均值，因此每个样本都收敛到同一个平滑估计。B⁺ 保留 B 的样本，把这最后一步换成一次后验抽样。';};
+SL.bpProbeCap=function(h){const P=BP.probe;if(!P||!P.tail55){h.innerHTML=pend();return;}const T5=P.tail55;
+  h.textContent='实线：先验的 x̂₀ 误差；虚线：同一 t 下其输入中的噪声。把采样网格延续到 t = 0（55 步）在同一批 cube 上、30 dB 下反而更差：均值 RMSE 为 '+fx(T5.mean_rmse[1],2)+' %，原为 '+fx(T5.mean_rmse[0],2)+' %；cov90 为 '+fx(T5.cov90[1],2)+'，原为 '+fx(T5.cov90[0],2)+'。更细的最终网格无济于事，因为在每个较小的 t 处下限都相同。数字手动录入自 Phase 3b 结果说明（A 部分，校准 cube；不涉及测试 cube）。';};
+SL.bpKernel=function(h){const k=BP.kernel;if(!k){h.innerHTML='<b>核：</b>'+pend();return;}const st=k.setting||{};
+  h.innerHTML='<b>核在测试记录产生之前就已固定。</b>Σ<sub>e</sub> 是逐像素光谱残差（真值 − K = '+k.K+' 个引导样本的均值）的协方差，汇集自 '+k.n_cubes+' 个校准 cube（与 50 个测试 cube 不共享任何源图像的门控 cube，每幅图像一个），在一个参考设置下拟合：'+(DEVN[st.sensor_device]||st.sensor_device)+'，'+(MODEZ[st.mode]||st.mode)+'模式，'+fx(st.snr_db,0)+' dB，ΠGDM '+(k.steps==null?'—':k.steps)+' 步。B 在这些 cube 上的均值 RMSE 为 '+fx(k.mean_rmse_pct,3)+' %，核的 RMS 为量程的 '+fx(k.kernel_rms_pct,3)+' %。同一个核用于每个设置、设备和模式，不加缩放因子（文件 sha '+k.sha256+'…）。';};
+CH.bpProbe=function(h){const P=BP.probe;if(!P){h.innerHTML=pend();return;}
+  legendInto('bpprobe',[{n:'先验的 x̂₀ 误差',c:'--s4'},{n:'t 处输入中的噪声',c:'--ink-2',dash:true}]);
+  xy(h,{log:true,x:[-4,104],y:[0.4,24],xTicks:P.t,yTicks:[0.5,1,2,5,10,20],yTitle:'误差，量程 %（对数）',xTitle:'扩散时间步 t',mr:20,
+    series:[{name:'x̂₀ 误差',c:'--s4',data:P.t.map(function(t,i){return [t,P.x0_err_pct[i]];})},{name:'输入噪声',c:'--ink-2',dash:true,data:P.t.map(function(t,i){return [t,P.noise_pct[i]];})}],
+    tipX:function(v){return 't = '+v;},tipY:function(v){return v.toFixed(3)+' %';},
+    table:{head:['t','x̂₀ 误差 %','输入噪声 %'],rows:P.t.map(function(t,i){return [t,fx(P.x0_err_pct[i],3),fx(P.noise_pct[i],2)];})}});};
+CH.bpRmse=function(h){const xs=[60,50,40,30,20];const ms=['L','D','B','Bp'];const nm={L:'L，MMSE',D:'D，回归器',B:'B，32 样本均值',Bp:'B⁺，32 样本均值'};
+  legendInto('bprmse',ms.map(function(m){return {n:nm[m],c:MC3[m],dash:m==='B',faint:m==='B'};}));
+  const ser=ms.map(function(m){return {name:nm[m],c:MC3[m],dash:m==='B',faint:m==='B',label:m==='L'?'L':null,data:xs.map(function(x){const v=bpv(bpSet('device1','sequential',x),m);return v==null?null:[x,v];}).filter(Boolean)};});
+  xy(h,{log:true,x:[12,62],y:[0.8,8],xTicks:[20,30,40,50,60],xFmt:function(v){return v===60?'60（噪声底）':String(v);},yTicks:[1,2,3,5,8],yTitle:'RMSE，量程 %（对数）',xTitle:'信噪比 (dB)',labelAt:'first',mr:20,series:ser,tipX:function(v){return v+' dB';},
+    table:{head:['信噪比 (dB)','L','D','B','B⁺','B⁺ / D','B⁺ − B ± 聚类标准误'],rows:xs.map(function(x){const s=bpSet('device1','sequential',x);if(!bpOk(s))return [x,'待定','待定','待定','待定','待定','待定'];return [x,fx(bpv(s,'L'),3),fx(bpv(s,'D'),3),fx(bpv(s,'B'),3),fx(bpv(s,'Bp'),3),fx(s.paired.rmse_vs_D&&s.paired.rmse_vs_D.ratio,3),s.paired.rmse_vs_B?sg(s.paired.rmse_vs_B.diff,3)+' ± '+fx(s.paired.rmse_vs_B.se_cluster,3):'—'];})}});};
+SL.bpRmseCap=function(h){const xs=[60,50,40,30,20];const s60=bpSet('device1','sequential',60);
+  const r=xs.map(function(x){const c=BPV&&BPV.T1&&BPV.T1.B&&BPV.T1.B[vk(x)];const s=bpSet('device1','sequential',x);const q=c?c.ratio:(bpOk(s)&&s.paired.rmse_vs_D?s.paired.rmse_vs_D.ratio:null);return x+' dB 下 '+nv(q,3);});
+  h.innerHTML='四者都在 50 个测试 cube 上（L 与 D 在这些 cube 上重新平均）。B⁺ 与 D 的比值：'+r.join('，')+'。条件化消除了 B 在高信噪比下的劣势：60 dB 下 B 为 '+nv(bpv(s60,'B'),3)+' %，B⁺ 为 '+nv(bpv(s60,'Bp'),3)+' %（D '+nv(bpv(s60,'D'),3)+'，L '+nv(bpv(s60,'L'),3)+'）。';};
+function covChart(h,groups){const ser=[],rows=[];
+  groups.forEach(function(g){['Bp','B'].forEach(function(m){['cov90','cov50'].forEach(function(k){
+      const d=g.snrs.map(function(x){const v=bpv(bpSet(g.dev,g.mode,x),m,k);return v==null?null:[x,v];}).filter(Boolean);
+      ser.push({name:DEVN[g.dev]+' · '+(m==='Bp'?'B⁺':'B')+' · '+k,c:g.c,dash:m==='B',faint:m==='B',thin:k==='cov50',r:k==='cov50'?2.4:3.4,data:d});});});
+    g.snrs.forEach(function(x){const s=bpSet(g.dev,g.mode,x);rows.push([DEVN[g.dev]+' · '+x+' dB',bpOk(s)?fx(bpv(s,'B','cov50'),3)+' / '+fx(bpv(s,'B','cov90'),3):'待定',bpOk(s)?fx(bpv(s,'Bp','cov50'),3)+' / '+fx(bpv(s,'Bp','cov90'),3):'待定']);});});
+  xy(h,{w:520,h:300,minW:340,mr:16,x:[16,64],y:[0,1],xTicks:[20,30,40,50,60],yTicks:[0,0.25,0.5,0.75,0.9,1],yFmt:function(v){return v.toFixed(2);},yTitle:'覆盖率',xTitle:'信噪比 (dB)',bands:[{y0:0.85,y1:0.95}],series:ser,tipX:function(v){return v+' dB';},
+    table:{head:['设置','B cov50 / cov90','B⁺ cov50 / cov90'],rows:rows}});}
+CH.bpCovSeq=function(h){legendInto('bpcov',[{n:'设备 1 · B⁺',c:'--s4'},{n:'设备 1 · B',c:'--s4',dash:true},{n:'设备 2 · B⁺',c:'--s3'},{n:'设备 2 · B',c:'--s3',dash:true}]);
+  covChart(h,[{dev:'device1',mode:'sequential',snrs:[60,50,40,30,20],c:'--s4'},{dev:'device2',mode:'sequential',snrs:[40,30,20],c:'--s3'}]);};
+CH.bpCovSnap=function(h){covChart(h,[{dev:'device1',mode:'snapshot',snrs:[60,40,30,20],c:'--s4'},{dev:'device2',mode:'snapshot',snrs:[30],c:'--s3'}]);};
+function bpKeys(mode){const out=[];BPK.forEach(function(e){if(e[2]===mode)e[3].forEach(function(x){out.push(bpSet(e[1],e[2],x));});});return out;}
+SL.bpCovCap=function(h){const seq=bpKeys('sequential').filter(bpOk),snap=bpKeys('snapshot').filter(bpOk);
+  const g=function(a,m,k){return mnmx(a.map(function(s){return bpv(s,m,k);}),2);};
+  h.innerHTML='上方的线与较大的点：cov90；下方的线：cov50；实线为 B⁺，虚线为 B。顺序模式下，B⁺ 在 '+seq.length+' 个设置上的 cov50 为 '+g(seq,'Bp','cov50')+'，cov90 为 '+g(seq,'Bp','cov90')+'（名义值 0.50 / 0.90；B 为 '+g(seq,'B','cov50')+' / '+g(seq,'B','cov90')+'），而核只在设备 1 的 20 dB 下拟合了一次。快照模式下，B⁺ 在 '+snap.length+' 个设置上的 cov90 为 '+g(snap,'Bp','cov90')+'（B 为 '+g(snap,'B','cov90')+'）：核是在顺序模式下测得的，不包含去马赛克误差。';};
+function bpCl(c,kind,lim){if(!c)return pend();const th=V.thresholds||{};
+  if(kind==='T2')return {v:pill(c.passed)+' <span class="num">CRPS − L '+sg(c.crps_vs_L.mean,3)+' ± '+fx(c.crps_vs_L.se_cluster,3)+' · − V '+sg(c.crps_vs_V.mean,3)+' ± '+fx(c.crps_vs_V.se_cluster,3)+' · cov90 '+fx(c.cov90,3)+'</span>',cls:''};
+  if(kind==='T3')return {v:pill(c.passed)+' <span class="num">相对 L 的比值：设备 1 '+fx(c.ratio_dev1,3)+' · 设备 2 '+fx(c.ratio_dev2,3)+'（上限 '+fx(th.T3_RATIO*c.ratio_dev1,3)+'）</span>',cls:''};
+  return {v:pill(c.passed)+' <span class="num">比值 '+fx(c.ratio,3)+' · 2 倍标准误上界 '+fx(c.ratio_2se,3)+'（上限 '+fx(lim,2)+'）</span>',cls:''};}
+T.bpClauses=function(h){const th=V.thresholds||{};const rows=[];
+  const g=function(VV,k,x){const o=VV&&VV[k]&&VV[k].B;return o?(x==null?o:o[vk(x)]):null;};
+  const old=function(k,x,kind,lim){return V.b_valid?bpCl(g(V,k,x),kind,lim):bInvalid();};
+  E1S.forEach(function(x){rows.push(['<b>T1</b> · '+x+' dB','均值 RMSE ≤ '+fx(th.T1_RATIO,2)+' × D（2 倍聚类标准误）',old('T1',x,'T1',th.T1_RATIO),bpCl(g(BPV,'T1',x),'T1',th.T1_RATIO)]);});
+  T2S.forEach(function(x){rows.push(['<b>T2</b> · '+x+' dB','CRPS 低于 L 和 V（2 倍聚类标准误），cov90 ∈ ['+(th.T2_COV90||[]).join(', ')+']',old('T2',x,'T2'),bpCl(g(BPV,'T2',x),'T2')]);});
+  rows.push(['<b>T3</b> · 30 dB','设备 2 上的（路线 / L）≤ 设备 1 上同一比值的 '+fx(th.T3_RATIO,2)+' 倍',old('T3',null,'T3'),bpCl(g(BPV,'T3'),'T3')]);
+  rows.push(['<b>T4</b> · 快照 30 dB','RMSE ≤ '+fx(th.T4_RATIO,2)+' × 先去马赛克再 MMSE（2 倍聚类标准误）',old('T4',null,'T4',th.T4_RATIO),bpCl(g(BPV,'T4'),'T4',th.T4_RATIO)]);
+  const pc=function(p){return num('<b>5 项中 '+p.length+' 项</b>（'+(joinAnd(p)||'无')+'）');};
+  rows.push(['<b>通过的条款</b>','T1 计一次（五个信噪比全部通过）、T2 每个信噪比各计一次、T3、T4',V.b_valid?pc(passes('B')):bInvalid(),BPV?pc(passesOf(BPV,'B')):pend()]);
+  tbl(h,['条款 · 设置','规则','B（第 3 阶段判定）','B⁺（仅报告）'],rows,function(i){return i===rows.length-1;});};
+SL.bpVerdictNote=function(h){if(!BPV){h.innerHTML='B⁺ 列：'+pend('未找到判定文件');return;}const rn=BPV.rename||{};
+  h.innerHTML='B 列：第 3 阶段的判定 <code>'+ST.verdict_file+'</code>。B⁺ 列：<code>'+BPV.file+'</code>，生成于 '+(BPV.created||'—')+'，即未经改动的判定脚本在 B⁺ 记录上运行的结果，重命名为 '+(Object.keys(rn).map(function(k){return k+' → '+rn[k];}).join('，')||'—')+'（其中的“B”行就是 B⁺）。它仅报告，不指定主线；其中 C 的各行与第 3 阶段判定相同。';};
+T.bpSettings=function(h){const rows=[];
+  BPK.forEach(function(e){e[3].forEach(function(x){const s=bpSet(e[1],e[2],x);const lab=e[0]+' · '+DEVN[e[1]]+(e[2]==='snapshot'?' 快照':'')+' · '+x+' dB';
+    if(!bpOk(s)){rows.push([lab].concat([1,2,3,4,5,6,7,8,9].map(function(){return pend();})));return;}
+    const p=s.paired,lr=s.L_ref;
+    rows.push([lab,num(fx(bpv(s,'Bp'),3)+' / '+fx(bpv(s,'Bp','single'),2)),num(fx(bpv(s,'Bp','crps'),3)),num(fx(bpv(s,'Bp','cov50'),3)+' / '+fx(bpv(s,'Bp','cov90'),3)),num(fx(bpv(s,'B'),3)+' / '+fx(bpv(s,'B','cov90'),3)),
+      num(fx(bpv(s,'D'),3)),num(fx(bpv(s,lr),3)),num(fx(p.rmse_vs_D&&p.rmse_vs_D.ratio,3)),num(p.rmse_vs_B?sg(p.rmse_vs_B.diff,3)+' ± '+fx(p.rmse_vs_B.se_cluster,3):'—'),num(fx(s.hours,2))]);});});
+  tbl(h,['设置','B⁺ RMSE 均值 / 单样本（%）','B⁺ CRPS','B⁺ cov50 / cov90','B RMSE / cov90','D','L（快照：先去马赛克再 MMSE）','B⁺ / D','B⁺ − B ± 聚类标准误','GPU 小时'],rows);};
+SL.bpSingle=function(h){const seq=bpKeys('sequential').filter(bpOk);const r=seq.map(function(s){const a=bpv(s,'Bp','single'),b=bpv(s,'Bp');return a!=null&&b?a/b:null;});
+  h.innerHTML='单个 B⁺ 样本噪声很大，并不是逼真的纹理：顺序模式下单样本 RMSE 是均值的 '+mnmx(r,2)+' 倍。';};
+SL.bpIntegrity=function(h){const g=BP.integrity||{};
+  h.innerHTML='<b>一致性检查。</b>在 '+(g.n==null?pend():g.n)+' 个设置上，新记录中 B 的均值与第 3 阶段 B 记录相差不超过 '+nv(g.rmse,3)+'（RMSE）、'+nv(g.crps,3)+'（CRPS）和 '+nv(g.cov90,3)+'（cov90）。逐 cube 的结果并非逐位相同：在引导最强的地方，引导链会放大非确定性 GPU 内核带来的差异。本节中 B 的数字取自新记录。';};
+
+/* section 11 */
+SL.p3bStatus=function(h){const st=P3.status||{};const nm=Object.keys(SC).filter(function(n){return SC[n].main_status==='final';}).length;
+  h.innerHTML='构建时的记录：'+(st.n_scen||0)+' 个场景中，L、D 与 V 有 '+nm+' 个，B 与 B⁺ 有 '+(st.n_B||0)+' 个，C 与 C1 有 '+(st.n_C||0)+' 个。需要缺失记录的单元格和点显示为'+pend()+'，不绘制。';};
+function gPts(kind){const pts=[];(P3G.B1||[]).forEach(function(n){const R=SC[n].scenario.R||{};if(R.kind===kind)pts.push({x:R[{blend:'alpha',shift:'bands',gain:'delta'}[kind]],key:n});});
+  pts.unshift({x:0,ref:'device1_sequential_30'});if(kind==='blend')pts.push({x:1,ref:'device2_sequential_30'});return pts.sort(function(a,b){return a.x-b.x;});}
+function sPts(snr){const pts=[{x:30,ref:'device1_sequential_'+snr}];(P3G.B2||[]).forEach(function(n){if(SC[n].snr_db===snr)pts.push({x:SC[n].scenario.states,key:n});});return pts.sort(function(a,b){return b.x-a.x;});}
+function gval(p,m){return p.ref?refv(p.ref,m):scv(SC[p.key],m);}
+function gAll(ptsList){const v=[];ptsList.forEach(function(pts){pts.forEach(function(p){['L','D','B','Bp'].forEach(function(m){v.push(gval(p,m));});});});return logRange(v);}
+function gPanel(h,pts,o){const ms=['L','D','B','Bp'];
+  const ser=ms.map(function(m){return {name:G3N[m],c:MC3[m],dash:m==='B',faint:m==='B',data:pts.map(function(p){const v=gval(p,m);return v==null?null:[p.x,v];}).filter(Boolean)};});
+  const c=xy(h,{w:320,h:250,minW:230,ml:44,mr:14,log:true,x:o.x,y:o.yr.y,xTicks:pts.map(function(p){return p.x;}),yTicks:o.yr.t,yTitle:'RMSE %（对数）',xTitle:o.xTitle,series:ser,tipX:o.tipX,tipY:function(v){return v.toFixed(3)+' %';}});
+  pts.forEach(function(p){if(gval(p,'Bp')==null){const y0=c.m.t+4;const t=tx(c.svg,c.X(p.x)+4,y0,'待定','sm','start');t.setAttribute('transform','rotate(90 '+(c.X(p.x)+4)+' '+y0+')');}});}
+function g1legend(){legendInto('g1',['L','D','B','Bp'].map(function(m){return {n:G3N[m],c:MC3[m],dash:m==='B',faint:m==='B'};}));}
+CH.g1blend=function(h){g1legend();const yr=gAll([gPts('blend'),gPts('shift'),gPts('gain')]);gPanel(h,gPts('blend'),{x:[-0.06,1.06],yr:yr,xTitle:'混合权重 α',tipX:function(v){return 'α = '+v;}});};
+CH.g1shift=function(h){const yr=gAll([gPts('blend'),gPts('shift'),gPts('gain')]);gPanel(h,gPts('shift'),{x:[-0.25,4.25],yr:yr,xTitle:'偏移（波段）',tipX:function(v){return v+' 个波段';}});};
+CH.g1gain=function(h){const yr=gAll([gPts('blend'),gPts('shift'),gPts('gain')]);gPanel(h,gPts('gain'),{x:[-0.03,0.53],yr:yr,xTitle:'增益离散度 δ',tipX:function(v){return 'δ = '+v;}});};
+CH.g2at40=function(h){legendInto('g2',['L','D','B','Bp'].map(function(m){return {n:G3N[m],c:MC3[m],dash:m==='B',faint:m==='B'};}));const yr=gAll([sPts(40),sPts(20)]);gPanel(h,sPts(40),{x:[32,3],yr:yr,xTitle:'状态数 S',tipX:function(v){return 'S = '+v;}});};
+CH.g2at20=function(h){const yr=gAll([sPts(40),sPts(20)]);gPanel(h,sPts(20),{x:[32,3],yr:yr,xTitle:'状态数 S',tipX:function(v){return 'S = '+v;}});};
+SL.g2idx=function(h){const t=(P3G.B2||[]).filter(function(n){return SC[n].snr_db===40&&SC[n].state_indices;}).map(function(n){return 'S = '+SC[n].scenario.states+'：['+SC[n].state_indices.join(', ')+']';});
+  h.textContent='状态索引（从 0 开始，取自记录）：'+(t.length?t.join('；'):'—')+'。';};
+/* the folded data tables */
+function gData(h,names,extra){const rows=names.map(function(n){const s=SC[n];const p=s.paired||{};const mm=s.main||{};
+    const ex=extra?extra(s):[];
+    return [scName(n),num(nv(mm.L&&mm.L.rmse,3)+' / '+nv(mm.D&&mm.D.rmse,3)),num(nv(scv(s,'L'),3)+' / '+nv(scv(s,'D'),3))].concat(ex).concat([
+      num(s.c_status==='final'?fx(scv(s,'C'),3)+' / '+fx(scv(s,'C1'),3):pend()),
+      num(scOk(s)?fx(scv(s,'B'),3)+' / '+fx(scv(s,'B','cov90'),3):pend()),
+      num(scOk(s)?fx(scv(s,'Bp'),3)+' / '+fx(scv(s,'Bp','crps'),3)+' / '+fx(scv(s,'Bp','cov90'),3):pend()),
+      num(scOk(s)?pdx(p.rmse_vs_D):pend()),num(scOk(s)?pdx(p.rmse_vs_L):pend()),num(scOk(s)?fx(s.hours,2):pend())]);});
+  return rows;}
+const GDH=['设置','L / D · 200 个 cube','L / D · 50 个 cube'],GDT=['C / C1 · 50 个（K 20）','B：RMSE / cov90','B⁺：RMSE / CRPS / cov90','B⁺ − D ± 聚类标准误（比值）','B⁺ − L ± 聚类标准误（比值）','B/B⁺ GPU 小时'];
+T.g1data=function(h){tbl(h,GDH.concat(GDT),gData(h,P3G.B1||[]));};
+T.g2data=function(h){tbl(h,GDH.concat(GDT),gData(h,P3G.B2||[]));};
+T.g3data=function(h){tbl(h,GDH.concat(['L_interp / L_interp_plain · 50 个','B⁺ − 最佳经典方法 ± 聚类标准误（比值）']).concat(GDT),gData(h,P3G.B3||[],function(s){const p=(s.paired||{}).rmse_vs_best_classical;
+  return [num(nv(scv(s,'L_interp'),3)+' / '+nv(scv(s,'L_interp_plain'),3)),num(scOk(s)?pdx(p)+(s.best_classical?'，对 '+s.best_classical:''):pend())];}));};
+T.g4data=function(h){tbl(h,GDH.concat(['L 朴素 / D 朴素 · 50 个']).concat(GDT),gData(h,P3G.B4||[],function(s){return [num(nv(scv(s,'L_naive'),3)+' / '+nv(scv(s,'D_naive'),3))];}));};
+/* B.3: one prior, other tasks — the task × method table */
+const G3ROWS=[{lab:'去噪（E1，30 dB）',bp:'device1_sequential_30'},{lab:'另一台传感器（E2，设备 2，30 dB）',bp:'device2_sequential_30'},{lab:'去马赛克（E3，快照，30 dB）',bp:'device1_snapshot_30'},
+  {lab:'坏点 50 %（30 dB）',sc:'dead_50'},{lab:'坏点 90 %（30 dB）',sc:'dead_90'},{lab:'×4 空间降采样（60 dB）',sc:'stride_4_60'},{lab:'×8 空间降采样（60 dB）',sc:'stride_8_60'},{lab:'×4 空间降采样（30 dB）',sc:'stride_4_30'}];
+const CLN={L_interp:'L_interp',L_interp_plain:'L_interp_plain',L_demosaic:'先去马赛克再 MMSE'};
+function hiRow(lab,v,cols,extra){const live=cols.filter(function(c){return v[c]!=null;}).map(function(c){return v[c];});const full=cols.every(function(c){return v[c]!==null;});const best=full&&live.length?Math.min.apply(null,live):null;   /* highlight only complete rows */
+  return [lab].concat(cols.map(function(c){if(v[c]===undefined)return num('—');if(v[c]==null)return pend();return {v:fx(v[c],2)+(extra&&extra[c]?'<br><span class="note">'+extra[c]+'</span>':''),cls:'num'+(v[c]===best?' best':'')};}));}
+T.g3=function(h){const cols=['L','CL','D','C','B','Bp'];
+  const rows=G3ROWS.map(function(r){const v={},ex={};
+    if(r.bp){const s=BPS[r.bp];const ok=bpOk(s);const snap=s&&s.mode==='snapshot';['L','D','C','B','Bp'].forEach(function(m){v[m]=ok?bpv(s,m):null;});v.CL=snap?(ok?bpv(s,'L_demosaic'):null):undefined;if(snap)ex.CL=CLN.L_demosaic;}
+    else{const s=SC[r.sc];['L','D','C','B','Bp'].forEach(function(m){v[m]=scv(s,m);});const bc=s&&s.best_classical;v.CL=bc?scv(s,bc):null;if(bc)ex.CL=CLN[bc]||bc;}
+    return hiRow(r.lab,v,cols,ex);});
+  tbl(h,['任务（设置）','L 精确','最佳经典方法','D','C','B','B⁺'],rows);};
+T.g4=function(h){const cols=['L_naive','L','D_naive','D','C','B','Bp'];
+  const rows=(P3G.B4||[]).map(function(n){const s=SC[n];const v={};cols.forEach(function(m){v[m]=scv(s,m);});const r=hiRow(scName(n),v,cols);r.push(num(nv(scv(s,'Bp','cov90'),3)));return r;});
+  tbl(h,['设置','L 朴素','L 知情','D 朴素','D 知情','C','B','B⁺','B⁺ cov90'],rows);};
+/* neutral, fully data-bound read-outs (the interpretive prose is added separately) */
+function ratioList(names,key){return names.map(function(n){const s=SC[n];const p=scOk(s)&&s.paired&&s.paired[key];return scName(n)+' '+(p?fx(p.ratio,3):pend());}).join('，');}
+function bestList(names){const fin=names.filter(function(n){return scOk(SC[n]);});
+  return {n:fin.length,txt:fin.map(function(n){const s=SC[n];const c={L:scv(s,'L'),D:scv(s,'D'),C:scv(s,'C'),B:scv(s,'B'),'B⁺':scv(s,'Bp')};if(s.best_classical)c[s.best_classical]=scv(s,s.best_classical);return scName(n)+' '+bestKey(c)+(s.c_status==='final'?'':'（C 待定）');}).join('；')};}
+SL.b1read=function(h){const names=P3G.B1||[];const ref=refv('device1_sequential_30','Bp');const b=bestList(names);
+  const rel=names.map(function(n){const v=scv(SC[n],'Bp');return scName(n)+' '+(v!=null&&ref!=null?fx(v/ref,3):pend());}).join('，');
+  const dl=names.map(function(n){const s=SC[n];const L=scv(s,'L'),Dv=scv(s,'D');return scName(n)+' '+(L!=null&&Dv!=null?fx(Dv/L,2):pend());}).join('，');
+  const dl0=function(k){const L=refv(k,'L'),Dv=refv(k,'D');return L!=null&&Dv!=null?fx(Dv/L,2):pend();};
+  h.innerHTML='<b>读数（B.1）。</b>共有 cube 上的 B⁺ / D：'+ratioList(names,'rmse_vs_D')+'。B⁺ 的 RMSE 相对其设备 1 在 30 dB 下的数值（'+nv(ref,3)+(ref==null?'':' %')+'）：'+rel+'。同一批 cube 上的 D / L：'+dl+'（设备 1 '+dl0('device1_sequential_30')+'，设备 2 '+dl0('device2_sequential_30')+'）。L、D、C、B 与 B⁺ 中 RMSE 最低者，'+names.length+' 个设置中已完成 '+b.n+' 个：'+(b.txt||'尚无')+'。';};
+SL.b2read=function(h){const names=P3G.B2||[];const by=function(snr,f){return names.filter(function(n){return SC[n].snr_db===snr;}).sort(function(a,b){return SC[b].scenario.states-SC[a].scenario.states;}).map(function(n){return 'S = '+SC[n].scenario.states+' '+f(SC[n]);}).join('，');};
+  const bl=function(s){const v=scv(s,'Bp'),L=scv(s,'L');return v!=null&&L!=null?fx(v/L,3):pend();};const dl=function(s){const v=scv(s,'D'),L=scv(s,'L');return v!=null&&L!=null?fx(v/L,3):pend();};
+  const r0=function(snr,m){const v=refv('device1_sequential_'+snr,m),L=refv('device1_sequential_'+snr,'L');return v!=null&&L!=null?fx(v/L,3):pend();};const b=bestList(names);
+  h.innerHTML='<b>读数（B.2）。</b>共有 cube 上的 B⁺ / L，40 dB：'+by(40,bl)+'（S = 30：'+r0(40,'Bp')+'）；20 dB：'+by(20,bl)+'（S = 30：'+r0(20,'Bp')+'）。D / L，40 dB：'+by(40,dl)+'（S = 30：'+r0(40,'D')+'）；20 dB：'+by(20,dl)+'（S = 30：'+r0(20,'D')+'）。RMSE 最低者，'+names.length+' 个设置中已完成 '+b.n+' 个：'+(b.txt||'尚无')+'。';};
+SL.b3read=function(h){const names=P3G.B3||[];const b=bestList(names);
+  const cov=names.map(function(n){return scName(n)+' '+nv(scv(SC[n],'Bp','cov90'),3);}).join('，');
+  h.innerHTML='<b>读数（B.3）。</b>共有 cube 上的 B⁺ / 最佳经典基线：'+names.map(function(n){const s=SC[n];const p=scOk(s)&&s.paired.rmse_vs_best_classical;return scName(n)+' '+(p?fx(p.ratio,3):pend())+(s.best_classical?'（对 '+s.best_classical+'）':'');}).join('，')+'。B⁺ / D：'+ratioList(names,'rmse_vs_D')+'。B⁺ 的 cov90：'+cov+'。RMSE 最低者，'+names.length+' 个设置中已完成 '+b.n+' 个：'+(b.txt||'尚无')+'。';};
+SL.b4read=function(h){const names=P3G.B4||[];const b=bestList(names);
+  const an=function(m){return names.map(function(n){const s=SC[n];const a=scv(s,m),nn=scv(s,m+'_naive');return scName(n)+' '+(a!=null&&nn!=null?fx(a/nn,3):pend());}).join('，');};
+  const cov=names.map(function(n){return scName(n)+' '+nv(scv(SC[n],'Bp','cov90'),3);}).join('，');
+  h.innerHTML='<b>读数（B.4）。</b>共有 cube 上知情 / 朴素的 RMSE 比，L：'+an('L')+'；D：'+an('D')+'。B⁺ / D（知情）：'+ratioList(names,'rmse_vs_D')+'。B⁺ 的 cov90：'+cov+'。RMSE 最低者，'+names.length+' 个设置中已完成 '+b.n+' 个：'+(b.txt||'尚无')+'。';};
+
 /* horizontal-scroll cue for charts and tables that overflow their card (phones) */
 function hints(){document.querySelectorAll('.scroll,.tbl').forEach(function(h){const over=h.scrollWidth>h.clientWidth+4;let n=h.nextElementSibling;const has=n&&n.classList&&n.classList.contains('hint');
   if(over&&!has){const d=document.createElement('p');d.className='hint';d.textContent='左右滑动查看完整'+(h.classList.contains('tbl')?'表格':'图表')+' →';h.parentNode.insertBefore(d,h.nextSibling);}else if(!over&&has)n.remove();});}

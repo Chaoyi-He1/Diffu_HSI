@@ -15,14 +15,22 @@ svg .box-s4{fill:var(--s4-bg);stroke:var(--s4)}
 .outcome li{margin:3px 0}
 .fold{margin:14px 0}.fold>summary{cursor:pointer;font-weight:600;color:var(--ink-2);padding:10px 14px;background:var(--panel);border:1px solid var(--rule);border-radius:10px;list-style:none}.fold>summary::-webkit-details-marker{display:none}.fold>summary::before{content:'▸ ';color:var(--accent)}.fold[open]>summary::before{content:'▾ '}.fold>summary:hover{border-color:var(--accent)}.fold>:not(summary){margin-top:12px}
 .hint{font-size:12px;color:var(--muted);margin:2px 0 0;text-align:right}
+/* Phase 3b additions */
+.outcome .upd{border-top:1px dashed var(--rule-strong);margin-top:12px;padding-top:10px;font-size:15px}
+.pred{border-left:3px solid var(--s4);background:var(--panel);padding:8px 14px;margin:10px 0;font-size:14.5px;color:var(--ink-2);border-radius:0 8px 8px 0}
+.pred b{color:var(--ink)}
+.threecol{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px}
+.threecol>figure{min-width:0}
+.t td.best{background:var(--good-bg);font-weight:700}
+.note{font-size:13.5px;color:var(--muted);margin:8px 0 0}
 </style>
 <main>
 <header>
   <div class="eyebrow">Diffu_HSI · sensor degradation · Phase 3 · records as of <span data-v="generated"></span></div>
   <h1>Phase 3 — Reconstruction from a poor EC sensor</h1>
-  <p class="lede">Can a diffusion model recover the spectrum seen by a poor electrochromic (EC) sensor better than a one-call regressor or the classical linear estimate, once the sensor's weaknesses — measurement noise, a different device, a single-exposure mosaic — are actually in play? Phase 3 answers with pre-registered tests on three measured sensors. The summary below gives the answer; sections 1–7 give the evidence; training details and rulings are folded at the end.</p>
+  <p class="lede">Can a diffusion model recover the spectrum seen by a poor electrochromic (EC) sensor better than a one-call regressor or the classical linear estimate, once the sensor's weaknesses — measurement noise, a different device, a single-exposure mosaic — are actually in play? Phase 3 answers with pre-registered tests on three measured sensors. The summary below gives the answer; sections 1–7 give the evidence; training details and rulings are folded at the end. Sections 10 and 11 add a report-only follow-up (Phase 3b): a calibrated version of the guided prior, and four zero-shot tests.</p>
   <div class="status" data-slot="status"></div>
-  <div class="outcome"><span class="lbl">RESULTS AT A GLANCE</span><div data-slot="outcome"></div></div>
+  <div class="outcome"><span class="lbl">RESULTS AT A GLANCE</span><div data-slot="outcome"></div><p class="upd" data-slot="bpUpdate"></p></div>
   <div class="kv">
     <div><small>MMSE at the 60 dB noise floor (sanity reference)</small><b class="hi"><span data-v="facts.L_floor:3"></span> %</b><small>Device 1, sequential, 200 cubes</small></div>
     <div><small>regressor D at 20 dB</small><b class="hi"><span data-v="facts.D_20:2"></span> %</b><small>MMSE <span data-v="facts.L_20:2"></span> %: <span data-v="facts.D_below_L_20:0"></span> % lower</small></div>
@@ -35,7 +43,7 @@ svg .box-s4{fill:var(--s4-bg);stroke:var(--s4)}
     <figcaption>What was compared. L, D, V and C share one interface: the forward model reaches the networks only through the MMSE estimate $\hat x$ and its posterior standard deviation $s$. These two maps mean the same thing for every sensor, noise level and mode, which is what makes zero-shot transfer possible in principle. B never sees $\hat x$. It combines a prior trained on spectra alone with the exact operator $H$ and the known noise level at sampling time. D, V and C were trained on Device 1 only, over SNRs drawn from 20 to 50 dB plus the 60 dB floor, half in sequential and half in snapshot mode.</figcaption>
   </figure>
   <nav class="toc" aria-label="Contents">
-    <a href="#s1"><b>1</b>The sensor</a><a href="#s2"><b>2</b>Error vs SNR</a><a href="#s3"><b>3</b>Uncertainty</a><a href="#s4"><b>4</b>Transfer</a><a href="#s5"><b>5</b>Snapshot</a><a href="#s6"><b>6</b>Line B</a><a href="#s7"><b>7</b>Clauses</a><a href="#s8"><b>8</b>Runs</a><a href="#s9"><b>9</b>Rulings</a>
+    <a href="#s1"><b>1</b>The sensor</a><a href="#s2"><b>2</b>Error vs SNR</a><a href="#s3"><b>3</b>Uncertainty</a><a href="#s4"><b>4</b>Transfer</a><a href="#s5"><b>5</b>Snapshot</a><a href="#s6"><b>6</b>Line B</a><a href="#s7"><b>7</b>Clauses</a><a href="#s8"><b>8</b>Runs</a><a href="#s9"><b>9</b>Rulings</a><a href="#s10"><b>10</b>B⁺</a><a href="#s11"><b>11</b>Zero-shot</a>
   </nav>
   <div class="gloss">
     <h3>Background for the reader</h3>
@@ -231,7 +239,98 @@ svg .box-s4{fill:var(--s4-bg);stroke:var(--s4)}
   </details>
 </section>
 
+<!-- ============================================================ -->
+<section id="s10">
+  <h2><span class="no">10</span>B⁺: making the guided prior's uncertainty usable</h2>
+  <p class="lead" data-slot="bpLead"></p>
+  <figure>
+    <p class="charthead">The prior's x̂₀ error against the diffusion timestep, and the input noise at that timestep (calibration cubes; log scale)</p>
+    <div class="legend" data-legend="bpprobe"></div>
+    <div class="scroll" data-chart="bpProbe" data-aria="The prior's clean-cube error stays near 1.7 percent from t = 0 to t = 19 while the input noise falls from 3.8 to 0.5 percent: below t of about 5 the network is worse than its own input."></div>
+    <figcaption><span data-slot="bpProbeCap"></span></figcaption>
+  </figure>
+  <div class="thm"><span class="lbl">THE METHOD: A LAST-STEP POSTERIOR DRAW</span>
+    The last step returns a draw instead of a mean. Each guided draw $s_k$ becomes the centre of a Gaussian component $\mathcal N(s_k, \Sigma_e)$ per pixel, where $\Sigma_e$ (64 × 64) is the measured error covariance of the sampler's output, and the component is conditioned exactly on the pixel's measurement $y = Hx + b + n$ (Matheron's rule):
+    $$x_k = s_k + e + G\,(y - b - H(s_k + e) - n'), \qquad G = \Sigma_e H^\top (H \Sigma_e H^\top + N)^{-1},$$
+    with $e \sim \mathcal N(0, \Sigma_e)$ and $n' \sim \mathcal N(0, N)$. B⁺ reuses B's K guided draws, and the same code serves sequential and snapshot mode, any pixel mask and any per-element noise variance.
+    <div class="pf" data-slot="bpKernel"></div>
+  </div>
+  <figure>
+    <p class="charthead">Point error on Device 1, sequential: L, D, B and B⁺ on the same 50 cubes (log scale)</p>
+    <div class="legend" data-legend="bprmse"></div>
+    <div class="scroll" data-chart="bpRmse" data-aria="RMSE against SNR on the 50 test cubes. B is flat near 2.3 percent; B-plus follows the regressor D from 60 to 40 dB and is below it at 30 and 20 dB."></div>
+    <figcaption><span data-slot="bpRmseCap"></span></figcaption>
+  </figure>
+  <p class="charthead">Coverage of the central 50 % and 90 % intervals, B and B⁺ (shaded: T2's band [0.85, 0.95])</p>
+  <div class="legend" data-legend="bpcov"></div>
+  <div class="twocol">
+    <figure>
+      <p class="charthead">Sequential mode, Device 1 and Device 2</p>
+      <div class="scroll" data-chart="bpCovSeq" data-aria="Coverage against SNR in sequential mode. B's 90 percent coverage is near 0.3; B-plus is inside the shaded band at every SNR on both devices, and its 50 percent coverage is near 0.5."></div>
+    </figure>
+    <figure>
+      <p class="charthead">Snapshot mode, Device 1 (E3) and Device 2 (E4, 30 dB)</p>
+      <div class="scroll" data-chart="bpCovSnap" data-aria="Coverage against SNR in snapshot mode. B-plus raises the 90 percent coverage to about 0.8, still below the band."></div>
+    </figure>
+  </div>
+  <p class="note" data-slot="bpCovCap"></p>
+  <h3>The pre-registered clauses, re-scored for B⁺ (report-only)</h3>
+  <div class="tbl" data-table="bpClauses"></div>
+  <p class="note" data-slot="bpVerdictNote"></p>
+  <h3>All 13 settings: B⁺ on the 50 test cubes</h3>
+  <div class="tbl" data-table="bpSettings"></div>
+  <div class="remark"><b>What B⁺ is and is not.</b> It is a post-hoc amendment of B's last sampling step, designed after the Phase 3 verdict on cubes outside the test subset. It uses the measurement twice: once in the guidance and again in the conditioning. Its calibration is that of a Gaussian kernel around a collapsed ensemble, and it holds per element; it does not model the cube's joint structure. <span data-slot="bpSingle"></span> <span data-slot="bpIntegrity"></span></div>
+</section>
+
+<!-- ============================================================ -->
+<section id="s11">
+  <h2><span class="no">11</span>Zero-shot generality: four tests</h2>
+  <p class="lead">The common protocol: nothing is retrained. The new forward model (response matrix, measured rows, noise model) is known at test time. L is the noise-aware MMSE with that forward model. D, V and C are the Phase 3 family networks fed the MMSE statistics $(\hat x, s)$ of that forward model. B and B⁺ use the Phase 3 prior, guidance and kernel with the same forward model. L, D and V are scored on the 200 gate cubes; B, B⁺, C and C1 on the 50-cube subset with K = 20. Every comparison involving B or B⁺ uses the other methods re-averaged on the same 50 cubes and is paired, with the source-image-clustered SE. No clause is attached to these tests; each states its prediction, quoted below from the spec.</p>
+  <p class="note" data-slot="p3bStatus"></p>
+
+  <h3>B.1 Sensor variation (sequential, 30 dB)</h3>
+  <p>The response matrix is changed in three ways: a blend $R(\alpha) = (1-\alpha) R_1 + \alpha R_2$ of Device 1 and Device 2; every state's response shifted by 1, 2 or 4 bands toward longer wavelengths; and a random gain per state, $R_{:,k} \cdot \exp(\delta g_k)$ with $g_k \sim \mathcal N(0, 1)$.</p>
+  <p class="pred"><b>Prediction (spec):</b> “B's and B⁺'s RMSE stays within 10 % of its Device 1 value at every setting; D's advantage over L (0.59 × on Device 1, 0.80 × on Device 2) shrinks with the size of the change; B⁺ is the best point estimate at every setting.”</p>
+  <div class="legend" data-legend="g1"></div>
+  <div class="threecol">
+    <figure><p class="charthead">Blend toward Device 2</p><div class="scroll" data-chart="g1blend" data-aria="RMSE of L, D, B and B-plus against the blend weight alpha from Device 1 to Device 2."></div></figure>
+    <figure><p class="charthead">Wavelength shift</p><div class="scroll" data-chart="g1shift" data-aria="RMSE of L, D, B and B-plus against the wavelength shift in bands."></div></figure>
+    <figure><p class="charthead">Per-state gain drift</p><div class="scroll" data-chart="g1gain" data-aria="RMSE of L, D, B and B-plus against the gain spread delta."></div></figure>
+  </div>
+  <p class="note">All points on the same 50 cubes. The unperturbed points (α = 0, shift 0, δ = 0: Device 1; α = 1: Device 2) are the Part A records (K = 32); the scenario points use K = 20. Points still being computed are marked “pending” at the foot of the panel and are not drawn.</p>
+  <details class="fold"><summary>B.1 data: every method, both cube sets, paired differences</summary><div class="tbl" data-table="g1data"></div></details>
+  <p data-slot="b1read"></p>
+
+  <h3>B.2 Fewer voltage states (sequential)</h3>
+  <p>Evenly spaced subsets of Device 1's 30 states, S = 15, 10 and 5, at 40 and 20 dB.</p>
+  <p class="pred"><b>Prediction (spec):</b> “every method degrades as S falls; B⁺ / L falls (the prior matters more with fewer states); D, never trained on a subset, loses its advantage over L by S = 5.”</p>
+  <div class="legend" data-legend="g2"></div>
+  <div class="twocol">
+    <figure><p class="charthead">40 dB</p><div class="scroll" data-chart="g2at40" data-aria="RMSE against the number of states at 40 dB for L, D, B and B-plus."></div></figure>
+    <figure><p class="charthead">20 dB</p><div class="scroll" data-chart="g2at20" data-aria="RMSE against the number of states at 20 dB for L, D, B and B-plus."></div></figure>
+  </div>
+  <p class="note">All points on the same 50 cubes; S = 30 is the Part A record of the same SNR (K = 32). <span data-slot="g2idx"></span></p>
+  <details class="fold"><summary>B.2 data: every method, both cube sets, paired differences</summary><div class="tbl" data-table="g2data"></div></details>
+  <p data-slot="b2read"></p>
+
+  <h3>B.3 One prior, other tasks</h3>
+  <p>Dead pixels (a random 50 % or 90 % of the pixels without a measurement, 30 dB) and spatial super-sampling (only pixels with $i \bmod d = j \bmod d = 0$ measured; ×4 and ×8 at the 60 dB floor, ×4 at 30 dB), next to the Phase 3 tasks.</p>
+  <p class="pred"><b>Prediction (spec):</b> “B⁺ beats L_interp on dead pixels at both fractions and at d = 4; the task-specific Phase 1 regressor stays ahead at d = 4 noise-free.”</p>
+  <div class="tbl" data-table="g3"></div>
+  <p class="note">RMSE % on the same 50 cubes; the best cell of a row is highlighted once all its records are in. L is the exact MMSE (an unmeasured pixel gets the prior mean). “Best classical” is, for pixel patterns, the better of L_interp (interpolation-error variance added on unmeasured pixels) and L_interp_plain (σ² on every pixel), as ruled before the B records; for demosaicing it is demosaic-then-MMSE. C is the Phase 3 record (K = 32) in the first three rows and K = 20 below. D is zero-shot except on its own training tasks (the first and third rows). Task-specific reference<sup>*</sup>: Phase 1's regressors trained for the task, noise-free, 200 gate cubes: d = 4 1.962 % (baseline 2.35 %), d = 8 4.232 % (baseline 4.580 %). <sup>*</sup>typed from the Phase 1 notes, not read from the records.</p>
+  <details class="fold"><summary>B.3 data: every method, both cube sets, paired differences</summary><div class="tbl" data-table="g3data"></div></details>
+  <p data-slot="b3read"></p>
+
+  <h3>B.4 Non-Gaussian measurement noise (sequential, Device 1)</h3>
+  <p>Shot noise with the mean variance of 30 and 20 dB; 30 dB Gaussian noise followed by clipping at the 90 % or 70 % quantile of the clean readings (10 % or 30 % of the readings saturated); and 40 dB noise followed by a 4-bit ADC. “Aware” methods use the matching likelihood, “naive” ones assume white Gaussian noise at the nominal σ; B and B⁺ are aware.</p>
+  <p class="pred"><b>Prediction (spec):</b> “the aware methods beat their naive versions; B⁺ beats D with aware statistics under saturation (the statistics leave the family's training distribution).”</p>
+  <div class="tbl" data-table="g4"></div>
+  <p class="note">RMSE % on the same 50 cubes, best RMSE of a row highlighted once all its records are in; the last column is B⁺'s 90 % coverage.</p>
+  <details class="fold"><summary>B.4 data: every method, both cube sets, paired differences</summary><div class="tbl" data-table="g4data"></div></details>
+  <p data-slot="b4read"></p>
+</section>
+
 <footer>
-  Sources, under <code>results/residual_warmstart/</code> (git-ignored): <code>sensor/eval/*.json</code> (sd_eval records) and <code>sensor/eval/vpred_prior/</code> (archived B records), <code>sensor/stage0/</code>, <code>sensor/config.json</code>, <code>sensor/<span data-v="status.verdict_file"></span></code>, the toy record <code data-v="toy.path"></code>, and <code>runs/*/train_log.jsonl</code>. The B-prior probe curves are quoted from the results note <code>docs/superpowers/plans/2026-11-03-sensor-degradation-diffusion-RESULTS.md</code>. Spec <code>docs/superpowers/specs/2026-11-03-sensor-degradation-diffusion-design.md</code>. Page data built by <code>docs/analysis/phase3_page/extract_page_data.py</code>; branch <code>worktree-phase1-plan</code>.
+  Sources, under <code>results/residual_warmstart/</code> (git-ignored): <code>sensor/eval/*.json</code> (sd_eval records) and <code>sensor/eval/vpred_prior/</code> (archived B records), <code>sensor/stage0/</code>, <code>sensor/config.json</code>, <code>sensor/<span data-v="status.verdict_file"></span></code>, the toy record <code data-v="toy.path"></code>, and <code>runs/*/train_log.jsonl</code>. The B-prior probe curves are quoted from the results note <code>docs/superpowers/plans/2026-11-03-sensor-degradation-diffusion-RESULTS.md</code>. Spec <code>docs/superpowers/specs/2026-11-03-sensor-degradation-diffusion-design.md</code>. Phase 3b (sections 10–11, report-only): <code>sensor/eval/*_Bp.json</code> (B and B⁺ on the 50 test cubes), <code>sensor/eval/g_*_{main,interp,B,C}.json</code> (the 24 scenarios of <code>scripts/sensor/scenarios_3b.py</code>), <code>sensor/verdict__e123_bplus__report.json</code>, <code>sensor/b_kernel.npz</code>; the denoiser-floor numbers are typed into <code>docs/analysis/phase3_page/phase3b_probe.json</code> from the results note <code>docs/superpowers/plans/2026-11-16-b-plus-and-generality-RESULTS.md</code>; spec <code>docs/superpowers/specs/2026-11-16-b-plus-and-zero-shot-generality-design.md</code>. Page data built by <code>docs/analysis/phase3_page/extract_page_data.py</code>; branch <code>worktree-phase1-plan</code>.
 </footer>
 </main>

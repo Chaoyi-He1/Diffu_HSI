@@ -27,6 +27,7 @@ function xy(host,o){
   const svg=mk(host,W,H,o.minW||520);const pw=W-m.l-m.r,ph=H-m.t-m.b;
   const X=function(v){return m.l+(v-o.x[0])/(o.x[1]-o.x[0])*pw;};
   let Y;if(o.log){const a=Math.log10(o.y[0]),b=Math.log10(o.y[1]);Y=function(v){return m.t+ph-(Math.log10(Math.max(v,o.y[0]))-a)/(b-a)*ph;};}else{Y=function(v){return m.t+ph-(v-o.y[0])/(o.y[1]-o.y[0])*ph;};}
+  (o.bands||[]).forEach(function(b){el('rect',{x:m.l,y:Y(b.y1),width:pw,height:Y(b.y0)-Y(b.y1),style:'fill:var('+(b.c||'--good-bg')+')'},svg);});
   o.yTicks.forEach(function(t){line(svg,m.l,Y(t),m.l+pw,Y(t),'grid');tx(svg,m.l-8,Y(t)+4,(o.yFmt||String)(t),'tick','end');});
   line(svg,m.l,m.t+ph,m.l+pw,m.t+ph,'axis');
   o.xTicks.forEach(function(t){tx(svg,X(t),m.t+ph+18,(o.xFmt||String)(t),'tick','middle');});
@@ -329,6 +330,174 @@ SL.mainline=function(h){const cB=passes('B'),cC=passes('C'),tb=t2v('B',20),tc=t2
 SL.verdictnote=function(h){h.innerHTML='Verdict <code>'+ST.verdict_file+'</code>, created '+(V.created||'—')+'. B cells are on B’s 50 cubes, paired with the 200-cube references on the shared files (at least '+V.min_common+' common files required).';};
 SL.budget=function(h){const b=D.budget,e=b.eval_hours;const ev=e.main+e.C+e.B+e.B_vpred+(e.B_stale||0);   /* B_stale: non-x0 B records still in eval/ (not counted in e.B) */const tot=b.train_hours+b.pilot_hours+ev;
   h.innerHTML='<b>Budget.</b> Training took '+fx(b.train_hours,1)+' GPU-h for the five runs (the failed v-prediction prior included), plus '+fx(b.pilot_hours,1)+' GPU-h for the three prior pilots. Evaluation took '+fx(e.main,2)+' GPU-h for the L / D / V records, '+fx(e.C,1)+' for C, '+fx(e.B_vpred,1)+' for the archived v-prediction B records (E1 60 / 50 dB and the mis-launched E4 cell) and '+fx(e.B,1)+' for the '+b.b_records+' x₀-prior B records'+(e.B_stale?' ('+fx(e.B_stale,1)+' more for stale non-x₀ B records not yet archived)':'')+' (E4’s L / D / V and C records are counted in those totals). A B record costs ≈ '+fx(b.b_hours_mean,2)+' GPU-h, against the spec’s 12 GPU-h cap for all of B. Total: ≈ '+fx(tot,0)+' GPU-h on RTX A4500s.';};
+/* ---------- Phase 3b (sections 10–11, report-only): B⁺ and the four zero-shot tests ---------- */
+const P3=D.phase3b||{},BP=P3.bplus||{},BPS=BP.settings||{},SC=P3.scenarios||{},RF=P3.refs||{},BPV=BP.verdict||null,P3G=P3.groups||{};
+const MC3={L:'--ink-2',D:'--accent',B:'--s4',Bp:'--s4',C:'--s2'};
+const G3N={L:'L, MMSE',D:'D, regressor',B:'B, mean of K',Bp:'B⁺, mean of K'};
+const BPK=[['E1','device1','sequential',[60,50,40,30,20]],['E2','device2','sequential',[40,30,20]],['E3','device1','snapshot',[60,40,30,20]],['E4','device2','snapshot',[30]]];
+function bpSet(dev,mode,snr){return BPS[dev+'_'+mode+'_'+snr];}
+function bpOk(s){return !!(s&&s.status==='final');}
+function scOk(s){return !!(s&&s.status==='final');}
+/* B⁺ settings: B / Bp from the record, the others re-averaged on its 50 cubes */
+function bpv(s,m,k){k=k||'rmse';if(!bpOk(s))return null;const x=(m==='B'||m==='Bp')?s.means[m]:s.sub[m];return x&&x[k]!=null?x[k]:null;}
+/* scenarios: L / D / classical on the 50-cube subset, B / B⁺ and C / C1 from their 50-cube records */
+function scv(s,m,k){k=k||'rmse';if(!s)return null;let x;if(m==='B'||m==='Bp')x=scOk(s)?s[m]:null;else if(m==='C'||m==='C1')x=s.c_status==='final'?s[m]:null;else x=s.sub&&s.sub[m];return x&&x[k]!=null?x[k]:null;}
+function refv(key,m,k){k=k||'rmse';const r=RF[key];if(!r||r.status!=='final')return null;const x=r[m];return x&&x[k]!=null?x[k]:null;}
+function pdx(p){return p?sg(p.diff,3)+' ± '+fx(p.se_cluster,3)+' ('+fx(p.ratio,3)+'×)':'—';}
+function nv(v,n){return v==null?pend():fx(v,n);}
+function bestKey(c){let b=null;Object.keys(c).forEach(function(k){if(c[k]!=null&&(b==null||c[k]<c[b]))b=k;});return b;}
+function passesOf(VV,line){if(!VV)return [];const out=[];const t1=VV.T1&&VV.T1[line]||{};if(E1S.every(function(x){return t1[vk(x)]&&t1[vk(x)].passed;}))out.push('T1');
+  T2S.forEach(function(x){const c=VV.T2&&VV.T2[line]&&VV.T2[line][vk(x)];if(c&&c.passed)out.push('T2 at '+x+' dB');});
+  if(VV.T3&&VV.T3[line]&&VV.T3[line].passed)out.push('T3');if(VV.T4&&VV.T4[line]&&VV.T4[line].passed)out.push('T4');return out;}
+function logRange(vals){const v=vals.filter(function(x){return x!=null&&x>0;});if(!v.length)return {y:[1,10],t:[1,2,5,10]};const lo=Math.min.apply(null,v)*0.85,hi=Math.max.apply(null,v)*1.15;
+  const t=[0.2,0.3,0.5,0.8,1,1.5,2,3,4,5,6,8,10,12,15,20,25,30].filter(function(x){return x>=lo&&x<=hi;});return {y:[lo,hi],t:t.length?t:[lo,hi]};}
+function mnmx(a,n){const v=a.filter(function(x){return x!=null;});if(!v.length)return pend();const lo=Math.min.apply(null,v),hi=Math.max.apply(null,v);return fx(lo,n)===fx(hi,n)?fx(lo,n):fx(lo,n)+'–'+fx(hi,n);}
+function bpLabel(s){return s.exp+' · '+DEVN[s.device]+(s.mode==='snapshot'?' snapshot':'')+' · '+s.snr+' dB';}
+function scName(n){const s=SC[n];if(!s)return n;const c=s.scenario||{},snr=s.snr_db,R=c.R||{},nz=c.noise||{};
+  if(R.kind==='blend')return 'blend α = '+R.alpha;if(R.kind==='shift')return 'shift '+R.bands+(R.bands===1?' band':' bands');if(R.kind==='gain')return 'gain δ = '+R.delta;
+  if(c.states)return 'S = '+c.states+', '+snr+' dB';if(c.pixels&&c.pixels.kind==='dead')return 'dead pixels '+Math.round(100*c.pixels.p)+' %';if(c.pixels&&c.pixels.kind==='stride')return '×'+c.pixels.d+', '+snr+' dB';
+  if(nz.kind==='poisson')return 'shot noise, '+snr+' dB';if(nz.kind==='saturation')return 'saturation '+Math.round(100*(1-nz.q))+' %';if(nz.kind==='quantisation')return nz.bits+'-bit ADC, '+snr+' dB';return n;}
+
+SL.bpUpdate=function(h){const lead='<b>Update (report-only, after the verdict):</b> ';
+  if(!BPV){h.innerHTML=lead+'B⁺ '+pend();return;}
+  const pb=passesOf(BPV,'B'),p0=V.b_valid?passes('B'):null;const t2=function(x){const c=BPV.T2&&BPV.T2.B&&BPV.T2.B[vk(x)];return c?fx(c.cov90,3):pend();};
+  const r=E1S.map(function(x){const c=BPV.T1&&BPV.T1.B&&BPV.T1.B[vk(x)];return c?c.ratio:null;});
+  h.innerHTML=lead+'B⁺, which replaces B’s last sampling step by a draw from the posterior (section 10), passes '+pb.length+' of 5 clauses ('+(joinAnd(pb)||'none')+') against B’s '+(p0?p0.length:pend())+'. Its 90 % coverage is '+t2(30)+' / '+t2(20)+' at 30 / 20 dB, inside T2’s band. Its mean’s RMSE is '+mnmx(r,3)+' × the regressor’s on the same 50 cubes ('+E1S.map(function(x,i){return x+' dB '+(r[i]==null?pend():fx(r[i],3));}).join(', ')+'). The Phase 3 verdict above is unchanged: B⁺ is an amendment scored after it, not part of the pre-registered test.';};
+SL.bpLead=function(h){const P=BP.probe;const b30=met(set('device1','sequential',30),'B','cov90'),b20=met(set('device1','sequential',20),'B','cov90');
+  if(!P){h.innerHTML='The denoiser-floor numbers were not found at build time. '+pend();return;}
+  const above=P.t.filter(function(t,i){return P.x0_err_pct[i]>P.noise_pct[i];});
+  h.innerHTML='Phase 3’s B has an accurate mean, but its draws nearly coincide (cov90 '+fx(b30,2)+' / '+fx(b20,2)+' at 30 / 20 dB). The cause is the prior network, not the guidance. On the calibration cubes the network’s x̂₀ error is '+P.x0_err_pct.map(function(v){return fx(v,2);}).join(' / ')+' % at t = '+P.t.join(' / ')+', while the noise in its input is '+P.noise_pct.map(function(v){return fx(v,2);}).join(' / ')+' %. The error has a floor that does not move with t'+(above.length?', and it lies above the input noise for t ≤ '+Math.max.apply(null,above):'')+'. ΠGDM returns the network’s x̂₀ at its last step, which is a mean with that floor, so every draw converges to the same smoothed estimate. B⁺ keeps B’s draws and replaces that last step by a draw from the posterior.';};
+SL.bpProbeCap=function(h){const P=BP.probe;if(!P||!P.tail55){h.innerHTML=pend();return;}const T5=P.tail55;
+  h.textContent='Solid: the prior’s x̂₀ error; dashed: the noise in its input at the same t. Continuing the sampling grid to t = 0 (55 steps) makes it worse on the same cubes at 30 dB: mean RMSE '+fx(T5.mean_rmse[1],2)+' against '+fx(T5.mean_rmse[0],2)+' %, cov90 '+fx(T5.cov90[1],2)+' against '+fx(T5.cov90[0],2)+'. A finer final grid cannot help, because the floor is the same at every small t. Numbers typed from the Phase 3b results note (Part A, calibration cubes; no test cube).';};
+SL.bpKernel=function(h){const k=BP.kernel;if(!k){h.innerHTML='<b>The kernel:</b> '+pend();return;}const st=k.setting||{};
+  h.innerHTML='<b>The kernel, fixed before the test records.</b> Σ<sub>e</sub> is the covariance of the per-pixel spectral residual (truth − mean of K = '+k.K+' guided draws) pooled over '+k.n_cubes+' calibration cubes (gate cubes that share no source image with the 50 test cubes, one per image), at one reference setting: '+(DEVN[st.sensor_device]||st.sensor_device)+', '+st.mode+', '+fx(st.snr_db,0)+' dB, ΠGDM '+(k.steps==null?'—':k.steps)+' steps. B’s mean RMSE on those cubes is '+fx(k.mean_rmse_pct,3)+' %, the kernel’s RMS '+fx(k.kernel_rms_pct,3)+' % of the range. One kernel serves every setting, device and mode, with no scale factor (file sha '+k.sha256+'…).';};
+CH.bpProbe=function(h){const P=BP.probe;if(!P){h.innerHTML=pend();return;}
+  legendInto('bpprobe',[{n:'prior’s x̂₀ error',c:'--s4'},{n:'noise in its input at t',c:'--ink-2',dash:true}]);
+  xy(h,{log:true,x:[-4,104],y:[0.4,24],xTicks:P.t,yTicks:[0.5,1,2,5,10,20],yTitle:'error, % of range (log)',xTitle:'diffusion timestep t',mr:20,
+    series:[{name:'x̂₀ error',c:'--s4',data:P.t.map(function(t,i){return [t,P.x0_err_pct[i]];})},{name:'input noise',c:'--ink-2',dash:true,data:P.t.map(function(t,i){return [t,P.noise_pct[i]];})}],
+    tipX:function(v){return 't = '+v;},tipY:function(v){return v.toFixed(3)+' %';},
+    table:{head:['t','x̂₀ error %','input noise %'],rows:P.t.map(function(t,i){return [t,fx(P.x0_err_pct[i],3),fx(P.noise_pct[i],2)];})}});};
+CH.bpRmse=function(h){const xs=[60,50,40,30,20];const ms=['L','D','B','Bp'];const nm={L:'L, MMSE',D:'D, regressor',B:'B, mean of 32',Bp:'B⁺, mean of 32'};
+  legendInto('bprmse',ms.map(function(m){return {n:nm[m],c:MC3[m],dash:m==='B',faint:m==='B'};}));
+  const ser=ms.map(function(m){return {name:nm[m],c:MC3[m],dash:m==='B',faint:m==='B',label:m==='L'?'L':null,data:xs.map(function(x){const v=bpv(bpSet('device1','sequential',x),m);return v==null?null:[x,v];}).filter(Boolean)};});
+  xy(h,{log:true,x:[12,62],y:[0.8,8],xTicks:[20,30,40,50,60],xFmt:function(v){return v===60?'60 (floor)':String(v);},yTicks:[1,2,3,5,8],yTitle:'RMSE % of range (log)',xTitle:'SNR (dB)',labelAt:'first',mr:20,series:ser,tipX:function(v){return v+' dB';},
+    table:{head:['SNR (dB)','L','D','B','B⁺','B⁺ / D','B⁺ − B ± cl. SE'],rows:xs.map(function(x){const s=bpSet('device1','sequential',x);if(!bpOk(s))return [x,'pending','pending','pending','pending','pending','pending'];return [x,fx(bpv(s,'L'),3),fx(bpv(s,'D'),3),fx(bpv(s,'B'),3),fx(bpv(s,'Bp'),3),fx(s.paired.rmse_vs_D&&s.paired.rmse_vs_D.ratio,3),s.paired.rmse_vs_B?sg(s.paired.rmse_vs_B.diff,3)+' ± '+fx(s.paired.rmse_vs_B.se_cluster,3):'—'];})}});};
+SL.bpRmseCap=function(h){const xs=[60,50,40,30,20];const s60=bpSet('device1','sequential',60);
+  const r=xs.map(function(x){const c=BPV&&BPV.T1&&BPV.T1.B&&BPV.T1.B[vk(x)];const s=bpSet('device1','sequential',x);const q=c?c.ratio:(bpOk(s)&&s.paired.rmse_vs_D?s.paired.rmse_vs_D.ratio:null);return x+' dB '+nv(q,3);});
+  h.innerHTML='All four on the 50 test cubes (L and D re-averaged there). B⁺’s ratio to D: '+r.join(', ')+'. The conditioning removes B’s high-SNR penalty: at 60 dB B gives '+nv(bpv(s60,'B'),3)+' % and B⁺ '+nv(bpv(s60,'Bp'),3)+' % (D '+nv(bpv(s60,'D'),3)+', L '+nv(bpv(s60,'L'),3)+').';};
+function covChart(h,groups){const ser=[],rows=[];
+  groups.forEach(function(g){['Bp','B'].forEach(function(m){['cov90','cov50'].forEach(function(k){
+      const d=g.snrs.map(function(x){const v=bpv(bpSet(g.dev,g.mode,x),m,k);return v==null?null:[x,v];}).filter(Boolean);
+      ser.push({name:DEVN[g.dev]+' · '+(m==='Bp'?'B⁺':'B')+' · '+k,c:g.c,dash:m==='B',faint:m==='B',thin:k==='cov50',r:k==='cov50'?2.4:3.4,data:d});});});
+    g.snrs.forEach(function(x){const s=bpSet(g.dev,g.mode,x);rows.push([DEVN[g.dev]+' · '+x+' dB',bpOk(s)?fx(bpv(s,'B','cov50'),3)+' / '+fx(bpv(s,'B','cov90'),3):'pending',bpOk(s)?fx(bpv(s,'Bp','cov50'),3)+' / '+fx(bpv(s,'Bp','cov90'),3):'pending']);});});
+  xy(h,{w:520,h:300,minW:340,mr:16,x:[16,64],y:[0,1],xTicks:[20,30,40,50,60],yTicks:[0,0.25,0.5,0.75,0.9,1],yFmt:function(v){return v.toFixed(2);},yTitle:'coverage',xTitle:'SNR (dB)',bands:[{y0:0.85,y1:0.95}],series:ser,tipX:function(v){return v+' dB';},
+    table:{head:['setting','B cov50 / cov90','B⁺ cov50 / cov90'],rows:rows}});}
+CH.bpCovSeq=function(h){legendInto('bpcov',[{n:'Device 1 · B⁺',c:'--s4'},{n:'Device 1 · B',c:'--s4',dash:true},{n:'Device 2 · B⁺',c:'--s3'},{n:'Device 2 · B',c:'--s3',dash:true}]);
+  covChart(h,[{dev:'device1',mode:'sequential',snrs:[60,50,40,30,20],c:'--s4'},{dev:'device2',mode:'sequential',snrs:[40,30,20],c:'--s3'}]);};
+CH.bpCovSnap=function(h){covChart(h,[{dev:'device1',mode:'snapshot',snrs:[60,40,30,20],c:'--s4'},{dev:'device2',mode:'snapshot',snrs:[30],c:'--s3'}]);};
+function bpKeys(mode){const out=[];BPK.forEach(function(e){if(e[2]===mode)e[3].forEach(function(x){out.push(bpSet(e[1],e[2],x));});});return out;}
+SL.bpCovCap=function(h){const seq=bpKeys('sequential').filter(bpOk),snap=bpKeys('snapshot').filter(bpOk);
+  const g=function(a,m,k){return mnmx(a.map(function(s){return bpv(s,m,k);}),2);};
+  h.innerHTML='Upper lines and larger dots: cov90; lower lines: cov50; solid B⁺, dashed B. In sequential mode B⁺’s cov50 is '+g(seq,'Bp','cov50')+' and its cov90 '+g(seq,'Bp','cov90')+' over the '+seq.length+' settings (nominal 0.50 / 0.90; B: '+g(seq,'B','cov50')+' / '+g(seq,'B','cov90')+'), with one kernel fitted at 20 dB on Device 1. In snapshot mode B⁺’s cov90 is '+g(snap,'Bp','cov90')+' (B: '+g(snap,'B','cov90')+') over '+snap.length+' settings: the kernel was measured in sequential mode and does not contain the demosaicing error.';};
+function bpCl(c,kind,lim){if(!c)return pend();const th=V.thresholds||{};
+  if(kind==='T2')return {v:pill(c.passed)+' <span class="num">CRPS − L '+sg(c.crps_vs_L.mean,3)+' ± '+fx(c.crps_vs_L.se_cluster,3)+' · − V '+sg(c.crps_vs_V.mean,3)+' ± '+fx(c.crps_vs_V.se_cluster,3)+' · cov90 '+fx(c.cov90,3)+'</span>',cls:''};
+  if(kind==='T3')return {v:pill(c.passed)+' <span class="num">ratio to L: Device 1 '+fx(c.ratio_dev1,3)+' · Device 2 '+fx(c.ratio_dev2,3)+' (limit '+fx(th.T3_RATIO*c.ratio_dev1,3)+')</span>',cls:''};
+  return {v:pill(c.passed)+' <span class="num">ratio '+fx(c.ratio,3)+' · 2-SE bound '+fx(c.ratio_2se,3)+' (limit '+fx(lim,2)+')</span>',cls:''};}
+T.bpClauses=function(h){const th=V.thresholds||{};const rows=[];
+  const g=function(VV,k,x){const o=VV&&VV[k]&&VV[k].B;return o?(x==null?o:o[vk(x)]):null;};
+  const old=function(k,x,kind,lim){return V.b_valid?bpCl(g(V,k,x),kind,lim):bInvalid();};
+  E1S.forEach(function(x){rows.push(['<b>T1</b> · '+x+' dB','mean RMSE ≤ '+fx(th.T1_RATIO,2)+' × D (2 cl. SE)',old('T1',x,'T1',th.T1_RATIO),bpCl(g(BPV,'T1',x),'T1',th.T1_RATIO)]);});
+  T2S.forEach(function(x){rows.push(['<b>T2</b> · '+x+' dB','CRPS below L and V (2 cl. SE), cov90 ∈ ['+(th.T2_COV90||[]).join(', ')+']',old('T2',x,'T2'),bpCl(g(BPV,'T2',x),'T2')]);});
+  rows.push(['<b>T3</b> · 30 dB','(line / L) on Device 2 ≤ '+fx(th.T3_RATIO,2)+' × the same on Device 1',old('T3',null,'T3'),bpCl(g(BPV,'T3'),'T3')]);
+  rows.push(['<b>T4</b> · snapshot 30 dB','RMSE ≤ '+fx(th.T4_RATIO,2)+' × demosaic-then-MMSE (2 cl. SE)',old('T4',null,'T4',th.T4_RATIO),bpCl(g(BPV,'T4'),'T4',th.T4_RATIO)]);
+  const pc=function(p){return num('<b>'+p.length+' of 5</b> ('+(joinAnd(p)||'none')+')');};
+  rows.push(['<b>clauses passed</b>','T1 once (all five SNRs), T2 per SNR, T3, T4',V.b_valid?pc(passes('B')):bInvalid(),BPV?pc(passesOf(BPV,'B')):pend()]);
+  tbl(h,['clause · setting','rule','B (Phase 3 verdict)','B⁺ (report-only)'],rows,function(i){return i===rows.length-1;});};
+SL.bpVerdictNote=function(h){if(!BPV){h.innerHTML='B⁺ column: '+pend('verdict file not found');return;}const rn=BPV.rename||{};
+  h.innerHTML='B column: the Phase 3 verdict <code>'+ST.verdict_file+'</code>. B⁺ column: <code>'+BPV.file+'</code>, created '+(BPV.created||'—')+', the unchanged verdict script run on the B⁺ records with the rename '+(Object.keys(rn).map(function(k){return k+' → '+rn[k];}).join(', ')||'—')+' (its “B” lines are B⁺). It is report-only and names no main line; C’s lines in it are those of the Phase 3 verdict.';};
+T.bpSettings=function(h){const rows=[];
+  BPK.forEach(function(e){e[3].forEach(function(x){const s=bpSet(e[1],e[2],x);const lab=e[0]+' · '+DEVN[e[1]]+(e[2]==='snapshot'?' snapshot':'')+' · '+x+' dB';
+    if(!bpOk(s)){rows.push([lab].concat([1,2,3,4,5,6,7,8,9].map(function(){return pend();})));return;}
+    const p=s.paired,lr=s.L_ref;
+    rows.push([lab,num(fx(bpv(s,'Bp'),3)+' / '+fx(bpv(s,'Bp','single'),2)),num(fx(bpv(s,'Bp','crps'),3)),num(fx(bpv(s,'Bp','cov50'),3)+' / '+fx(bpv(s,'Bp','cov90'),3)),num(fx(bpv(s,'B'),3)+' / '+fx(bpv(s,'B','cov90'),3)),
+      num(fx(bpv(s,'D'),3)),num(fx(bpv(s,lr),3)),num(fx(p.rmse_vs_D&&p.rmse_vs_D.ratio,3)),num(p.rmse_vs_B?sg(p.rmse_vs_B.diff,3)+' ± '+fx(p.rmse_vs_B.se_cluster,3):'—'),num(fx(s.hours,2))]);});});
+  tbl(h,['setting','B⁺ RMSE mean / single (%)','B⁺ CRPS','B⁺ cov50 / cov90','B RMSE / cov90','D','L (snapshot: demosaic-then-MMSE)','B⁺ / D','B⁺ − B ± cl. SE','GPU-h'],rows);};
+SL.bpSingle=function(h){const seq=bpKeys('sequential').filter(bpOk);const r=seq.map(function(s){const a=bpv(s,'Bp','single'),b=bpv(s,'Bp');return a!=null&&b?a/b:null;});
+  h.innerHTML='Single B⁺ draws are noisy, not realistic textures: in sequential mode a single draw’s RMSE is '+mnmx(r,2)+' × the mean’s.';};
+SL.bpIntegrity=function(h){const g=BP.integrity||{};
+  h.innerHTML='<b>Integrity check.</b> The B means in the new records reproduce the Phase 3 B records to within '+nv(g.rmse,3)+' (RMSE), '+nv(g.crps,3)+' (CRPS) and '+nv(g.cov90,3)+' (cov90) over '+(g.n==null?pend():g.n)+' settings. Individual cubes are not bit-identical: the guided chain amplifies non-deterministic GPU kernels where the guidance is strongest. The B numbers in this section are those of the new records.';};
+
+/* section 11 */
+SL.p3bStatus=function(h){const st=P3.status||{};const nm=Object.keys(SC).filter(function(n){return SC[n].main_status==='final';}).length;
+  h.innerHTML='Records at build time: L, D and V for '+nm+' of '+(st.n_scen||0)+' scenarios, B and B⁺ for '+(st.n_B||0)+', C and C1 for '+(st.n_C||0)+'. Cells and points that need a missing record show '+pend()+' and are not drawn.';};
+function gPts(kind){const pts=[];(P3G.B1||[]).forEach(function(n){const R=SC[n].scenario.R||{};if(R.kind===kind)pts.push({x:R[{blend:'alpha',shift:'bands',gain:'delta'}[kind]],key:n});});
+  pts.unshift({x:0,ref:'device1_sequential_30'});if(kind==='blend')pts.push({x:1,ref:'device2_sequential_30'});return pts.sort(function(a,b){return a.x-b.x;});}
+function sPts(snr){const pts=[{x:30,ref:'device1_sequential_'+snr}];(P3G.B2||[]).forEach(function(n){if(SC[n].snr_db===snr)pts.push({x:SC[n].scenario.states,key:n});});return pts.sort(function(a,b){return b.x-a.x;});}
+function gval(p,m){return p.ref?refv(p.ref,m):scv(SC[p.key],m);}
+function gAll(ptsList){const v=[];ptsList.forEach(function(pts){pts.forEach(function(p){['L','D','B','Bp'].forEach(function(m){v.push(gval(p,m));});});});return logRange(v);}
+function gPanel(h,pts,o){const ms=['L','D','B','Bp'];
+  const ser=ms.map(function(m){return {name:G3N[m],c:MC3[m],dash:m==='B',faint:m==='B',data:pts.map(function(p){const v=gval(p,m);return v==null?null:[p.x,v];}).filter(Boolean)};});
+  const c=xy(h,{w:320,h:250,minW:230,ml:44,mr:14,log:true,x:o.x,y:o.yr.y,xTicks:pts.map(function(p){return p.x;}),yTicks:o.yr.t,yTitle:'RMSE % (log)',xTitle:o.xTitle,series:ser,tipX:o.tipX,tipY:function(v){return v.toFixed(3)+' %';}});
+  pts.forEach(function(p){if(gval(p,'Bp')==null){const y0=c.m.t+4;const t=tx(c.svg,c.X(p.x)+4,y0,'pending','sm','start');t.setAttribute('transform','rotate(90 '+(c.X(p.x)+4)+' '+y0+')');}});}
+function g1legend(){legendInto('g1',['L','D','B','Bp'].map(function(m){return {n:G3N[m],c:MC3[m],dash:m==='B',faint:m==='B'};}));}
+CH.g1blend=function(h){g1legend();const yr=gAll([gPts('blend'),gPts('shift'),gPts('gain')]);gPanel(h,gPts('blend'),{x:[-0.06,1.06],yr:yr,xTitle:'blend weight α',tipX:function(v){return 'α = '+v;}});};
+CH.g1shift=function(h){const yr=gAll([gPts('blend'),gPts('shift'),gPts('gain')]);gPanel(h,gPts('shift'),{x:[-0.25,4.25],yr:yr,xTitle:'shift (bands)',tipX:function(v){return v+' bands';}});};
+CH.g1gain=function(h){const yr=gAll([gPts('blend'),gPts('shift'),gPts('gain')]);gPanel(h,gPts('gain'),{x:[-0.03,0.53],yr:yr,xTitle:'gain spread δ',tipX:function(v){return 'δ = '+v;}});};
+CH.g2at40=function(h){legendInto('g2',['L','D','B','Bp'].map(function(m){return {n:G3N[m],c:MC3[m],dash:m==='B',faint:m==='B'};}));const yr=gAll([sPts(40),sPts(20)]);gPanel(h,sPts(40),{x:[32,3],yr:yr,xTitle:'states S',tipX:function(v){return 'S = '+v;}});};
+CH.g2at20=function(h){const yr=gAll([sPts(40),sPts(20)]);gPanel(h,sPts(20),{x:[32,3],yr:yr,xTitle:'states S',tipX:function(v){return 'S = '+v;}});};
+SL.g2idx=function(h){const t=(P3G.B2||[]).filter(function(n){return SC[n].snr_db===40&&SC[n].state_indices;}).map(function(n){return 'S = '+SC[n].scenario.states+': ['+SC[n].state_indices.join(', ')+']';});
+  h.textContent='State indices (0-based, from the records): '+(t.length?t.join('; '):'—')+'.';};
+/* the folded data tables */
+function gData(h,names,extra){const rows=names.map(function(n){const s=SC[n];const p=s.paired||{};const mm=s.main||{};
+    const ex=extra?extra(s):[];
+    return [scName(n),num(nv(mm.L&&mm.L.rmse,3)+' / '+nv(mm.D&&mm.D.rmse,3)),num(nv(scv(s,'L'),3)+' / '+nv(scv(s,'D'),3))].concat(ex).concat([
+      num(s.c_status==='final'?fx(scv(s,'C'),3)+' / '+fx(scv(s,'C1'),3):pend()),
+      num(scOk(s)?fx(scv(s,'B'),3)+' / '+fx(scv(s,'B','cov90'),3):pend()),
+      num(scOk(s)?fx(scv(s,'Bp'),3)+' / '+fx(scv(s,'Bp','crps'),3)+' / '+fx(scv(s,'Bp','cov90'),3):pend()),
+      num(scOk(s)?pdx(p.rmse_vs_D):pend()),num(scOk(s)?pdx(p.rmse_vs_L):pend()),num(scOk(s)?fx(s.hours,2):pend())]);});
+  return rows;}
+const GDH=['setting','L / D · 200 cubes','L / D · 50 cubes'],GDT=['C / C1 · 50 (K 20)','B: RMSE / cov90','B⁺: RMSE / CRPS / cov90','B⁺ − D ± cl. SE (ratio)','B⁺ − L ± cl. SE (ratio)','B/B⁺ GPU-h'];
+T.g1data=function(h){tbl(h,GDH.concat(GDT),gData(h,P3G.B1||[]));};
+T.g2data=function(h){tbl(h,GDH.concat(GDT),gData(h,P3G.B2||[]));};
+T.g3data=function(h){tbl(h,GDH.concat(['L_interp / L_interp_plain · 50','B⁺ − best classical ± cl. SE (ratio)']).concat(GDT),gData(h,P3G.B3||[],function(s){const p=(s.paired||{}).rmse_vs_best_classical;
+  return [num(nv(scv(s,'L_interp'),3)+' / '+nv(scv(s,'L_interp_plain'),3)),num(scOk(s)?pdx(p)+(s.best_classical?' vs '+s.best_classical:''):pend())];}));};
+T.g4data=function(h){tbl(h,GDH.concat(['L naive / D naive · 50']).concat(GDT),gData(h,P3G.B4||[],function(s){return [num(nv(scv(s,'L_naive'),3)+' / '+nv(scv(s,'D_naive'),3))];}));};
+/* B.3: one prior, other tasks — the task × method table */
+const G3ROWS=[{lab:'Denoising (E1, 30 dB)',bp:'device1_sequential_30'},{lab:'Another sensor (E2, Device 2, 30 dB)',bp:'device2_sequential_30'},{lab:'Demosaicing (E3, snapshot, 30 dB)',bp:'device1_snapshot_30'},
+  {lab:'Dead pixels 50 % (30 dB)',sc:'dead_50'},{lab:'Dead pixels 90 % (30 dB)',sc:'dead_90'},{lab:'×4 spatial (60 dB)',sc:'stride_4_60'},{lab:'×8 spatial (60 dB)',sc:'stride_8_60'},{lab:'×4 spatial (30 dB)',sc:'stride_4_30'}];
+const CLN={L_interp:'L_interp',L_interp_plain:'L_interp_plain',L_demosaic:'demosaic-then-MMSE'};
+function hiRow(lab,v,cols,extra){const live=cols.filter(function(c){return v[c]!=null;}).map(function(c){return v[c];});const full=cols.every(function(c){return v[c]!==null;});const best=full&&live.length?Math.min.apply(null,live):null;   /* highlight only complete rows */
+  return [lab].concat(cols.map(function(c){if(v[c]===undefined)return num('—');if(v[c]==null)return pend();return {v:fx(v[c],2)+(extra&&extra[c]?'<br><span class="note">'+extra[c]+'</span>':''),cls:'num'+(v[c]===best?' best':'')};}));}
+T.g3=function(h){const cols=['L','CL','D','C','B','Bp'];
+  const rows=G3ROWS.map(function(r){const v={},ex={};
+    if(r.bp){const s=BPS[r.bp];const ok=bpOk(s);const snap=s&&s.mode==='snapshot';['L','D','C','B','Bp'].forEach(function(m){v[m]=ok?bpv(s,m):null;});v.CL=snap?(ok?bpv(s,'L_demosaic'):null):undefined;if(snap)ex.CL=CLN.L_demosaic;}
+    else{const s=SC[r.sc];['L','D','C','B','Bp'].forEach(function(m){v[m]=scv(s,m);});const bc=s&&s.best_classical;v.CL=bc?scv(s,bc):null;if(bc)ex.CL=CLN[bc]||bc;}
+    return hiRow(r.lab,v,cols,ex);});
+  tbl(h,['task (setting)','L exact','best classical','D','C','B','B⁺'],rows);};
+T.g4=function(h){const cols=['L_naive','L','D_naive','D','C','B','Bp'];
+  const rows=(P3G.B4||[]).map(function(n){const s=SC[n];const v={};cols.forEach(function(m){v[m]=scv(s,m);});const r=hiRow(scName(n),v,cols);r.push(num(nv(scv(s,'Bp','cov90'),3)));return r;});
+  tbl(h,['setting','L naive','L aware','D naive','D aware','C','B','B⁺','B⁺ cov90'],rows);};
+/* neutral, fully data-bound read-outs (the interpretive prose is added separately) */
+function ratioList(names,key){return names.map(function(n){const s=SC[n];const p=scOk(s)&&s.paired&&s.paired[key];return scName(n)+' '+(p?fx(p.ratio,3):pend());}).join(', ');}
+function bestList(names){const fin=names.filter(function(n){return scOk(SC[n]);});
+  return {n:fin.length,txt:fin.map(function(n){const s=SC[n];const c={L:scv(s,'L'),D:scv(s,'D'),C:scv(s,'C'),B:scv(s,'B'),'B⁺':scv(s,'Bp')};if(s.best_classical)c[s.best_classical]=scv(s,s.best_classical);return scName(n)+' '+bestKey(c)+(s.c_status==='final'?'':' (C pending)');}).join('; ')};}
+SL.b1read=function(h){const names=P3G.B1||[];const ref=refv('device1_sequential_30','Bp');const b=bestList(names);
+  const rel=names.map(function(n){const v=scv(SC[n],'Bp');return scName(n)+' '+(v!=null&&ref!=null?fx(v/ref,3):pend());}).join(', ');
+  const dl=names.map(function(n){const s=SC[n];const L=scv(s,'L'),Dv=scv(s,'D');return scName(n)+' '+(L!=null&&Dv!=null?fx(Dv/L,2):pend());}).join(', ');
+  const dl0=function(k){const L=refv(k,'L'),Dv=refv(k,'D');return L!=null&&Dv!=null?fx(Dv/L,2):pend();};
+  h.innerHTML='<b>Read-out (B.1).</b> B⁺ / D on the common cubes: '+ratioList(names,'rmse_vs_D')+'. B⁺’s RMSE relative to its Device 1 value at 30 dB ('+nv(ref,3)+(ref==null?'':' %')+'): '+rel+'. D / L on the same cubes: '+dl+' (Device 1 '+dl0('device1_sequential_30')+', Device 2 '+dl0('device2_sequential_30')+'). Lowest RMSE among L, D, C, B and B⁺, '+b.n+' of '+names.length+' settings finished: '+(b.txt||'none yet')+'.';};
+SL.b2read=function(h){const names=P3G.B2||[];const by=function(snr,f){return names.filter(function(n){return SC[n].snr_db===snr;}).sort(function(a,b){return SC[b].scenario.states-SC[a].scenario.states;}).map(function(n){return 'S = '+SC[n].scenario.states+' '+f(SC[n]);}).join(', ');};
+  const bl=function(s){const v=scv(s,'Bp'),L=scv(s,'L');return v!=null&&L!=null?fx(v/L,3):pend();};const dl=function(s){const v=scv(s,'D'),L=scv(s,'L');return v!=null&&L!=null?fx(v/L,3):pend();};
+  const r0=function(snr,m){const v=refv('device1_sequential_'+snr,m),L=refv('device1_sequential_'+snr,'L');return v!=null&&L!=null?fx(v/L,3):pend();};const b=bestList(names);
+  h.innerHTML='<b>Read-out (B.2).</b> B⁺ / L on the common cubes, 40 dB: '+by(40,bl)+' (S = 30: '+r0(40,'Bp')+'); 20 dB: '+by(20,bl)+' (S = 30: '+r0(20,'Bp')+'). D / L, 40 dB: '+by(40,dl)+' (S = 30: '+r0(40,'D')+'); 20 dB: '+by(20,dl)+' (S = 30: '+r0(20,'D')+'). Lowest RMSE, '+b.n+' of '+names.length+' settings finished: '+(b.txt||'none yet')+'.';};
+SL.b3read=function(h){const names=P3G.B3||[];const b=bestList(names);
+  const cov=names.map(function(n){return scName(n)+' '+nv(scv(SC[n],'Bp','cov90'),3);}).join(', ');
+  h.innerHTML='<b>Read-out (B.3).</b> B⁺ / best classical baseline on the common cubes: '+names.map(function(n){const s=SC[n];const p=scOk(s)&&s.paired.rmse_vs_best_classical;return scName(n)+' '+(p?fx(p.ratio,3):pend())+(s.best_classical?' (vs '+s.best_classical+')':'');}).join(', ')+'. B⁺ / D: '+ratioList(names,'rmse_vs_D')+'. B⁺ cov90: '+cov+'. Lowest RMSE, '+b.n+' of '+names.length+' settings finished: '+(b.txt||'none yet')+'.';};
+SL.b4read=function(h){const names=P3G.B4||[];const b=bestList(names);
+  const an=function(m){return names.map(function(n){const s=SC[n];const a=scv(s,m),nn=scv(s,m+'_naive');return scName(n)+' '+(a!=null&&nn!=null?fx(a/nn,3):pend());}).join(', ');};
+  const cov=names.map(function(n){return scName(n)+' '+nv(scv(SC[n],'Bp','cov90'),3);}).join(', ');
+  h.innerHTML='<b>Read-out (B.4).</b> Aware / naive RMSE on the common cubes, L: '+an('L')+'; D: '+an('D')+'. B⁺ / D (aware): '+ratioList(names,'rmse_vs_D')+'. B⁺ cov90: '+cov+'. Lowest RMSE, '+b.n+' of '+names.length+' settings finished: '+(b.txt||'none yet')+'.';};
+
 /* horizontal-scroll cue for charts and tables that overflow their card (phones) */
 function hints(){document.querySelectorAll('.scroll,.tbl').forEach(function(h){const over=h.scrollWidth>h.clientWidth+4;let n=h.nextElementSibling;const has=n&&n.classList&&n.classList.contains('hint');
   if(over&&!has){const d=document.createElement('p');d.className='hint';d.textContent='scroll sideways for the full '+(h.classList.contains('tbl')?'table':'chart')+' →';h.parentNode.insertBefore(d,h.nextSibling);}else if(!over&&has)n.remove();});}

@@ -8,6 +8,11 @@ Sources (all read-only, under SENSOR_DIR = RESULTS_ROOT/sensor unless stated):
   toy_guidance.json                the ΠGDM toy test (falls back to this checkout's results/ copy)
   config.json                      P_y, training sha, family, demosaic error table
   verdict__*.json                  the sd_verdict output (--verdict; default: the final e123 verdict when present)
+  Phase 3b (block 'phase3b', report-only): eval/<stem>_Bp.json (B and B⁺ on the 50 test cubes), eval/g_<scenario>_
+                                   {main,interp,B,C}.json (scripts/sensor/scenarios_3b.py; B / C records may be missing),
+                                   verdict__e123_bplus__report.json, b_kernel.npz (meta), and the committed
+                                   docs/analysis/phase3_page/phase3b_probe.json (denoiser-floor numbers typed from the
+                                   Phase 3b results note)
   RESULTS_ROOT/runs/<run>/{train_log.jsonl,args.json}            the Phase B trainings and the three prior pilots
 plus the device-1 response R (data_loader.sensor_model.load_sensor) and the B-prior x̂₀-error probe curves, which live in
 no JSON and are embedded below (B_PRIOR_PROBE). Paired differences that involve B are computed here on the files common
@@ -336,8 +341,10 @@ def eval_hours():
     tot = {'main': 0.0, 'C': 0.0, 'B': 0.0, 'B_stale': 0.0, 'B_vpred': 0.0}
     nb = 0
     for p in glob.glob(os.path.join(EVAL, '*.json')):
-        r = load(p)
         kind = p[:-5].rsplit('_', 1)[1]
+        if os.path.basename(p).startswith('g_') or kind == 'Bp':     # Phase 3b records: counted in phase3b.hours
+            continue
+        r = load(p)
         if kind == 'B' and b_pred_type(r) != 'x0':
             kind = 'B_stale'
         tot[kind] = tot.get(kind, 0.0) + r['provenance'].get('seconds', 0) / 3600
@@ -482,6 +489,238 @@ def facts_block(S, stage0, verdict, sensor, runs=()):
     return f
 
 
+# ---------------------------------------------------------------------------------------------------------------------
+# Phase 3b (spec docs/superpowers/specs/2026-11-16-b-plus-and-zero-shot-generality-design.md): B⁺ on the 13 B settings
+# (records <stem>_Bp, methods B and Bp on the 50 test cubes) and the 24 zero-shot scenarios (records g_<name>_{main,
+# interp,B,C}). Every block is report-only. Means are stored normalised: 'rmse' (rmse_pct for the one-call point
+# estimates D, D_naive, C1; mean_rmse_pct otherwise), 'single' (single_rmse_pct), crps, cov50, cov90, spread_ratio, ause.
+BPLUS_VERDICT = 'verdict__e123_bplus__report.json'
+PROBE_JSON = os.path.join(HERE, 'phase3b_probe.json')
+CANON_SUBSET = 'e1_dev1_seq_30_Bp'            # any Part A record: the fixed 50-cube subset every B / Bp record uses
+POINT_ONLY = ('D', 'D_naive', 'C1')
+NORM_KEYS = (('single_rmse_pct', 'single'), ('crps', 'crps'), ('cov50', 'cov50'), ('cov90', 'cov90'),
+             ('spread_ratio', 'spread_ratio'), ('ause', 'ause'))
+SCEN_MAIN = ('L', 'L_naive', 'L_interp', 'D', 'D_naive', 'V')
+PIXEL_CLASSICAL = ('L_interp', 'L_interp_plain')
+REF_KEYS = ('device1_sequential_60', 'device1_sequential_40', 'device1_sequential_30', 'device1_sequential_20',
+            'device2_sequential_30')
+
+
+def rmse_key(m):
+    return 'rmse_pct' if m in POINT_ONLY else 'mean_rmse_pct'
+
+
+def norm_means(mm, m):
+    """One method's means (raw sd_eval keys) -> the normalised dict."""
+    out = {'rmse': rd(mm.get(rmse_key(m)))}
+    for k, n in NORM_KEYS:
+        if k in mm:
+            out[n] = rd(mm[k])
+    return out
+
+
+def sub_means(rec, methods, files):
+    """The methods' per-cube metrics of `rec` re-averaged on the files of `files` that rec holds (normalised); {} when
+    rec is None or fewer than 2 files are common."""
+    if rec is None:
+        return {}
+    pos = {f: i for i, f in enumerate(rec['files'])}
+    idx = [pos[f] for f in files if f in pos]
+    if len(idx) < 2:
+        return {}
+    out = {}
+    for m in methods:
+        pc = rec['per_cube'].get(m)
+        if pc:
+            out[m] = norm_means({k: float(np.mean([v[i] for i in idx])) for k, v in pc.items()}, m)
+            out[m]['n'] = len(idx)
+    return out
+
+
+def best_of(cands):
+    """{name: mean or None} -> the name with the lowest mean (None when there is none)."""
+    live = {k: v for k, v in cands.items() if v is not None}
+    return min(live, key=live.get) if live else None
+
+
+def load_opt(p):
+    return load(p) if os.path.exists(p) else None
+
+
+def rec_hours(rec):
+    return rd(rec['provenance'].get('seconds', 0) / 3600, 4) if rec else None
+
+
+def bplus_setting(bprec, main, crec, mode):
+    """B and B⁺ on one Part A record, the other methods on its 50 cubes, and B⁺'s paired differences."""
+    files = bprec['files']
+    lref = 'L_demosaic' if mode == 'snapshot' else 'L'
+    blk = dict(status='final', n=bprec['n'], K=bprec.get('K'), created=created_of(bprec), hours=rec_hours(bprec),
+               means={m: norm_means(bprec['means'][m], m) for m in ('B', 'Bp') if m in bprec['means']}, L_ref=lref)
+    sub = sub_means(main, ('L', 'L_demosaic', 'D', 'V'), files)
+    sub.update(sub_means(crec, ('C', 'C1'), files))
+    blk['sub'] = sub
+    pr = {}
+    for key, rec, m, ka, kb in (('rmse_vs_D', main, 'D', 'mean_rmse_pct', 'rmse_pct'),
+                                ('rmse_vs_L', main, lref, 'mean_rmse_pct', 'mean_rmse_pct'),
+                                ('crps_vs_L', main, lref, 'crps', 'crps'), ('crps_vs_V', main, 'V', 'crps', 'crps'),
+                                ('rmse_vs_B', bprec, 'B', 'mean_rmse_pct', 'mean_rmse_pct'),
+                                ('crps_vs_B', bprec, 'B', 'crps', 'crps')):
+        pr[key] = paired_if(bprec, rec, m, ka, kb)
+    blk['paired'] = pr
+    return blk
+
+
+def paired_if(bprec, rec, m, ka, kb):
+    """Bp − m (paired on the common files) when rec holds m with metric kb, else None."""
+    if rec is None or kb not in (rec['per_cube'].get(m) or {}) or ka not in (bprec['per_cube'].get('Bp') or {}):
+        return None
+    return paired(bprec, 'Bp', rec, m, ka, kb)
+
+
+def integrity(pairs):
+    """[(new B means normalised, old B means raw)] -> max |new − old| for RMSE, CRPS and cov90 (None if no pair)."""
+    out = {}
+    for new_k, old_k in (('rmse', 'mean_rmse_pct'), ('crps', 'crps'), ('cov90', 'cov90')):
+        d = [abs(n[new_k] - o[old_k]) for n, o in pairs if n.get(new_k) is not None and o.get(old_k) is not None]
+        out[new_k] = rd(max(d), 4) if d else None
+    out['n'] = len(pairs)
+    return out
+
+
+def bplus_block(S):
+    """phase3b.bplus: the 13 Part A settings, B⁺'s clauses (report-only verdict), the kernel, the integrity check and
+    the typed denoiser-floor probe."""
+    settings, pending, ipairs = {}, [], []
+    for exp, dev, mode, snrs, stem in EXPERIMENTS:
+        if dev in B_DROPPED:
+            continue
+        for snr in snrs:
+            key = f'{dev}_{mode}_{snr}'
+            base = os.path.join(EVAL, stem.format(snr=snr))
+            bprec = load_opt(base + '_Bp.json')
+            if bprec is None:
+                settings[key] = dict(status='pending', exp=exp, device=dev, mode=mode, snr=snr)
+                pending.append(stem.format(snr=snr) + '_Bp')
+                continue
+            blk = bplus_setting(bprec, load_opt(base + '_main.json'), load_opt(base + '_C.json'), mode)
+            blk.update(exp=exp, device=dev, mode=mode, snr=snr)
+            settings[key] = blk
+            old = (S.get(key) or {}).get('B') or {}
+            if old.get('status') == 'final' and 'B' in blk['means']:
+                ipairs.append((blk['means']['B'], old['means']))
+    vp = os.path.join(SENSOR_DIR, BPLUS_VERDICT)
+    verdict = None
+    if os.path.exists(vp):
+        v = load(vp)
+        verdict = {k: {'B': v[k]['B']} for k in ('T1', 'T2', 'T3', 'T4') if k in v and 'B' in v[k]}
+        verdict.update(file=BPLUS_VERDICT, counts=v.get('counts'), created=v.get('created'), rename=v.get('rename'),
+                       report_only=v.get('report_only'), thresholds=v.get('thresholds'))
+    kernel = None
+    kp = os.path.join(SENSOR_DIR, 'b_kernel.npz')
+    if os.path.exists(kp):
+        meta = np.load(kp, allow_pickle=True)['meta'].item()
+        kernel = dict(n_cubes=int(meta['n_cubes']), setting=meta['setting'], K=int(meta['K']),
+                      kernel_rms_pct=rd(meta['kernel_rms_pct'], 4), mean_rmse_pct=rd(meta['mean_rmse_pct'], 4),
+                      sha256=str(meta['sha256'])[:12], steps=meta.get('pigdm_steps'))
+    probe = load(PROBE_JSON) if os.path.exists(PROBE_JSON) else None
+    return dict(settings=settings, pending=pending, verdict=verdict, kernel=kernel, integrity=integrity(ipairs),
+                probe=probe)
+
+
+def scenario_block(name, cfg, group, canon_files):
+    """One Part B scenario: 200-cube means, the same methods on the 50-cube subset (the B record's files, else the
+    fixed subset), B / B⁺ and C / C1 (50 cubes, K = 20), and B⁺'s paired differences."""
+    base = os.path.join(EVAL, 'g_' + name)
+    main, interp = load_opt(base + '_main.json'), load_opt(base + '_interp.json')
+    brec, crec = load_opt(base + '_B.json'), load_opt(base + '_C.json')
+    s = dict(group=group, snr_db=cfg['snr_db'], scenario=cfg['scenario'], status='final' if brec else 'pending',
+             c_status='final' if crec else 'pending', main_status='final' if main else 'pending', main={}, sub={})
+    for rec in (main, interp):
+        if rec is not None:
+            s['main'].update({m: norm_means(mm, m) for m, mm in rec['means'].items()})
+            s['n_main'] = rec['n']
+    files = brec['files'] if brec else canon_files
+    s['sub_files'] = 'B' if brec else 'subset'
+    if files:
+        s['sub'] = sub_means(main, SCEN_MAIN, files)
+        s['sub'].update(sub_means(interp, ('L_interp_plain',), files))
+    if main is not None and main['setting'].get('state_indices') is not None:
+        s['state_indices'] = main['setting']['state_indices']
+    if brec:
+        s.update(n=brec['n'], K=brec.get('K'), hours=rec_hours(brec), created=created_of(brec))
+        for m in ('B', 'Bp'):
+            if m in brec['means']:
+                s[m] = norm_means(brec['means'][m], m)
+    if crec:
+        s['c_n'], s['c_K'], s['c_hours'] = crec['n'], crec.get('K'), rec_hours(crec)
+        for m in ('C', 'C1'):
+            if m in crec['means']:
+                s[m] = norm_means(crec['means'][m], m)
+    # the better of the two classical interpolation baselines (pixel scenarios), on the common cubes
+    cls = {}
+    for m, rec in (('L_interp', main), ('L_interp_plain', interp)):
+        if rec is not None and m in rec['per_cube']:
+            cls[m] = (s['sub'].get(m) or {}).get('rmse')
+    s['best_classical'] = best_of(cls)
+    pr = {}
+    if brec:
+        bc = s['best_classical']
+        for key, rec, m, ka, kb in (('rmse_vs_D', main, 'D', 'mean_rmse_pct', 'rmse_pct'),
+                                    ('rmse_vs_L', main, 'L', 'mean_rmse_pct', 'mean_rmse_pct'),
+                                    ('crps_vs_L', main, 'L', 'crps', 'crps'),
+                                    ('rmse_vs_best_classical', main if bc == 'L_interp' else interp, bc,
+                                     'mean_rmse_pct', 'mean_rmse_pct'),
+                                    ('rmse_vs_B', brec, 'B', 'mean_rmse_pct', 'mean_rmse_pct')):
+            if m is not None:
+                pr[key] = paired_if(brec, rec, m, ka, kb)
+    s['paired'] = {k: v for k, v in pr.items() if v is not None}
+    return s
+
+
+def scenarios_block(bplus):
+    from scripts.sensor.scenarios_3b import GROUPS, SCENARIOS
+    canon = load_opt(os.path.join(EVAL, CANON_SUBSET + '.json'))
+    canon_files = canon['files'] if canon else None
+    out, final, pending = {}, [], []
+    for g, names in GROUPS.items():
+        for n in names:
+            out[n] = scenario_block(n, SCENARIOS[n], g, canon_files)
+            for kind in ('main', 'interp', 'B', 'C'):
+                if kind == 'interp' and SCENARIOS[n]['scenario']['pixels'] is None:
+                    continue
+                (final if os.path.exists(os.path.join(EVAL, f'g_{n}_{kind}.json')) else pending).append(f'g_{n}_{kind}')
+    refs = {}
+    for k in REF_KEYS:
+        b = bplus['settings'].get(k) or {}
+        if b.get('status') != 'final':
+            refs[k] = dict(status='pending')
+            continue
+        refs[k] = dict(status='final', snr=b['snr'], device=b['device'], **{m: b['sub'][m] for m in ('L', 'D', 'V', 'C', 'C1')
+                                                                          if m in b['sub']}, **b['means'])
+    return out, refs, final, pending
+
+
+def phase3b_block(S):
+    bplus = bplus_block(S)
+    scen, refs, final, pending = scenarios_block(bplus)
+    groups = {}
+    for n, s in scen.items():
+        groups.setdefault(s['group'], []).append(n)
+    hours = {'Bp': 0.0, 'main': 0.0, 'interp': 0.0, 'B': 0.0, 'C': 0.0}
+    for p in glob.glob(os.path.join(EVAL, '*.json')):
+        b = os.path.basename(p)[:-5]
+        kind = b.rsplit('_', 1)[1]
+        if kind == 'Bp' or (b.startswith('g_') and kind in hours):
+            hours[kind] += load(p)['provenance'].get('seconds', 0) / 3600
+    nB = sum(s['status'] == 'final' for s in scen.values())
+    nC = sum(s['c_status'] == 'final' for s in scen.values())
+    return dict(bplus=bplus, scenarios=scen, refs=refs, groups=groups,
+                status=dict(final=sorted(final), pending=sorted(pending), bplus_pending=bplus['pending'],
+                            n_scen=len(scen), n_B=nB, n_C=nC),
+                hours={k: rd(v, 4) for k, v in hours.items()})
+
+
 def data_as_of(verdict):
     """The newest 'created' stamp among the records and the verdict (not the wall clock, so a rebuild on unchanged data
     writes identical bytes)."""
@@ -524,12 +763,16 @@ def main():
                     b_hours_projected=rd(np.mean(b_hours) * len(b_expected), 4) if b_hours else None),
     )
     page['facts'] = facts_block(S, stage0, verdict, sensor, runs)
+    page['phase3b'] = phase3b_block(S)
     s = json.dumps(page, separators=(',', ':'), ensure_ascii=False, sort_keys=True)
     with open(OUT, 'w') as fh:
         fh.write(s)
     print(f'wrote {OUT} ({len(s)} bytes); verdict {verdict["file"]} (B clauses current: {verdict["b_valid"]}'
           + (f'; {verdict["b_invalid_reason"]}' if not verdict['b_valid'] else '') + ')')
     print(f'B records: {len(b_have)} of {len(b_expected)} present')
+    p3 = page['phase3b']['status']
+    print(f"Phase 3b: B+ records {13 - len(p3['bplus_pending'])} of 13; scenario B records {p3['n_B']} of {p3['n_scen']}, "
+          f"C records {p3['n_C']} of {p3['n_scen']}; pending {len(p3['pending'])} scenario records")
     if page['status']['pending']:
         print('PENDING records: ' + ', '.join(page['status']['pending']))
     else:
