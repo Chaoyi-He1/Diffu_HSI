@@ -54,7 +54,9 @@ from scripts.sensor.scenarios_3b import SCENARIOS  # noqa: E402
 from scripts.uq.metrics import min_k_for  # noqa: E402
 from scripts.uq_eval import gaussian_metrics, point_metrics, sample_metrics  # noqa: E402
 
-METHODS = ('L', 'L_demosaic', 'L_naive', 'L_interp', 'D', 'D_naive', 'V', 'C', 'C1', 'B', 'Bp')
+METHODS = ('L', 'L_demosaic', 'L_naive', 'L_interp', 'L_interp_plain', 'D', 'D_naive', 'V', 'C', 'C1', 'B', 'Bp')
+INTERP_METHODS = ('L_interp', 'L_interp_plain')  # L_interp_plain: the same interpolation with sigma^2 on every pixel (e2 = 0),
+#                                                  i.e. the per-pixel MMSE estimate interpolated over the image; opt-in only
 EVAL_DIR = os.path.join(SENSOR_DIR, 'eval')
 CKPT_FLAG = {'D': 'regress', 'D_naive': 'regress', 'V': 'varhead', 'C': 'cond', 'C1': 'cond', 'B': 'uncond', 'Bp': 'uncond'}
 SHARED_MODEL = ('C1', 'Bp', 'D_naive')          # methods that reuse another method's model (C, B, D)
@@ -136,11 +138,12 @@ def _resolve(args, snapshot, naive, pixels, gaussian):
         for m in NAIVE_METHODS:
             if m in args.methods and not naive:
                 raise ValueError(f'{m} needs a --scenario with non-Gaussian noise (poisson / saturation / quantisation)')
-        if 'L_interp' in args.methods and not pixels:
-            raise ValueError('L_interp needs a --scenario with a pixel pattern (dead / stride)')
-        if 'L_interp' in args.methods and not gaussian:
-            raise ValueError('L_interp needs Gaussian noise: it interpolates y as white-Gaussian readings, and the aware y '
-                             'of a non-Gaussian scenario has dropped or re-weighted elements')
+        for m in INTERP_METHODS:
+            if m in args.methods and not pixels:
+                raise ValueError(f'{m} needs a --scenario with a pixel pattern (dead / stride)')
+            if m in args.methods and not gaussian:
+                raise ValueError(f'{m} needs Gaussian noise: it interpolates y as white-Gaussian readings, and the aware y '
+                                 'of a non-Gaussian scenario has dropped or re-weighted elements')
         return [m for m in METHODS if m in args.methods]
     return [m for m in METHODS if m == 'L' or (m == 'L_demosaic' and snapshot)
             or (m == 'L_naive' and naive) or (m == 'L_interp' and pixels and gaussian)
@@ -305,6 +308,9 @@ def run_eval(models, ds, loader, args, cfg, provenance, device):
         if 'L_interp' in methods:
             xi, si = _interp_baseline(batch, ds, sigma, e2_interp)
             _extend(acc, 'L_interp', gaussian_metrics(xi.to(device), si.to(device), x))
+        if 'L_interp_plain' in methods:
+            xi, si = _interp_baseline(batch, ds, sigma, np.zeros(ds.R.shape[1]))
+            _extend(acc, 'L_interp_plain', gaussian_metrics(xi.to(device), si.to(device), x))
         if 'D' in methods:
             _extend(acc, 'D', point_metrics(compose(x0_hat, s_post, regress_forward(models['D'], cond)), x))
         if 'D_naive' in methods:

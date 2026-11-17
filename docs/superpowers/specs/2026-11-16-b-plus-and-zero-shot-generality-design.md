@@ -127,6 +127,18 @@ versions; B⁺ beats D with aware statistics under saturation (the statistics le
 - The implementer's smoke run suggests shot noise at these photon levels barely separates aware from naive; the
   prediction of B.4 stands as written and is reported whatever it gives.
 
+### Ruling 2026-11-17, before any B.3 record of B / B⁺ exists: a second classical baseline, L_interp_plain
+
+A check on 8 cubes showed L_interp (σ² + e2 on unmeasured pixels) is a weak baseline at high SNR: stride 4 at 60 dB
+5.83 % against 2.29 % for the same interpolation with σ² on every pixel, stride 8 7.40 against 4.49 %, and 5.7–6.4
+against 5.7–5.9 % at 30 dB. On a pixel pattern the interpolation error is common to all channels (it is Rᵀ applied to
+an interpolated cube), not white per channel, so a diagonal e2 over-regularises; with σ² alone the estimate is the
+per-pixel MMSE estimate interpolated over the image. **Both baselines are reported and B⁺ is compared with the better
+of the two per setting** (records `g_<scenario>_interp`, method `L_interp_plain`, 200 gate cubes). The same check on
+Phase 3's demosaic-then-MMSE baseline (16 calibration cubes, e2 scaled by 0 … 10) finds the e2 table at its optimum at
+60 / 30 / 20 dB (6.16 / 6.44 / 7.45 % at scale 1; 20.1 / 7.27 / 7.52 % at scale 0), so T4's reference stands: in a
+mosaic every channel is interpolated from different pixels and the errors are not common-mode.
+
 ### Budget
 
 A.4: 13 × 1.7 = 22 GPU-h. B: 24 settings × ≈ 1.05 GPU-h = 25 GPU-h, plus minutes for L / D / V / C. Two RTX A4500;

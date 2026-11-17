@@ -405,6 +405,25 @@ def test_pixel_scenario_record_carries_L_interp_and_e2(small_R, synthetic_prior,
     json.dumps(rec)
 
 
+def test_L_interp_plain_is_opt_in_and_interpolates_with_sigma2_only(small_R, synthetic_prior):
+    # the per-pixel MMSE estimate interpolated over the image (e2 = 0): the stronger classical baseline when the
+    # interpolation error lies in the range of R (a stride or dead-pixel pattern), reported next to L_interp
+    ds = StubScenarioDS(small_R, synthetic_prior, 'stride_4_30')
+    assert 'L_interp_plain' not in SE.resolve_methods(fake_args(scenario='stride_4_30'))        # never a default
+    args = fake_args(scenario='stride_4_30', scenario_consts=None, methods=['L_interp_plain'])
+    rec = run(ds, args, {})
+    assert list(rec['per_cube']) == ['L_interp_plain'] and rec['setting']['e2_interp'] is None
+    it = ds[0]
+    xh, sd = SCN.interp_then_mmse(it['y'], it['measured'][..., 0] > 0.5, ds.R, ds.prior, float(it['sigma']), ds.A, np.zeros(30))
+    ref = SE.gaussian_metrics(torch.from_numpy(xh.transpose(2, 0, 1))[None], torch.from_numpy(sd.transpose(2, 0, 1))[None],
+                              torch.from_numpy(it['x'].transpose(2, 0, 1))[None])
+    assert np.isclose(rec['per_cube']['L_interp_plain']['mean_rmse_pct'][0], ref['mean_rmse_pct'][0], rtol=1e-5)
+    with pytest.raises(ValueError, match='L_interp_plain'):
+        SE.resolve_methods(fake_args(methods=['L_interp_plain'], scenario='poisson_30'))         # no pixel pattern
+    with pytest.raises(ValueError, match='L_interp_plain'):
+        SE.resolve_methods(fake_args(methods=['L_interp_plain']))                                # no scenario
+
+
 @pytest.mark.filterwarnings('ignore:coverage_samples:UserWarning')
 def test_poisson_scenario_carries_the_naive_methods_and_aware_guidance(small_R, synthetic_prior, tmp_path, monkeypatch):
     cpath = tmp_path / 'scenario_consts.json'
