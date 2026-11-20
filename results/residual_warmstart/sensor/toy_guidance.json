@@ -1,0 +1,242 @@
+{
+  "results": [
+    {
+      "rmse_excess": 0.0025789584707163193,
+      "var_ratio": 0.9259442598800214,
+      "cov50": 0.49005126953125,
+      "cov90": 0.88836669921875,
+      "crps_ratio": 1.0008615763022373,
+      "nfe": 50,
+      "C_kind": "isotropic",
+      "method": "pigdm",
+      "mode": "sequential",
+      "n_steps": 50,
+      "seconds": 27.115507125854492
+    },
+    {
+      "rmse_excess": 0.002663402697387296,
+      "var_ratio": 0.961534088906041,
+      "cov50": 0.4979248046875,
+      "cov90": 0.89520263671875,
+      "crps_ratio": 1.0006541090041334,
+      "nfe": 100,
+      "C_kind": "isotropic",
+      "method": "pigdm",
+      "mode": "sequential",
+      "n_steps": 100,
+      "seconds": 50.687745332717896
+    },
+    {
+      "rmse_excess": 0.00253912355371555,
+      "var_ratio": 0.9274200638951707,
+      "cov50": 0.48614501953125,
+      "cov90": 0.88848876953125,
+      "crps_ratio": 1.000823344272993,
+      "nfe": 50,
+      "C_kind": "isotropic",
+      "method": "pigdm",
+      "mode": "snapshot",
+      "n_steps": 50,
+      "seconds": 24.59977102279663
+    },
+    {
+      "rmse_excess": 0.0026220625733426317,
+      "var_ratio": 0.9625124751315597,
+      "cov50": 0.4945068359375,
+      "cov90": 0.89532470703125,
+      "crps_ratio": 1.000598504615065,
+      "nfe": 100,
+      "C_kind": "isotropic",
+      "method": "pigdm",
+      "mode": "snapshot",
+      "n_steps": 100,
+      "seconds": 45.50826978683472
+    },
+    {
+      "rmse_excess": 0.028673289617835218,
+      "var_ratio": 0.9750298646995412,
+      "cov50": 0.48797607421875,
+      "cov90": 0.88861083984375,
+      "crps_ratio": 1.0269489213163783,
+      "nfe": 50,
+      "C_kind": "isotropic",
+      "method": "dps",
+      "mode": "sequential",
+      "n_steps": 50,
+      "seconds": 24.630821704864502
+    },
+    {
+      "rmse_excess": 0.017448618571798802,
+      "var_ratio": 0.9878506593836135,
+      "cov50": 0.497314453125,
+      "cov90": 0.8941650390625,
+      "crps_ratio": 1.0153881531407059,
+      "nfe": 100,
+      "C_kind": "isotropic",
+      "method": "dps",
+      "mode": "sequential",
+      "n_steps": 100,
+      "seconds": 46.82058596611023
+    },
+    {
+      "rmse_excess": 0.0025911546516497186,
+      "var_ratio": 0.9267370787017911,
+      "cov50": 0.485107421875,
+      "cov90": 0.888427734375,
+      "crps_ratio": 1.0008943509439931,
+      "nfe": 50,
+      "C_kind": "isotropic",
+      "method": "dps",
+      "mode": "snapshot",
+      "n_steps": 50,
+      "seconds": 23.149113655090332
+    },
+    {
+      "rmse_excess": 0.002688007129782344,
+      "var_ratio": 0.9617770820934443,
+      "cov50": 0.4931640625,
+      "cov90": 0.89495849609375,
+      "crps_ratio": 1.0006532420158314,
+      "nfe": 100,
+      "C_kind": "isotropic",
+      "method": "dps",
+      "mode": "snapshot",
+      "n_steps": 100,
+      "seconds": 47.172810077667236
+    },
+    {
+      "rmse_excess": 0.043056094852116145,
+      "var_ratio": 0.8208674128924719,
+      "cov50": 0.44635009765625,
+      "cov90": 0.84307861328125,
+      "crps_ratio": 1.047417069999946,
+      "nfe": 50,
+      "C_kind": "hfd",
+      "method": "pigdm",
+      "mode": "sequential",
+      "n_steps": 50,
+      "seconds": 26.163192987442017
+    },
+    {
+      "rmse_excess": 0.04518579933356004,
+      "var_ratio": 0.9154625504474498,
+      "cov50": 0.4698486328125,
+      "cov90": 0.86602783203125,
+      "crps_ratio": 1.0465717887048331,
+      "nfe": 100,
+      "C_kind": "hfd",
+      "method": "pigdm",
+      "mode": "sequential",
+      "n_steps": 100,
+      "seconds": 49.232436180114746
+    },
+    {
+      "rmse_excess": 0.007322649671303694,
+      "var_ratio": 0.9240847024334568,
+      "cov50": 0.4996337890625,
+      "cov90": 0.88372802734375,
+      "crps_ratio": 1.0056037901867825,
+      "nfe": 50,
+      "C_kind": "hfd",
+      "method": "pigdm",
+      "mode": "snapshot",
+      "n_steps": 50,
+      "seconds": 23.571074724197388
+    },
+    {
+      "rmse_excess": 0.007502874050442365,
+      "var_ratio": 0.9607634407587565,
+      "cov50": 0.50653076171875,
+      "cov90": 0.89013671875,
+      "crps_ratio": 1.005678348784159,
+      "nfe": 100,
+      "C_kind": "hfd",
+      "method": "pigdm",
+      "mode": "snapshot",
+      "n_steps": 100,
+      "seconds": 44.798508405685425
+    },
+    {
+      "rmse_excess": 0.3292308118632288,
+      "var_ratio": 1.654407530611563,
+      "cov50": 0.49261474609375,
+      "cov90": 0.88507080078125,
+      "crps_ratio": 1.3263665521350445,
+      "nfe": 50,
+      "C_kind": "hfd",
+      "method": "dps",
+      "mode": "sequential",
+      "n_steps": 50,
+      "seconds": 24.20009207725525
+    },
+    {
+      "rmse_excess": 0.12824985461128557,
+      "var_ratio": 1.1917723918042473,
+      "cov50": 0.48223876953125,
+      "cov90": 0.88330078125,
+      "crps_ratio": 1.128358082452446,
+      "nfe": 100,
+      "C_kind": "hfd",
+      "method": "dps",
+      "mode": "sequential",
+      "n_steps": 100,
+      "seconds": 43.899943828582764
+    },
+    {
+      "rmse_excess": 0.009442533147667076,
+      "var_ratio": 0.9136428870801349,
+      "cov50": 0.496337890625,
+      "cov90": 0.88140869140625,
+      "crps_ratio": 1.0069457126584986,
+      "nfe": 50,
+      "C_kind": "hfd",
+      "method": "dps",
+      "mode": "snapshot",
+      "n_steps": 50,
+      "seconds": 24.759840726852417
+    },
+    {
+      "rmse_excess": 0.008339191997302153,
+      "var_ratio": 0.9246348360382787,
+      "cov50": 0.4959716796875,
+      "cov90": 0.88330078125,
+      "crps_ratio": 1.0082005037657122,
+      "nfe": 100,
+      "C_kind": "hfd",
+      "method": "dps",
+      "mode": "snapshot",
+      "n_steps": 100,
+      "seconds": 46.87713646888733
+    }
+  ],
+  "verdict": "steps_for_B = 50",
+  "steps_for_B": 50,
+  "gate": {
+    "rmse_excess": 0.02,
+    "var_tol": 0.1,
+    "cov90": [
+      0.85,
+      0.95
+    ],
+    "cov50": [
+      0.45,
+      0.55
+    ]
+  },
+  "args": {
+    "out": "results/residual_warmstart/sensor/toy_guidance.json",
+    "steps": [
+      50,
+      100
+    ],
+    "K": 250,
+    "B": 4,
+    "hw": 8,
+    "device": "cuda:0",
+    "prior": "/data/chaoyi_he/HSI/Diffu/results/residual_warmstart/linear_prior_R1.npz",
+    "data_root": "/data/chaoyi_he/HSI/Diffu/dataset/HFD100 Mat dataset",
+    "snr_db": 30.0,
+    "seed": 0
+  },
+  "sensor_sha256": "405b355bfdebc827fefe072b1aacc8fd116892605ff279e116eb002033956df5"
+}

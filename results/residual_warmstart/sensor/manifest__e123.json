@@ -1,0 +1,77 @@
+{
+ "name": "e123",
+ "records": {
+  "device1/sequential/20": [
+   "e1_dev1_seq_20_B",
+   "e1_dev1_seq_20_C",
+   "e1_dev1_seq_20_main"
+  ],
+  "device1/sequential/30": [
+   "e1_dev1_seq_30_B",
+   "e1_dev1_seq_30_C",
+   "e1_dev1_seq_30_main"
+  ],
+  "device1/sequential/40": [
+   "e1_dev1_seq_40_B",
+   "e1_dev1_seq_40_C",
+   "e1_dev1_seq_40_main"
+  ],
+  "device1/sequential/50": [
+   "e1_dev1_seq_50_B",
+   "e1_dev1_seq_50_C",
+   "e1_dev1_seq_50_main"
+  ],
+  "device1/sequential/60": [
+   "e1_dev1_seq_60_B",
+   "e1_dev1_seq_60_C",
+   "e1_dev1_seq_60_main"
+  ],
+  "device1/snapshot/20": [
+   "e3_device1_snapshot_20_B",
+   "e3_device1_snapshot_20_C",
+   "e3_device1_snapshot_20_main"
+  ],
+  "device1/snapshot/30": [
+   "e3_device1_snapshot_30_B",
+   "e3_device1_snapshot_30_C",
+   "e3_device1_snapshot_30_main"
+  ],
+  "device1/snapshot/40": [
+   "e3_device1_snapshot_40_B",
+   "e3_device1_snapshot_40_C",
+   "e3_device1_snapshot_40_main"
+  ],
+  "device1/snapshot/60": [
+   "e3_device1_snapshot_60_B",
+   "e3_device1_snapshot_60_C",
+   "e3_device1_snapshot_60_main"
+  ],
+  "device2/sequential/20": [
+   "e2_device2_sequential_20_B",
+   "e2_device2_sequential_20_C",
+   "e2_device2_sequential_20_main"
+  ],
+  "device2/sequential/30": [
+   "e2_device2_sequential_30_B",
+   "e2_device2_sequential_30_C",
+   "e2_device2_sequential_30_main"
+  ],
+  "device2/sequential/40": [
+   "e2_device2_sequential_40_B",
+   "e2_device2_sequential_40_C",
+   "e2_device2_sequential_40_main"
+  ],
+  "ph5/sequential/20": [
+   "e2_ph5_sequential_20_C",
+   "e2_ph5_sequential_20_main"
+  ],
+  "ph5/sequential/30": [
+   "e2_ph5_sequential_30_C",
+   "e2_ph5_sequential_30_main"
+  ],
+  "ph5/sequential/40": [
+   "e2_ph5_sequential_40_C",
+   "e2_ph5_sequential_40_main"
+  ]
+ }
+}
