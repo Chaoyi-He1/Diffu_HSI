@@ -20,7 +20,7 @@ the grid to t = 0 (55 steps) makes it worse on the same cubes at 30 dB: mean RMS
 the 50 test cubes, one per image), Device 1 sequential 20 dB, K = 8, ΠGDM 50 steps; B's mean RMSE on them 2.894 %, the
 kernel's RMS 2.962 % of the range. One kernel for all settings, τ = 1.
 
-### Test cubes: all 13 settings (records `*_Bp.json`, K = 32, B and B⁺ scored on the same draws; draws in `sensor/draws/`)
+### Test cubes: all 13 settings (records `*_Bp.json`, K = 32, B and B⁺ scored on the same draws; the raw draws, 22 GB in `sensor/draws/`, were deleted on 2026-11-20 on the user's instruction — the records keep every per-cube metric)
 
 | setting | B: RMSE / CRPS / cov50 / cov90 | B⁺: RMSE / single / CRPS / cov50 / cov90 | D | L | V CRPS | C RMSE / CRPS | B⁺ − D ± SE (ratio) | B⁺ − B ± SE |
 |---|---|---|---|---|---|---|---|---|
